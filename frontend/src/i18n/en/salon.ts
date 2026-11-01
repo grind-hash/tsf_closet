@@ -47,6 +47,11 @@ export const salon = {
     reputation: "Reputation",
     weeklyBalance: "Every week",
     weeklyBalanceValue: "Day job +{{salary}} / Fixed costs −{{fixed}}",
+    sensitive: "Explicit treatments (adult)",
+    sensitiveHint:
+      "Customers arrive with adult wishes, and the reveal shows one picture of them living that wish. Takes effect from the next customer you serve.",
+    sensitiveNsfwOff: "No effect while NSFW mode is off.",
+    sensitiveOpenSettings: "Open settings",
     bookings: "This week's bookings",
     bookingsHint:
       "Each 25 reputation adds one booking next week (up to 4). Customers whose wish came true come back next week in the look you styled. Each visit allows 3 styling turns and 2 questions.",
@@ -148,6 +153,13 @@ export const salon = {
       "Make the customer's image background transparent and place them in the salon",
     revealBefore: "On arrival",
     revealAfter: "After styling",
+    experience: "Living the wish",
+    experienceGenerating: "Drawing them living their wish…",
+    experienceFailed:
+      "Could not draw the experience. Try again, or check out as is.",
+    experienceRetry: "Draw the experience again",
+    sensitiveFallback:
+      "An adult request could not be written for this customer, so this visit uses an all-ages request.",
     revealHint:
       "Show the result to the customer. Checking out decides the satisfaction and the payment.",
     checkout: "Check out",
@@ -162,8 +174,6 @@ export const salon = {
     keptLook: "They will stay in this look and come back next week wearing it",
     revertedLook: "They went home back in their original look",
     review: "Review",
-    hide: "Hide the message window",
-    show: "Show the message window",
     log: "Log",
     logTitle: "Visit log",
     logEmpty: "Nothing recorded yet",

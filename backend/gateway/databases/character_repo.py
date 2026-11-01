@@ -266,6 +266,7 @@ async def update_character_preset(
         "avatar_model_id",
         "voice_json",
         "portrait_path",
+        "salon_enabled",
     }
     for key, value in patch.items():
         if key not in allowed or value is None:

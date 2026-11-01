@@ -404,3 +404,16 @@ def test_pre_transform_action_gender_woman() -> None:
         transformation_count=0,
     )
     assert "女性" in user
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW,
+        ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW,
+        ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW,
+    ],
+)
+def test_nsfw_action_image_prompts_keep_everyone_adult(prompt: str) -> None:
+    # サロンの過激施術の体験の場面もこの経路で描く
+    assert "Everyone depicted is an adult (18 or older)" in prompt

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { SalonVisit } from "../../apis/salon";
@@ -13,13 +13,18 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { usePlayTurn } from "../../hooks/usePlayTurn";
-import { useTransformRequest } from "../../hooks/useTransformRequest";
+import {
+  type TransformHandler,
+  useTransformRequest,
+} from "../../hooks/useTransformRequest";
 import { getSalonRunPath } from "../../routes";
 import { splitHintMarkers, stripHintMarkers } from "../../utils/hintMarkers";
 import {
   formatSignedNumber,
   formatYen,
   initialSalonAct,
+  isExperienceTurn,
+  lastStyledHistory,
   type SalonAct,
 } from "../../utils/salonView";
 import MainLayout from "../layout/MainLayout";
@@ -37,6 +42,16 @@ interface RevealFrame {
   after: string | null;
   feeling: string;
   emphasizeHints: boolean;
+}
+
+/**
+ * 成人向けの依頼で、お披露目に見せる体験の1枚(行動の手番)。
+ * confirming は精密参照などの確認ダイアログの返事待ち。
+ */
+interface ExperienceFrame {
+  status: "confirming" | "generating" | "done" | "failed";
+  image: string | null;
+  feeling: string;
 }
 
 /**
@@ -65,7 +80,21 @@ export default function SalonServing({
   const { state: game, askRequestQuestion, setError: setGameError } = useGame();
   const { state: chat, setInputText } = useChat();
   const playTurn = usePlayTurn();
-  const transformRequest = useTransformRequest(playTurn);
+  // 過激施術の依頼のときだけ成人向けで描く(過激施術 OFF の来店は全年齢)。
+  // 依頼は接客の開始時に NSFW モードも踏まえて決まるので、依頼の値に合わせる
+  const adultTurn = Boolean(game.request?.sensitive) && settingsState.nsfwMode;
+  const salonTurn = useCallback<TransformHandler>(
+    (instruction, costumeImage, transformationType, options, ...rest) =>
+      playTurn(
+        instruction,
+        costumeImage,
+        transformationType,
+        { ...options, nsfwMode: adultTurn },
+        ...rest,
+      ),
+    [playTurn, adultTurn],
+  );
+  const transformRequest = useTransformRequest(salonTurn);
   const [act, setAct] = useState<SalonAct | null>(null);
   const [blocked, setBlocked] = useState<"notFound" | "closed" | null>(null);
   const [question, setQuestion] = useState("");
@@ -74,8 +103,13 @@ export default function SalonServing({
   const [windowHidden, setWindowHidden] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [reveal, setReveal] = useState<RevealFrame | null>(null);
+  const [experience, setExperience] = useState<ExperienceFrame | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState(false);
   const [checkedOut, setCheckedOut] = useState<SalonVisit | null>(null);
   const startedRef = useRef<string | null>(null);
+  // 体験の手番を送った時点の履歴の件数と、送信後に生成中になったか
+  const experienceBaseRef = useRef(0);
+  const experienceSeenRef = useRef(false);
   const language = settingsState.language;
   // お客様の背景を透過してサロンの背景に立たせる。白い服が欠けるなど合わないときは切れる
   const [transparentPortrait, setTransparentPortrait] =
@@ -123,9 +157,73 @@ export default function SalonServing({
         return;
       }
       const started = await startVisit(runId, visitId);
-      if (started) setAct(initialSalonAct(started.request));
+      if (!started) return;
+      setFallbackNotice(Boolean(started.request?.sensitive_fallback));
+      setAct(initialSalonAct(started.request));
     })();
   }, [activeRun, openRun, runId, startVisit, visitId]);
+
+  // 体験の手番の終わりを見届ける。送信直後はまだ生成中になっていないことがあるので、
+  // 一度生成中になったのを見てから、履歴が増えたか(成功)どうかで決める
+  useEffect(() => {
+    if (experience?.status !== "generating") return;
+    if (game.isTransforming) {
+      experienceSeenRef.current = true;
+      return;
+    }
+    if (!experienceSeenRef.current) return;
+    experienceSeenRef.current = false;
+    const latestItem = game.history.at(-1);
+    if (
+      game.history.length > experienceBaseRef.current &&
+      isExperienceTurn(latestItem)
+    ) {
+      setExperience({
+        status: "done",
+        image: latestItem?.imageUrl ?? null,
+        feeling: latestItem?.feelingText ?? "",
+      });
+    } else {
+      setExperience({ status: "failed", image: null, feeling: "" });
+    }
+  }, [experience?.status, game.isTransforming, game.history]);
+
+  // 確認ダイアログの返事: 確定なら生成中に、取り消しなら失敗(やり直せる)にする
+  const anlasPending = transformRequest.anlasConfirmPending;
+  const usagePending = transformRequest.usageWarnPending;
+  useEffect(() => {
+    if (experience?.status !== "confirming" || anlasPending || usagePending) {
+      return;
+    }
+    if (game.isTransforming) {
+      experienceSeenRef.current = true;
+      setExperience({ status: "generating", image: null, feeling: "" });
+    } else {
+      setExperience({ status: "failed", image: null, feeling: "" });
+    }
+  }, [experience?.status, anlasPending, usagePending, game.isTransforming]);
+
+  // 体験の場面まで済んだ来店に戻ってきたら、お披露目から再開する
+  useEffect(() => {
+    if (act !== "styling" || !game.request?.sensitive || game.isTransforming) {
+      return;
+    }
+    const latestItem = game.history.at(-1);
+    if (!isExperienceTurn(latestItem)) return;
+    const styled = lastStyledHistory(game.history);
+    setReveal({
+      before: game.history[0]?.imageUrl ?? null,
+      after: styled?.imageUrl ?? null,
+      feeling: styled?.feelingText ?? "",
+      emphasizeHints: Boolean(game.request.emphasize_hints),
+    });
+    setExperience({
+      status: "done",
+      image: latestItem?.imageUrl ?? null,
+      feeling: latestItem?.feelingText ?? "",
+    });
+    setAct("reveal");
+  }, [act, game.request, game.isTransforming, game.history]);
 
   const backToOffice = () => navigate(getSalonRunPath(runId));
   const visit = activeRun?.visits.find((item) => item.id === visitId) ?? null;
@@ -192,14 +290,36 @@ export default function SalonServing({
     );
   };
 
+  /** 願いの姿でしたいことを、行動の手番として1回だけ描く */
+  const startExperience = (direction: string) => {
+    experienceBaseRef.current = game.history.length;
+    experienceSeenRef.current = false;
+    setGameError(null);
+    const sent = transformRequest.submitTransform(
+      direction,
+      "action",
+      false,
+      `salon-experience-${visitId}-${Date.now()}`,
+    );
+    setExperience({
+      status: sent ? "generating" : "confirming",
+      image: null,
+      feeling: "",
+    });
+  };
+
   const handleReveal = () => {
+    const styled = lastStyledHistory(game.history);
     setReveal({
       before: game.history[0]?.imageUrl ?? null,
-      after: game.currentImage,
-      feeling: latest?.feelingText ?? "",
+      after: styled?.imageUrl ?? game.currentImage,
+      feeling: styled?.feelingText ?? latest?.feelingText ?? "",
       emphasizeHints,
     });
     setAct("reveal");
+    if (request?.sensitive && request.experience) {
+      startExperience(request.experience);
+    }
   };
 
   const handleCheckout = async () => {
@@ -212,6 +332,12 @@ export default function SalonServing({
 
   const showPair = (act === "reveal" || act === "checkout") && reveal;
   const actIndex = act ? ACTS.indexOf(act) : -1;
+  const experienceBusy =
+    experience?.status === "confirming" || experience?.status === "generating";
+  const experienceFeeling =
+    experience?.status === "generating"
+      ? game.feelingText
+      : (experience?.feeling ?? "");
 
   return (
     <MainLayout variant="salon">
@@ -306,6 +432,18 @@ export default function SalonServing({
                 )}
                 <figcaption>{t("salon.serving.revealAfter")}</figcaption>
               </figure>
+              {experience && experience.status !== "failed" && (
+                <figure className="salon-stage__experience">
+                  {experience.image ? (
+                    <img src={experience.image} alt="" />
+                  ) : (
+                    <span className="salon-stage__experience-wait">
+                      <span className="salon-spinner" aria-hidden />
+                    </span>
+                  )}
+                  <figcaption>{t("salon.serving.experience")}</figcaption>
+                </figure>
+              )}
             </div>
           ) : game.currentImage && act && act !== "checkout" ? (
             <SalonPortrait
@@ -351,8 +489,8 @@ export default function SalonServing({
             <button
               type="button"
               className="salon-window__hide-button"
-              aria-label={t("salon.serving.hide")}
-              title={t("salon.serving.hide")}
+              aria-label={t("common.messageWindow.hide")}
+              title={t("common.messageWindow.hide")}
               onClick={() => setWindowHidden(true)}
             >
               ✕
@@ -368,6 +506,11 @@ export default function SalonServing({
             )}
             {act === "counsel" && request && (
               <>
+                {fallbackNotice && (
+                  <p className="salon-window__note">
+                    {t("salon.serving.sensitiveFallback")}
+                  </p>
+                )}
                 {visit?.returning_look && (
                   <p className="salon-window__note">
                     {t("salon.serving.returningLook")}
@@ -420,6 +563,14 @@ export default function SalonServing({
                     text={reveal.feeling}
                     emphasizeHints={reveal.emphasizeHints}
                   />
+                )}
+                {experienceFeeling && (
+                  <>
+                    <p className="salon-window__label">
+                      {t("salon.serving.experience")}
+                    </p>
+                    <p className="salon-window__line">{experienceFeeling}</p>
+                  </>
                 )}
                 <p className="salon-window__note">
                   {t("salon.serving.revealHint")}
@@ -538,6 +689,31 @@ export default function SalonServing({
               </>
             )}
 
+            {act === "reveal" && experienceBusy && (
+              <p className="salon-progress" role="status">
+                <span className="salon-spinner" aria-hidden />
+                {t("salon.serving.experienceGenerating")}
+              </p>
+            )}
+            {act === "reveal" &&
+              experience?.status === "failed" &&
+              request?.experience && (
+                <>
+                  <p className="salon-window__note">
+                    {t("salon.serving.experienceFailed")}
+                  </p>
+                  <button
+                    type="button"
+                    className="salon-button"
+                    disabled={busy !== null}
+                    onClick={() =>
+                      request.experience && startExperience(request.experience)
+                    }
+                  >
+                    {t("salon.serving.experienceRetry")}
+                  </button>
+                </>
+              )}
             {act === "reveal" &&
               (busy === "checkout" ? (
                 <p className="salon-progress" role="status">
@@ -548,6 +724,7 @@ export default function SalonServing({
                 <button
                   type="button"
                   className="salon-button salon-button--primary"
+                  disabled={experienceBusy}
                   onClick={() => void handleCheckout()}
                 >
                   {t("salon.serving.checkout")}
@@ -608,7 +785,7 @@ export default function SalonServing({
             className="salon-window-restore"
             onClick={() => setWindowHidden(false)}
           >
-            {t("salon.serving.show")}
+            {t("common.messageWindow.show")}
           </button>
         )}
 

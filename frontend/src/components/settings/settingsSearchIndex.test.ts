@@ -152,8 +152,6 @@ describe("getItemIdsIn", () => {
   it("従来の画面では、実験的機能のセクションに今までどおりの順で並べる", () => {
     expect(getItemIdsIn("experimental", "classic")).toEqual([
       "promptExpander",
-      "characterChat",
-      "characterChatRealWorld",
       "salon",
       "surroundings",
       "surroundingsPeople",
@@ -171,11 +169,16 @@ describe("getItemIdsIn", () => {
   it("新しい画面では、役割に合うカテゴリへ移す", () => {
     expect(getItemIdsIn("experimental", "v2")).toEqual([
       "promptExpander",
-      "characterChat",
-      "characterChatRealWorld",
       "salon",
       "playMemory",
     ]);
+    // キャラチャットは v0.11.0 で Experimental から独立した節へ移した
+    for (const layout of ["classic", "v2"] as const) {
+      expect(getItemIdsIn("characterChat", layout)).toEqual([
+        "characterChat",
+        "characterChatRealWorld",
+      ]);
+    }
     expect(getItemIdsIn("image", "v2")).toEqual([
       "imageProvider",
       "novelaiImageModelNsfw",

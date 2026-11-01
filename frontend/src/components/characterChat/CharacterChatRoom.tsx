@@ -566,7 +566,7 @@ export default function CharacterChatRoom({
                   aria-controls="character-chat-message-window"
                   onClick={toggleMessageWindow}
                 >
-                  {t("characterChat.room.showWindow")}
+                  {t("common.messageWindow.show")}
                 </button>
               </div>
             )}
@@ -595,8 +595,8 @@ export default function CharacterChatRoom({
                       type="button"
                       className="character-chat-room__window-button character-chat-room__window-hide"
                       aria-controls="character-chat-message-window"
-                      aria-label={t("characterChat.room.hideWindow")}
-                      title={t("characterChat.room.hideWindow")}
+                      aria-label={t("common.messageWindow.hide")}
+                      title={t("common.messageWindow.hide")}
                       onClick={toggleMessageWindow}
                     >
                       ✕

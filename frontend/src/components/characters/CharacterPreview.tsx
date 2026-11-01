@@ -1,6 +1,6 @@
 /**
  * キャラクター画面の右パネル。立ち絵、または 3D モデル(VRM)を表情つきで見せ、
- * 「このキャラと話す」を置く。
+ * 「このキャラでプレイ」と「このキャラと話す」(キャラチャットが ON のとき)を置く。
  */
 
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -11,6 +11,7 @@ import {
   AVATAR_EXPRESSIONS,
   type AvatarExpressionKey,
 } from "../../constants/companionAvatar";
+import { useSettings } from "../../contexts/SettingsContext";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import type { CharacterPreset } from "../../types";
 import { mediaUrl } from "../../utils/adventureFormat";
@@ -27,14 +28,17 @@ interface CharacterPreviewProps {
   preset: CharacterPreset;
   talking: boolean;
   onTalk: () => void;
+  onPlay: () => void;
 }
 
 export default function CharacterPreview({
   preset,
   talking,
   onTalk,
+  onPlay,
 }: CharacterPreviewProps) {
   const { t } = useTranslation();
+  const { state: settingsState } = useSettings();
   const [model, setModel] = useState<AvatarModel | null>(null);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [expression, setExpression] = useState<AvatarExpressionKey>("neutral");
@@ -111,12 +115,26 @@ export default function CharacterPreview({
       <button
         type="button"
         className="character-chat__primary character-preview__talk"
-        disabled={talking}
-        onClick={onTalk}
+        onClick={onPlay}
       >
-        {talking ? t("characters.talking") : t("characters.talk")}
+        {t("characters.play.open")}
       </button>
-      <p className="character-cast__hint">{t("characters.preview.talkHint")}</p>
+      <p className="character-cast__hint">{t("characters.preview.playHint")}</p>
+      {settingsState.characterChatEnabled && (
+        <>
+          <button
+            type="button"
+            className="character-chat__secondary character-preview__talk"
+            disabled={talking}
+            onClick={onTalk}
+          >
+            {talking ? t("characters.talking") : t("characters.talk")}
+          </button>
+          <p className="character-cast__hint">
+            {t("characters.preview.talkHint")}
+          </p>
+        </>
+      )}
     </div>
   );
 }

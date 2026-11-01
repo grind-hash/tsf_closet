@@ -42,6 +42,7 @@ from ..schemas.session import (
     HistorySelectResponse,
     PlayMemoryResponse,
     PlayMemoryUpdateRequest,
+    PresetStartRequest,
     SessionAttributeCreateRequest,
     SessionAttributeUpdateRequest,
     SessionListResponse,
@@ -340,6 +341,31 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
             nsfw_mode=request.nsfw_mode,
             self_mode=request.self_mode,
             use_saved_profile=request.use_saved_profile,
+        )
+    except GameServiceError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": exc.code or "invalid_request", "message": str(exc)},
+        ) from exc
+    return _game_start_response(session.id, difficulty, stats)
+
+
+@router.post(
+    "/start-preset",
+    response_model=GameStartResponse,
+    responses={400: {"model": ErrorResponse}},
+    summary="キャラクターでセッション開始",
+    description="キャラクター画面で作ったキャラの立ち絵と人物設定でゲームセッションを開始",
+)
+async def start_game_preset(request: PresetStartRequest) -> GameStartResponse:
+    from ..services.game_service import GameServiceError, game_service
+
+    try:
+        session, stats, difficulty = await game_service.start_preset_session(
+            preset_id=request.preset_id,
+            difficulty=request.difficulty,
+            nsfw_mode=request.nsfw_mode,
+            self_mode=request.self_mode,
         )
     except GameServiceError as exc:
         raise HTTPException(

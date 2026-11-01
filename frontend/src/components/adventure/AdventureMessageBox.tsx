@@ -170,8 +170,8 @@ export default function AdventureMessageBox({
           type="button"
           className="adventure-messagebox__hide-button"
           onClick={onHide}
-          title={t("adventure.window.hideHint")}
-          aria-label={t("adventure.window.hide")}
+          title={t("common.messageWindow.hide")}
+          aria-label={t("common.messageWindow.hide")}
           tabIndex={hidden ? -1 : undefined}
         >
           ✕

@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from ..consts.salon import SALON_GOOD_SATISFACTION, SALON_LOW_SATISFACTION
+from .session_request_prompts import ADULT_CONTENT_RULE
 
 
 def _response_language(language: str) -> str:
@@ -21,10 +22,13 @@ def build_salon_review_prompt(
     final_look: str,
     language: str,
     keeps_look: bool = False,
+    sensitive: bool = False,
+    experience_feeling: str = "",
 ) -> tuple[str, str]:
     """会計のとき、お客様本人の口調で書く口コミの (system, user) を返す。
 
     keeps_look なら、この姿のまま過ごして翌週もこの姿で来ることを口コミに滲ませる。
+    sensitive(成人向けの依頼)なら性的な内容を許し、体験の心境があれば踏まえさせる。
     """
     pronoun = str(profile.get("pronoun") or "").strip()
     pronoun_rule = (
@@ -32,13 +36,21 @@ def build_salon_review_prompt(
         if pronoun
         else ""
     )
+    content_rule = (
+        f"Sexual content is allowed. {ADULT_CONTENT_RULE}"
+        if sensitive
+        else "Never write sexual content."
+    )
     system = f"""You write a short review that a customer leaves after a visit to a dress-up salon, in the customer's own voice and personality.
 Reply in {_response_language(language)}, with one or two sentences, at most 80 Japanese characters or 30 English words.{pronoun_rule}
 Let the tone follow how the visit went: satisfaction is 0 to 100, and wish_fulfilled tells whether the wish came true. Mention one concrete detail of final_look.
-Never mention scores, numbers, or game mechanics, and never write sexual content. Output only the review, without quotation marks."""
+Never mention scores, numbers, or game mechanics. {content_rule} Output only the review, without quotation marks."""
     if keeps_look:
         system += """
 keeps_this_look is true: the customer loved this look so much that they will stay in it and come back next week still wearing it. Let the review show that wish to keep it."""
+    if experience_feeling:
+        system += """
+experience is how the customer felt while doing what they longed for in this look, right after the styling. Let the review look back on that experience."""
     user = json.dumps(
         {
             "customer": {
@@ -51,6 +63,7 @@ keeps_this_look is true: the customer loved this look so much that they will sta
             "wish_fulfilled": fulfilled,
             "final_look": final_look,
             "keeps_this_look": keeps_look,
+            **({"experience": experience_feeling} if experience_feeling else {}),
         },
         ensure_ascii=False,
     )

@@ -15,6 +15,8 @@ export interface TransformOptions {
   negativePrompt?: string;
   promptOverride?: string;
   imageOnlyTextToImage?: boolean;
+  /** NSFW モードをこの手番だけ上書きする(サロンは run の過激施術に合わせる) */
+  nsfwMode?: boolean;
   characterReferences?: Array<{
     imageData: string;
     type: string;

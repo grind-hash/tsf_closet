@@ -538,12 +538,6 @@ export const adventure = {
     title: "これまでの物語",
     close: "ログを閉じる",
   },
-  window: {
-    hide: "非表示",
-    hideHint: "メッセージウィンドウを隠して立ち絵を見る（H）",
-    show: "ウィンドウを戻す",
-    showHint: "メッセージウィンドウを再表示（H）",
-  },
   sound: {
     settings: "サウンド設定",
   },

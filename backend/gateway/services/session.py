@@ -573,6 +573,8 @@ class DatabaseSessionStore:
             "question_limit": int(row.question_limit or 0),
             "questions": [item for item in questions if isinstance(item, dict)],
             "emphasize_hints": bool(row.emphasize_hints),
+            "sensitive": bool(row.sensitive),
+            "experience": row.experience_text or "",
         }
 
     async def get_session_request(self, session_id: str) -> dict | None:
@@ -591,6 +593,8 @@ class DatabaseSessionStore:
         turn_limit: int | None = None,
         question_limit: int = 2,
         emphasize_hints: bool = False,
+        sensitive: bool = False,
+        experience: str | None = None,
     ) -> dict:
         """依頼を作成する。既にあれば作り直し、達成状態と質問のやり取りも初期化する。"""
         now = datetime.now()
@@ -606,6 +610,8 @@ class DatabaseSessionStore:
             row.question_limit = question_limit
             row.questions_json = "[]"
             row.emphasize_hints = emphasize_hints
+            row.sensitive = sensitive
+            row.experience_text = experience if sensitive else None
             row.status = "active"
             row.fulfilled_history_id = None
             row.updated_at = now
@@ -706,6 +712,29 @@ class DatabaseSessionStore:
             stmt = (
                 select(HistoryORM)
                 .where(HistoryORM.session_id == session_id)
+                .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
+                .limit(1)
+            )
+            row = (await db_session.execute(stmt)).scalars().first()
+            if row is None:
+                return None
+            return self._to_persisted_history(row)
+
+    async def get_latest_evaluated_history(
+        self,
+        session_id: str,
+    ) -> PersistedHistory | None:
+        """依頼の評価が付いた最新の履歴(最後の施術の手番)。無ければ None。
+
+        体験の場面など、施術ではない手番の後でも最後の施術の姿を返す。
+        """
+        async with async_session_factory() as db_session:
+            stmt = (
+                select(HistoryORM)
+                .where(
+                    HistoryORM.session_id == session_id,
+                    HistoryORM.request_evaluation_json.is_not(None),
+                )
                 .order_by(HistoryORM.created_at.desc(), HistoryORM.id.desc())
                 .limit(1)
             )

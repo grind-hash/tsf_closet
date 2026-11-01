@@ -1029,6 +1029,23 @@
   outline-offset: 2px;
 }
 
+.salon-toggle__input:disabled + .salon-toggle__switch {
+  opacity: 0.6;
+}
+
+/* オーナー室の設定(過激施術) */
+.salon-office__settings {
+  padding: 14px 20px;
+}
+
+.salon-office__settings-note {
+  color: var(--salon-accent);
+}
+
+.salon-office__settings-note a {
+  color: inherit;
+}
+
 /* 接客(ADV) */
 
 .salon-serving {
@@ -1258,6 +1275,10 @@
   margin: 0;
 }
 
+.salon-stage__pair:has(.salon-stage__experience) figure {
+  max-width: 32%;
+}
+
 /* 枠の幅を元画像ではなく表示する高さに合わせ、2枚を寄せて並べる */
 .salon-stage__pair img {
   width: auto;
@@ -1265,6 +1286,21 @@
   height: calc(100% - 30px);
   object-fit: contain;
   filter: var(--salon-portrait-shadow);
+}
+
+/* 体験の場面は背景ごと描いた1枚なので、透過せず枠に収める */
+.salon-stage__experience img,
+.salon-stage__experience-wait {
+  border: 1px solid var(--salon-hairline);
+  filter: none;
+}
+
+.salon-stage__experience-wait {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 2 / 3;
+  height: calc(100% - 30px);
+  background: var(--salon-scrim);
 }
 
 .salon-stage__pair figcaption {

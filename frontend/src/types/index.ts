@@ -573,6 +573,8 @@ export interface CharacterPreset {
   voice: CharacterVoice | null;
   /** 立ち絵(API 相対 URL)。未設定なら null */
   portrait_url: string | null;
+  /** サロン経営でお客様として来店するか(立ち絵があるときだけ来店候補に入る) */
+  salon_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -639,6 +641,12 @@ export interface SessionRequestView {
   can_regenerate: boolean;
   /** 心境の中のヒントの一文が〔〕で囲まれているか(サロンのやさしい・ふつう) */
   emphasize_hints?: boolean;
+  /** 成人向けの依頼か(サロンの過激施術) */
+  sensitive?: boolean;
+  /** 成人向けの依頼で、願いの姿でしたいこと(お披露目の体験の場面の指示) */
+  experience?: string;
+  /** 成人向けの依頼を作れず、全年齢の依頼に切り戻したか(生成した直後の応答だけ) */
+  sensitive_fallback?: boolean;
 }
 
 /** カウンセリングのやり取り1件 */

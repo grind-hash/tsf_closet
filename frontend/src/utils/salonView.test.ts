@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { SalonRun, SalonVisit } from "../apis/salon";
-import type { SessionRequestView } from "../types";
+import type { HistoryItem, SessionRequestView } from "../types";
 import {
   formatSignedNumber,
   formatSignedYen,
   formatYen,
   initialSalonAct,
+  isExperienceTurn,
+  lastStyledHistory,
   salonCashSeries,
   salonCashTicks,
   salonReviews,
@@ -44,6 +46,7 @@ function run(overrides: Partial<SalonRun>): SalonRun {
     reputation: 20,
     difficulty: "normal",
     initial_cash: 2_000_000,
+    sensitive: false,
     weekly_fixed_cost: 300_000,
     weekly_salary: 100_000,
     base_price: 50_000,
@@ -108,6 +111,31 @@ describe("initialSalonAct", () => {
     expect(
       initialSalonAct({ turns_used: 1 } as unknown as SessionRequestView),
     ).toBe("styling");
+  });
+});
+
+describe("experience turn", () => {
+  const item = (id: string, instructionType?: string): HistoryItem => ({
+    id,
+    instruction: "",
+    imageUrl: `/img/${id}.png`,
+    feelingText: "",
+    beforeDescription: "",
+    afterDescription: "",
+    timestamp: "",
+    instructionType,
+  });
+
+  it("finds the last styled look before the experience scene", () => {
+    const history = [
+      item("start"),
+      item("styled", "dress_up"),
+      item("experience", "action"),
+    ];
+    expect(isExperienceTurn(history.at(-1))).toBe(true);
+    expect(lastStyledHistory(history)?.id).toBe("styled");
+    expect(lastStyledHistory(history.slice(0, 2))?.id).toBe("styled");
+    expect(lastStyledHistory([])).toBeUndefined();
   });
 });
 

@@ -11,4 +11,8 @@ export const common = {
   enabled: "Enabled",
   disabled: "Disabled",
   none: "None",
+  messageWindow: {
+    show: "Show window",
+    hide: "Hide window",
+  },
 };

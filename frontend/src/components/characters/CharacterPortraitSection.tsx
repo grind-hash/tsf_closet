@@ -1,9 +1,10 @@
 /**
  * キャラクター画面の「外見と立ち絵」の節。外見(自然文・タグ)の編集と、
- * 素材の画像の取り込み・外見タグからの立ち絵の生成を行う。
+ * 画像のアップロード・素材の画像の取り込み・外見タグからの立ち絵の生成を行う。
+ * 画像のアップロードは画面のどこへドロップしても受け付ける。
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   generateCharacterTags,
@@ -11,17 +12,25 @@ import {
   streamCharacterPresetPortrait,
   type UpdateCharacterPresetPayload,
   updateCharacterPreset,
+  uploadCharacterPresetPortrait,
 } from "../../apis/characters";
 import { useNotification } from "../../contexts/NotificationContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
 import type { CharacterPreset } from "../../types";
 import { mediaUrl } from "../../utils/adventureFormat";
+import {
+  getImageDimensions,
+  isWithinNovelAIFreeSize,
+} from "../../utils/imageSizeValidator";
 import { readStorageFlag, writeStorageFlag } from "../../utils/storage";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
 } from "../adventure/AdventureSessionPickerModal";
+import CustomImageSizeWarningModal from "../CustomImageSizeWarningModal";
 import SavedTextField from "../panel/SavedTextField";
 import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
+import FileDropOverlay from "../ui/FileDropOverlay";
 
 /** 精密参照の Anlas 確認を「ブラウザを閉じるまで出さない」印(sessionStorage) */
 const ANLAS_WARN_SUPPRESSED_KEY = "character_maker_anlas_warn_suppressed";
@@ -44,7 +53,16 @@ export default function CharacterPortraitSection({
   const [drawing, setDrawing] = useState(false);
   const [usePrecise, setUsePrecise] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  // NovelAI の無料サイズ外の画像は、Anlas 消費の警告を挟んでから立ち絵にする
+  const [pendingUpload, setPendingUpload] = useState<{
+    dataUrl: string;
+    width: number;
+    height: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const portraitRef = useRef<HTMLDivElement>(null);
   const preciseAvailable =
     settingsState.imageProvider === "novelai" && Boolean(preset.portrait_url);
 
@@ -110,6 +128,58 @@ export default function CharacterPortraitSection({
       setError(t("characters.errors.importFailed"));
     }
   };
+
+  const uploadPortrait = async (dataUrl: string) => {
+    setUploading(true);
+    setError(null);
+    try {
+      onSaved(await uploadCharacterPresetPortrait(preset.id, dataUrl));
+      showNotification("success", t("characters.portrait.uploaded"));
+      // ドロップした画像がどこに入ったかを探させない
+      portraitRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    } catch (err) {
+      console.error("Failed to upload portrait", err);
+      setError(t("characters.errors.uploadFailed"));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleImageFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setError(t("characters.errors.uploadNotImage"));
+      return;
+    }
+    try {
+      const dimensions = await getImageDimensions(file);
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      if (
+        settingsState.imageProvider === "novelai" &&
+        !isWithinNovelAIFreeSize(dimensions.width, dimensions.height)
+      ) {
+        setPendingUpload({ dataUrl, ...dimensions });
+        return;
+      }
+      await uploadPortrait(dataUrl);
+    } catch (err) {
+      console.error("Failed to read image", err);
+      setError(t("characters.errors.uploadFailed"));
+    }
+  };
+
+  const busy = drawing || uploading;
+  const isFileDragging = useWindowFileDrop({
+    enabled: !busy,
+    onFiles: (files) => void handleImageFile(files[0]),
+  });
 
   const runDraw = async (precise: boolean) => {
     setDrawing(true);
@@ -191,7 +261,7 @@ export default function CharacterPortraitSection({
         onSave={(next) => save({ appearance_tags: next })}
       />
 
-      <div className="character-maker__portrait">
+      <div className="character-maker__portrait" ref={portraitRef}>
         <div className="character-maker__portrait-frame">
           {preset.portrait_url ? (
             <img src={mediaUrl(preset.portrait_url)} alt="" />
@@ -203,10 +273,39 @@ export default function CharacterPortraitSection({
         </div>
         <div className="character-maker__portrait-actions">
           <strong>{t("characters.portrait.title")}</strong>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void handleImageFile(file);
+            }}
+          />
           <button
             type="button"
             className="character-chat__secondary"
-            disabled={drawing}
+            disabled={busy}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? (
+              <>
+                <span className="character-cast__spinner" aria-hidden />
+                {t("characters.portrait.uploading")}
+              </>
+            ) : (
+              t("characters.portrait.upload")
+            )}
+          </button>
+          <p className="character-cast__hint">
+            {t("characters.portrait.uploadHint")}
+          </p>
+          <button
+            type="button"
+            className="character-chat__secondary"
+            disabled={busy}
             onClick={() => setPickerOpen(true)}
           >
             {t("characters.portrait.import")}
@@ -217,7 +316,7 @@ export default function CharacterPortraitSection({
           <button
             type="button"
             className="character-chat__secondary"
-            disabled={drawing || !hasTags}
+            disabled={busy || !hasTags}
             onClick={handleDraw}
           >
             {t("characters.portrait.generate")}
@@ -266,6 +365,26 @@ export default function CharacterPortraitSection({
           onSelect={(selection) => void handleImport(selection)}
           onClose={() => setPickerOpen(false)}
           allowPromptExpander={settingsState.experimentalPromptExpanderEnabled}
+        />
+      )}
+
+      {isFileDragging && (
+        <FileDropOverlay
+          title={t("characters.portrait.dropTitle")}
+          hint={t("characters.portrait.dropHint")}
+        />
+      )}
+
+      {pendingUpload && (
+        <CustomImageSizeWarningModal
+          width={pendingUpload.width}
+          height={pendingUpload.height}
+          onContinue={() => {
+            const { dataUrl } = pendingUpload;
+            setPendingUpload(null);
+            void uploadPortrait(dataUrl);
+          }}
+          onCancel={() => setPendingUpload(null)}
         />
       )}
 

@@ -19,11 +19,11 @@ def client(isolated_db, monkeypatch) -> TestClient:
     with isolated_db.sync_factory() as db:
         db.add(User(id=DEFAULT_USER_ID))
         db.commit()
-    monkeypatch.setattr(
-        salon_module,
-        "_customer_pool",
-        lambda: [Customer("template", "char1", "水瀬ユウヤ")],
-    )
+
+    async def fake_pool(_db):
+        return [Customer("template", "char1", "水瀬ユウヤ")]
+
+    monkeypatch.setattr(salon_module, "_customer_pool", fake_pool)
     app = FastAPI()
     app.include_router(router, prefix="/api")
     return TestClient(app)
@@ -61,3 +61,18 @@ def test_unknown_run_is_404_and_blank_name_is_400(client: TestClient) -> None:
     assert missing.json()["detail"]["error"] == "salon_not_found"
     assert blank.status_code == 400
     assert blank.json()["detail"]["error"] == "empty_name"
+
+
+def test_update_settings_toggles_sensitive(client: TestClient) -> None:
+    run = client.post("/api/salon/runs", json={"name": "店"}).json()
+    assert run["sensitive"] is False
+
+    response = client.patch(
+        f"/api/salon/runs/{run['id']}/settings", json={"sensitive": True}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sensitive"] is True
+    assert client.get(f"/api/salon/runs/{run['id']}").json()["sensitive"] is True
+    missing = client.patch("/api/salon/runs/missing/settings", json={"sensitive": True})
+    assert missing.status_code == 404

@@ -106,7 +106,7 @@ export default function SettingsScreen() {
     setShowRealityAttributeNotification,
     setAdventureEnabled,
     setExperimentalPromptExpanderEnabled,
-    setExperimentalCharacterChatEnabled,
+    setCharacterChatEnabled,
     setExperimentalSalonEnabled,
     setAdventureEnableCompositeScene,
     setPlayMemoryEnabled,
@@ -701,25 +701,23 @@ export default function SettingsScreen() {
         <label className="settings-screen__toggle">
           <div className="settings-screen__toggle-info">
             <span className="settings-screen__item-label">
-              {t("settings.experimentalCharacterChat")}
+              {t("settings.characterChatEnabled")}
               <span
-                className="feature-chip-experimental"
-                data-feature-version="v0.9.0"
+                className="feature-chip-new"
+                data-feature-version="v0.11.0"
                 style={{ marginLeft: "0.5rem" }}
               >
-                Experimental
+                New
               </span>
             </span>
             <span className="settings-screen__item-desc">
-              {t("settings.experimentalCharacterChatDesc")}
+              {t("settings.characterChatEnabledDesc")}
             </span>
           </div>
           <input
             type="checkbox"
-            checked={state.experimentalCharacterChatEnabled}
-            onChange={(e) =>
-              setExperimentalCharacterChatEnabled(e.target.checked)
-            }
+            checked={state.characterChatEnabled}
+            onChange={(e) => setCharacterChatEnabled(e.target.checked)}
             className="settings-screen__toggle-input"
           />
           <span className="settings-screen__toggle-switch" />
@@ -1023,6 +1021,14 @@ export default function SettingsScreen() {
         title={t("settings.adventureSection")}
       >
         {renderItems("adventure")}
+      </SettingsSection>
+
+      {/* キャラチャット(v0.11.0 で Experimental から昇格。既定 ON) */}
+      <SettingsSection
+        category="characterChat"
+        title={t("settings.characterChatSection")}
+      >
+        {renderItems("characterChat")}
       </SettingsSection>
 
       {/* 表示設定 */}

@@ -8,6 +8,8 @@ list of satisfied preferences; the satisfaction number is decided here.
 from __future__ import annotations
 
 REQUEST_WISH_MAX: int = 200
+# 成人向けの依頼で、願いの姿でしたいこと(お披露目の体験の場面の指示)の長さ
+REQUEST_EXPERIENCE_MAX: int = 200
 REQUEST_PREFERENCES_MIN: int = 2
 REQUEST_PREFERENCES_MAX: int = 3
 REQUEST_PREFERENCE_TEXT_MAX: int = 80

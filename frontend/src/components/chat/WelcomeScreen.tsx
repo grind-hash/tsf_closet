@@ -14,10 +14,7 @@ import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
-import {
-  REQUEST_TURN_LIMIT_CHOICES,
-  TSF_ATTITUDE_MAX_LENGTH,
-} from "../../constants/playLimits";
+import { TSF_ATTITUDE_MAX_LENGTH } from "../../constants/playLimits";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
@@ -29,6 +26,9 @@ import {
 } from "../../utils/imageSizeValidator";
 import CustomImageSizeWarningModal from "../CustomImageSizeWarningModal";
 import PromptExpanderEntryPickerModal from "../promptExpander/PromptExpanderEntryPickerModal";
+import PlayStartModeOptions, {
+  usePlayStartBlocked,
+} from "./PlayStartModeOptions";
 import "./WelcomeScreen.css";
 
 interface WelcomeScreenProps {
@@ -53,9 +53,6 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     setLoading,
     setError,
     state: gameState,
-    setSelfMode,
-    setRequestMode,
-    setRequestTurnLimit,
     generateRequest,
   } = useGame();
 
@@ -98,8 +95,8 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     height: number;
   } | null>(null);
 
-  // SettingsContextからimageProvider, selfProfileを取得
-  const { state: settingsState, selfProfile } = useSettings();
+  // SettingsContextからimageProviderを取得
+  const { state: settingsState } = useSettings();
 
   // Prompt Expander（実験機能）からの画像取り込み
   const promptExpanderEnabled = settingsState.experimentalPromptExpanderEnabled;
@@ -113,7 +110,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
   const navigate = useNavigate();
 
   // 自分自身モードON + プロフィール未設定の判定
-  const selfModeNeedsProfile = gameState.selfMode && !selfProfile;
+  const selfModeNeedsProfile = usePlayStartBlocked();
 
   // キャラクター一覧を取得
   useEffect(() => {
@@ -435,11 +432,24 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         )}
       </div>
 
-      {/* カスタム画像 */}
+      {/* カスタム画像 (v0.12.0 で削除予定。キャラクター画面へ移行) */}
       <div className="welcome-screen__custom">
         <h3 className="welcome-screen__section-title">
           {t("chat.welcome.customImageSection")}
+          <span
+            className="feature-chip-deprecated"
+            data-removal-version="v0.12.0"
+            title={t("chat.welcome.customImageDeprecated")}
+          >
+            Deprecated
+          </span>
         </h3>
+        <p className="welcome-screen__deprecated-notice">
+          {t("chat.welcome.customImageDeprecated")}
+          <Link to={ROUTES.CHARACTERS}>
+            {t("chat.welcome.customImageOpenCharacters")}
+          </Link>
+        </p>
         <div className="welcome-screen__custom-upload">
           <input
             type="file"
@@ -610,87 +620,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         )}
       </div>
 
-      {/* 自分自身モード (US5) */}
-      <div className="welcome-screen__self-mode">
-        <label className="welcome-screen__self-mode-label">
-          <input
-            type="checkbox"
-            role="switch"
-            aria-checked={gameState.selfMode}
-            checked={gameState.selfMode}
-            onChange={(e) => setSelfMode(e.target.checked)}
-            className="welcome-screen__self-mode-checkbox welcome-screen__switch"
-          />
-          <span>{t("chat.welcome.selfMode")}</span>
-        </label>
-        <p className="welcome-screen__self-mode-desc">
-          {t("chat.welcome.selfModeDescription")}
-        </p>
-        {selfModeNeedsProfile && (
-          <p className="welcome-screen__self-mode-warning">
-            {t("chat.welcome.selfModeNoProfile")}
-            <Link
-              to={ROUTES.SETTINGS}
-              className="welcome-screen__self-mode-warning-link"
-            >
-              {t("chat.welcome.selfModeGoSettings")}
-            </Link>
-          </p>
-        )}
-      </div>
-
-      {/* 依頼モード(既定 OFF)。自分自身モードでは効かないが、隠さず理由を示す */}
-      <div className="welcome-screen__request-mode">
-        <label className="welcome-screen__request-mode-label">
-          <input
-            type="checkbox"
-            role="switch"
-            aria-checked={gameState.requestMode}
-            checked={gameState.requestMode}
-            onChange={(e) => setRequestMode(e.target.checked)}
-            className="welcome-screen__switch"
-          />
-          <span>{t("chat.request.mode")}</span>
-        </label>
-        <p className="welcome-screen__request-mode-desc">
-          {t("chat.request.modeDescription")}
-        </p>
-        {/* 施術の手数。依頼モードを OFF にしていても隠さず、何に効くかを文言で示す */}
-        <div className="welcome-screen__request-turns">
-          <span id="welcome-request-turns-label">
-            {t("chat.request.turnLimitLabel")}
-          </span>
-          <div
-            className="welcome-screen__segments"
-            role="group"
-            aria-labelledby="welcome-request-turns-label"
-          >
-            {REQUEST_TURN_LIMIT_CHOICES.map((value) => (
-              <button
-                key={value ?? "none"}
-                type="button"
-                className={
-                  gameState.requestTurnLimit === value ? "is-active" : undefined
-                }
-                aria-pressed={gameState.requestTurnLimit === value}
-                onClick={() => setRequestTurnLimit(value)}
-              >
-                {value === null
-                  ? t("chat.request.turnLimitNone")
-                  : t("chat.request.turnLimitValue", { count: value })}
-              </button>
-            ))}
-          </div>
-          <p className="welcome-screen__request-mode-desc">
-            {t("chat.request.turnLimitHint")}
-          </p>
-        </div>
-        {gameState.requestMode && gameState.selfMode && (
-          <p className="welcome-screen__self-mode-warning">
-            {t("chat.request.modeNoopSelf")}
-          </p>
-        )}
-      </div>
+      <PlayStartModeOptions />
 
       {/* 開始ボタン */}
       <div className="welcome-screen__actions">

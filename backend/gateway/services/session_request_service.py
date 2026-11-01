@@ -21,6 +21,7 @@ from pydantic import BaseModel, field_validator
 from ..consts.session_request import (
     REQUEST_ANSWER_MAX,
     REQUEST_EVALUATION_HINT_MAX,
+    REQUEST_EXPERIENCE_MAX,
     REQUEST_FIT_SCORES,
     REQUEST_FITS,
     REQUEST_FULFILL_THRESHOLD,
@@ -42,7 +43,7 @@ from .characters import character_manager
 from .clothing_layers import split_worn_under_layers
 from .cost_tracker import begin_cost_tracking, record_cost
 from .custom_sessions import load_custom_session_metadata
-from .llm_json import generate_validated
+from .llm_json import StructuredOutputError, generate_validated
 from .llm_service import llm_service
 from .session import session_store
 from .session_request_prompts import (
@@ -107,6 +108,20 @@ class GeneratedRequest(BaseModel):
         if len(kept) < REQUEST_PREFERENCES_MIN:
             raise ValueError(f"preferences は {REQUEST_PREFERENCES_MIN} 件以上必要です")
         return kept
+
+
+class GeneratedSensitiveRequest(GeneratedRequest):
+    """成人向けの依頼。願いの姿でしたいこと(experience)も要る。"""
+
+    experience: str
+
+    @field_validator("experience", mode="before")
+    @classmethod
+    def clip_experience(cls, value: Any) -> str:
+        experience = _clip(value, REQUEST_EXPERIENCE_MAX)
+        if not experience:
+            raise ValueError("experience が空です")
+        return experience
 
 
 class RequestEvaluationOutput(BaseModel):
@@ -547,6 +562,10 @@ def public_request_view(
         "questions_remaining": questions_remaining(request),
         "can_regenerate": can_regenerate,
         "emphasize_hints": bool(request.get("emphasize_hints")),
+        "sensitive": bool(request.get("sensitive")),
+        "experience": str(request.get("experience") or "")
+        if request.get("sensitive")
+        else "",
     }
 
 
@@ -650,12 +669,15 @@ class SessionRequestService:
         question_limit: int | None = None,
         emphasize_hints: bool = False,
         previous_visit: dict[str, Any] | None = None,
+        sensitive: bool = False,
     ) -> tuple[dict[str, Any], float]:
         """依頼を生成して保存し、(公開ビュー, API 料金 USD) を返す。
 
         作り直しは最初の着せ替えの前だけ許す。turn_limit が None なら施術の手数は上限なし。
         emphasize_hints なら、心境の中のヒントの一文に目印を付けさせる。
         previous_visit({wish, review})があれば、今の姿を土台にした追加の要望にする。
+        sensitive なら成人向けの依頼にする。モデルが応じず JSON にならなければ、同じ
+        プロバイダーで全年齢の依頼を作り直し、公開ビューの sensitive_fallback を True にする。
         """
         session = await session_store.get_session_by_id(session_id)
         if session is None:
@@ -679,18 +701,38 @@ class SessionRequestService:
         user_settings = await session_store.get_user_settings()
         novelai_model = user_settings.get("novelai_text_model")
         tracker = begin_cost_tracking()
-        system_prompt, user_prompt = build_request_generation_prompt(
-            profile, appearance, language, previous_visit
-        )
 
         async def generate(system: str, user: str) -> str:
             return await _generate_text(system, user, novelai_model=novelai_model)
 
-        generated = await generate_validated(
-            GeneratedRequest,
-            generate=generate,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
+        async def generate_request(adult: bool) -> GeneratedRequest:
+            system_prompt, user_prompt = build_request_generation_prompt(
+                profile, appearance, language, previous_visit, sensitive=adult
+            )
+            return await generate_validated(
+                GeneratedSensitiveRequest if adult else GeneratedRequest,
+                generate=generate,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+
+        fallback = False
+        if sensitive:
+            try:
+                generated = await generate_request(True)
+            except StructuredOutputError as error:
+                logger.warning(
+                    "Sensitive request generation failed; falling back to all-ages: %s",
+                    error,
+                )
+                fallback = True
+                generated = await generate_request(False)
+        else:
+            generated = await generate_request(False)
+        experience = (
+            generated.experience
+            if isinstance(generated, GeneratedSensitiveRequest)
+            else None
         )
         saved = await session_store.save_session_request(
             session_id,
@@ -703,8 +745,12 @@ class SessionRequestService:
             turn_limit=normalize_turn_limit(turn_limit),
             question_limit=normalize_question_limit(question_limit),
             emphasize_hints=emphasize_hints,
+            sensitive=experience is not None,
+            experience=experience,
         )
-        return public_request_view(saved, [], can_regenerate=True), tracker.total_usd
+        view = public_request_view(saved, [], can_regenerate=True)
+        view["sensitive_fallback"] = fallback
+        return view, tracker.total_usd
 
     async def ask_question(
         self, session_id: str, question: str, *, language: str
@@ -736,6 +782,7 @@ class SessionRequestService:
             previous=request.get("questions", []),
             question=text,
             language=language,
+            sensitive=bool(request.get("sensitive")),
         )
         raw = await _generate_text(
             system_prompt,

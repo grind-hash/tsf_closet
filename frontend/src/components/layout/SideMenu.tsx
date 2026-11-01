@@ -87,15 +87,16 @@ const getMenuItems = (
           },
         ]
       : []),
+    // キャラクター画面はプレイの開始にも使うので、キャラチャットの設定によらず出す
+    {
+      id: "characters",
+      label: t("menu.characters"),
+      icon: "👤",
+      path: ROUTES.CHARACTERS,
+      description: t("menu.charactersDesc"),
+    },
     ...(showCharacterChatMenu
       ? [
-          {
-            id: "characters",
-            label: t("menu.characters"),
-            icon: "👤",
-            path: ROUTES.CHARACTERS,
-            description: t("menu.charactersDesc"),
-          },
           {
             id: "character-chat",
             label: t("menu.characterChat"),
@@ -161,7 +162,7 @@ export default function SideMenu() {
     t,
     settingsState.adventureEnabled,
     settingsState.experimentalPromptExpanderEnabled,
-    settingsState.experimentalCharacterChatEnabled,
+    settingsState.characterChatEnabled,
     settingsState.experimentalSalonEnabled,
   );
 

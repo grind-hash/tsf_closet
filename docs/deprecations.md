@@ -18,7 +18,38 @@ cd frontend; npx rg 'data-removal-version="v0.8.0"' src
 
 ## 削除予定
 
-現在、削除予定の非推奨機能はない。
+### 新規プレイ「または自分の画像を使用」
+
+- 非推奨化: v0.11.0
+- 削除予定: v0.12.0
+- 代替手段: キャラクター画面（`/characters`）。キャラクター詳細の「画像をアップロード」で立ち絵を置き、
+  一覧・詳細の「このキャラでプレイ」から自分自身モード・依頼モードを選んで始める
+- 移行: キャラクター一覧の「このキャラクター画面へ取り込む」で、保存済みの「作成したキャラクター」
+  （`history_images/custom/{id}.png` / `.json`）をキャラクターへ写す。取り込んだものは JSON に
+  `imported_preset_id` が付き、新規プレイの一覧とサロンの来店候補から外れる
+
+削除前にやること:
+
+- チャットのプレイ提案（`backend/gateway/services/character_chat_play_proposal.py` の `build_play_catalog`）の
+  候補を custom からキャラクター（preset）へ移す。フロントの `CharacterChatPlayProposalCard` / `GameContext.startNewSession` の
+  `source: "custom"` も合わせて外す
+- サロンの来店候補（`salon_service._customer_pool`）から custom を外す。予約済みの `customer_source="custom"` の来店が
+  残っている run の扱い（始められないときのエラー表示）を決める
+- 取り込まれていない custom が残るユーザー向けに、起動時の自動取り込みを入れるか決める
+
+削除対象:
+
+- フロントエンド: `WelcomeScreen.tsx` のカスタム画像の節（アップロード・作成したキャラクター・Prompt Expander から選択・
+  人物欄・タグ自動生成）と関連 state、`CustomImageSizeWarningModal` の WelcomeScreen からの利用、
+  `WelcomeScreen.css` の `welcome-screen__custom*` / `welcome-screen__upload-btn` / `welcome-screen__deprecated-notice`、
+  i18n `chat.welcome.customImageSection` 〜 `customCharacterDefaultName`・`customImageDeprecated`・`customImageOpenCharacters`、
+  `apis/game.ts` の `startCustomGame`、キャラクター一覧の取り込みの案内（`characters.legacy.*`、`importCustomCharacterPresets`）
+- バックエンド: `POST /game/start-custom`・`GET /game/custom-characters`・`POST /game/generate-base-tags`（他に使い道が無ければ）・
+  `POST /game/character-presets/import-custom`、`game_service.start_custom_session`、`custom_sessions.py` の
+  カスタムキャラクター保存（`save_custom_character` 等。セッションごとの `session_{id}.json` はキャラクターから始めた
+  セッションも使うので残す）、`schemas/session.py` の `CustomStartRequest`
+- テスト: `tests/integration/test_game_start_api.py` の start-custom、`tests/unit/test_custom_session_tsf_attitude.py`、
+  `tests/unit/test_preset_sessions.py` の取り込み
 
 ---
 

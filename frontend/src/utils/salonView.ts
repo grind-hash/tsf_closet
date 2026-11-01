@@ -4,7 +4,7 @@
  */
 
 import type { SalonRun, SalonVisit } from "../apis/salon";
-import type { SessionRequestView } from "../types";
+import type { HistoryItem, SessionRequestView } from "../types";
 
 /** 金額。日本語は「300万円」「7.5万円」、英語は「¥3,000,000」 */
 export function formatYen(value: number, language: string): string {
@@ -46,6 +46,21 @@ export type SalonAct = "counsel" | "styling" | "reveal" | "checkout";
 /** 接客画面を開いたときの幕。施術を始めていれば施術から再開する */
 export function initialSalonAct(request: SessionRequestView | null): SalonAct {
   return request && request.turns_used > 0 ? "styling" : "counsel";
+}
+
+/** お披露目の体験の場面(成人向けの依頼で、施術の後に走らせる行動の手番)か */
+export function isExperienceTurn(item: HistoryItem | undefined): boolean {
+  return item?.instructionType === "action";
+}
+
+/** 最後の施術の手番(体験の場面より前の、仕上がった姿) */
+export function lastStyledHistory(
+  history: readonly HistoryItem[],
+): HistoryItem | undefined {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (!isExperienceTurn(history[index])) return history[index];
+  }
+  return undefined;
 }
 
 export interface SalonCashPoint {

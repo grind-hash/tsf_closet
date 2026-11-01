@@ -13,16 +13,23 @@ def _response_language(language: str) -> str:
     return "Japanese" if language == "ja" else "English"
 
 
+# 成人向けの依頼(サロンの過激施術)で、どの文章にも添える守り
+ADULT_CONTENT_RULE = "Everyone involved is an adult (18 or older) and takes part willingly. Never describe minors, child-like bodies, or anyone who does not consent."
+
+
 def build_request_generation_prompt(
     profile: dict[str, Any],
     appearance: str,
     language: str,
     previous_visit: dict[str, Any] | None = None,
+    *,
+    sensitive: bool = False,
 ) -> tuple[str, str]:
     """依頼生成の (system, user) を返す。
 
     previous_visit({wish, review})は、前回の施術の姿のまま来たお客様の前回の来店。
     今の姿を土台にした追加の要望を願いにさせる。
+    sensitive なら成人向けの願いにし、その姿でしたいこと(experience)も書かせる。
     """
     pronoun = str(profile.get("pronoun") or "").strip()
     pronoun_rule = (
@@ -34,12 +41,27 @@ def build_request_generation_prompt(
         if language == "ja"
         else "for example, color, length, accessory"
     )
+    if sensitive:
+        schema = '{"wish":"...","preferences":[{"text":"...","hint":"..."}],"experience":"..."}'
+        wish_rule = "It names the body and look they want and what they long to do as that body, an adult desire such as being embraced by a man or a sexual act they want to try (for example, a busty beauty who wants a man to hold her, a glamorous woman who wants to seduce someone), without listing every detail."
+        preference_examples = "such as a body trait (breast size, figure), lingerie or a revealing outfit, a color family, an accessory, or a hairstyle"
+        content_rule = (
+            f"Sexual content is allowed in wish and experience. {ADULT_CONTENT_RULE}"
+        )
+        experience_rule = """
+experience: one sentence of at most 80 Japanese characters or 40 English words, written as a stage direction of the scene where the character, in the finished look, does what the wish longs for. When another person takes part, describe them only as a faceless adult (for example, a faceless adult man) and keep the character the focus."""
+    else:
+        schema = '{"wish":"...","preferences":[{"text":"...","hint":"..."}]}'
+        wish_rule = "It names the overall look or mood they want (for example, a princess at a ball, a cool office worker, a shrine maiden) without listing every detail."
+        preference_examples = "such as a color family, a skirt or dress length, a fabric or decoration, an accessory, or a hairstyle"
+        content_rule = "Never write sexual content."
+        experience_rule = ""
     system = f"""You write a request for a dress-up game. The character described by the user comes to a stylist (the player) and tells them the look they long to have.
 Return one JSON object only, in {_response_language(language)}, matching this schema:
-{{"wish":"...","preferences":[{{"text":"...","hint":"..."}}]}}
-wish: what the character says to the stylist, in their own voice, at most 120 Japanese characters or 40 English words.{pronoun_rule} It names the overall look or mood they want (for example, a princess at a ball, a cool office worker, a shrine maiden) without listing every detail.
-preferences: 2 or 3 concrete conditions the character secretly cares about but does not say, such as a color family, a skirt or dress length, a fabric or decoration, an accessory, or a hairstyle. Each must be checkable from a written description of the finished look, and they must not contradict the wish or each other. text states the condition plainly in at most 40 Japanese characters or 12 English words. hint names only its category, written in {_response_language(language)}, in at most 8 Japanese characters or 3 English words ({category_examples}), so the player has something to guess from.
-Keep everything consistent with the character's personality and background, and never write sexual content. When tsf_attitude is given, let the wish grow out of that attitude toward transformation (for example, a hidden longing to look like a princess, or curiosity about living as the other sex), without stating the attitude itself."""
+{schema}
+wish: what the character says to the stylist, in their own voice, at most 120 Japanese characters or 40 English words.{pronoun_rule} {wish_rule}
+preferences: 2 or 3 concrete conditions the character secretly cares about but does not say, {preference_examples}. Each must be checkable from a written description of the finished look, and they must not contradict the wish or each other. text states the condition plainly in at most 40 Japanese characters or 12 English words. hint names only its category, written in {_response_language(language)}, in at most 8 Japanese characters or 3 English words ({category_examples}), so the player has something to guess from.{experience_rule}
+Keep everything consistent with the character's personality and background. {content_rule} When tsf_attitude is given, let the wish grow out of that attitude toward transformation (for example, a hidden longing to look like a princess, or curiosity about living as the other sex), without stating the attitude itself."""
     payload: dict[str, Any] = {
         "character": {
             "name": profile.get("name") or "",
@@ -137,6 +159,7 @@ def build_request_question_prompt(
     previous: list[dict[str, Any]],
     question: str,
     language: str,
+    sensitive: bool = False,
 ) -> tuple[str, str]:
     """カウンセリングの質問に、依頼主本人として答える (system, user) を返す。"""
     pronoun = str(profile.get("pronoun") or "").strip()
@@ -145,10 +168,15 @@ def build_request_question_prompt(
         if pronoun
         else ""
     )
+    content_rule = (
+        f"Sexual content is allowed when the wish calls for it. {ADULT_CONTENT_RULE}"
+        if sensitive
+        else "Never write sexual content."
+    )
     system = f"""You play the customer described by the user, talking with the stylist (the player) during a counselling before a dress-up.
 Reply in {_response_language(language)}, in the character's own voice and personality, with one to three short sentences (at most 120 Japanese characters or 40 English words).{pronoun_rule}
 Answer the stylist's question honestly but indirectly. When it touches on one of hidden_preferences, let a clue slip through feelings, associations, or memories (for example, a favorite color appearing in a memory) without ever stating the preference itself. When it does not, answer naturally and stay in character.
-Stay consistent with previous_counselling. Never mention ids, lists, scores, or game mechanics, never invent new preferences, and never write sexual content. Output only the reply, without quotation marks."""
+Stay consistent with previous_counselling. Never mention ids, lists, scores, or game mechanics, and never invent new preferences. {content_rule} Output only the reply, without quotation marks."""
     user = json.dumps(
         {
             "character": {

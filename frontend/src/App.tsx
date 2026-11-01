@@ -106,11 +106,11 @@ function AppRoutes() {
       </AdventureProvider>
     );
   }
-  // キャラチャット（実験機能）。/talk と /talk/:threadId。ゲートは設定画面のトグル
+  // キャラチャット（既定 ON）。/talk と /talk/:threadId。ゲートは設定画面のトグル
   if (location.pathname === "/talk" || location.pathname.startsWith("/talk/")) {
     // TSFシナリオの「トーク」から遷移するため、Adventure が有効なら通す
     if (
-      !settingsState.experimentalCharacterChatEnabled &&
+      !settingsState.characterChatEnabled &&
       !settingsState.adventureEnabled
     ) {
       return <Navigate to="/play/new" replace />;
@@ -121,17 +121,11 @@ function AppRoutes() {
       </CharacterChatProvider>
     );
   }
-  // キャラクター（キャラチャットで話すキャラクターの作成・管理）。ゲートはキャラチャットと同じ
+  // キャラクター（キャラクターの作成・管理と、そのキャラでのプレイ開始）。常に開ける
   if (
     location.pathname === "/characters" ||
     location.pathname.startsWith("/characters/")
   ) {
-    if (
-      !settingsState.experimentalCharacterChatEnabled &&
-      !settingsState.adventureEnabled
-    ) {
-      return <Navigate to="/play/new" replace />;
-    }
     return <CharactersScreen />;
   }
   // サロン経営（実験機能）。/salon・/salon/:runId・/salon/:runId/visits/:visitId

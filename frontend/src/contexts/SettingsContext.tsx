@@ -96,7 +96,8 @@ export interface SettingsState {
   // TSFシナリオをメニューに表示する(既定 ON。v0.9.0 で Experimental から昇格)
   adventureEnabled: boolean;
   experimentalPromptExpanderEnabled: boolean;
-  experimentalCharacterChatEnabled: boolean;
+  /** キャラチャット(既定 ON。v0.11.0 で Experimental から昇格)。OFF で「話す」の入口を隠す */
+  characterChatEnabled: boolean;
   /** サロン経営モード(実験機能)。ON でサイドメニューに出し /salon を開ける */
   experimentalSalonEnabled: boolean;
   // キャラチャット: セレナの Web 検索・天気。発言ごとに送り、サーバー側の設定が無ければ使われない
@@ -214,7 +215,7 @@ type SettingsAction =
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_ADVENTURE_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED"; payload: boolean }
-  | { type: "SET_EXPERIMENTAL_CHARACTER_CHAT_ENABLED"; payload: boolean }
+  | { type: "SET_CHARACTER_CHAT_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_SALON_ENABLED"; payload: boolean }
   | { type: "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED"; payload: boolean }
   | { type: "SET_CHARACTER_CHAT_WEATHER_ENABLED"; payload: boolean }
@@ -287,7 +288,7 @@ const defaultState: SettingsState = {
   showRealityAttributeNotification: true,
   adventureEnabled: true,
   experimentalPromptExpanderEnabled: false,
-  experimentalCharacterChatEnabled: false,
+  characterChatEnabled: true,
   experimentalSalonEnabled: false,
   characterChatWebSearchEnabled: false,
   characterChatWeatherEnabled: false,
@@ -400,8 +401,8 @@ function settingsReducer(
       return { ...state, adventureEnabled: action.payload };
     case "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED":
       return { ...state, experimentalPromptExpanderEnabled: action.payload };
-    case "SET_EXPERIMENTAL_CHARACTER_CHAT_ENABLED":
-      return { ...state, experimentalCharacterChatEnabled: action.payload };
+    case "SET_CHARACTER_CHAT_ENABLED":
+      return { ...state, characterChatEnabled: action.payload };
     case "SET_EXPERIMENTAL_SALON_ENABLED":
       return { ...state, experimentalSalonEnabled: action.payload };
     case "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED":
@@ -547,7 +548,7 @@ interface SettingsContextType {
   setShowRealityAttributeNotification: (show: boolean) => void;
   setAdventureEnabled: (enabled: boolean) => void;
   setExperimentalPromptExpanderEnabled: (enabled: boolean) => void;
-  setExperimentalCharacterChatEnabled: (enabled: boolean) => void;
+  setCharacterChatEnabled: (enabled: boolean) => void;
   setExperimentalSalonEnabled: (enabled: boolean) => void;
   setCharacterChatWebSearchEnabled: (enabled: boolean) => void;
   setCharacterChatWeatherEnabled: (enabled: boolean) => void;
@@ -641,6 +642,8 @@ function loadInitialState(initial: SettingsState): SettingsState {
         // v0.9.0 で廃止: エンディングは常時表示、TSFシナリオは adventureEnabled(既定 ON)へ
         experimentalEndingEnabled: _legacyEnding,
         experimentalAdventureEnabled: _legacyAdventure,
+        // v0.11.0 で廃止: キャラチャットは characterChatEnabled(既定 ON)へ
+        experimentalCharacterChatEnabled: _legacyCharacterChat,
         ...filtered
       } = rest;
       return {
@@ -1012,15 +1015,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
-  const setExperimentalCharacterChatEnabled = useCallback(
-    (enabled: boolean) => {
-      dispatch({
-        type: "SET_EXPERIMENTAL_CHARACTER_CHAT_ENABLED",
-        payload: enabled,
-      });
-    },
-    [],
-  );
+  const setCharacterChatEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_CHARACTER_CHAT_ENABLED", payload: enabled });
+  }, []);
   const setExperimentalSalonEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_EXPERIMENTAL_SALON_ENABLED", payload: enabled });
   }, []);
@@ -1327,7 +1324,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setShowRealityAttributeNotification,
       setAdventureEnabled,
       setExperimentalPromptExpanderEnabled,
-      setExperimentalCharacterChatEnabled,
+      setCharacterChatEnabled,
       setExperimentalSalonEnabled,
       setCharacterChatWebSearchEnabled,
       setCharacterChatWeatherEnabled,
@@ -1403,7 +1400,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setShowRealityAttributeNotification,
       setAdventureEnabled,
       setExperimentalPromptExpanderEnabled,
-      setExperimentalCharacterChatEnabled,
+      setCharacterChatEnabled,
       setExperimentalSalonEnabled,
       setCharacterChatWebSearchEnabled,
       setCharacterChatWeatherEnabled,

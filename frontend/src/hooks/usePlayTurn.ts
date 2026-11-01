@@ -108,6 +108,9 @@ export function usePlayTurn(): TransformHandler {
       if (options?.imageOnlyTextToImage) {
         body.image_only_text_to_image = true;
       }
+      if (options?.nsfwMode !== undefined) {
+        body.nsfw_mode = options.nsfwMode;
+      }
       // Build character_references for NovelAI precise reference images
       // (V5系モデルは精密参照非対応のため送らない)
       if (

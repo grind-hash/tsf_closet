@@ -130,6 +130,19 @@ describe("usePlayTurn", () => {
     expect(typeof body.inpaint_noise).toBe("number");
   });
 
+  it("sends the NSFW override only when a turn asks for it", () => {
+    const { result } = renderHook(() => usePlayTurn());
+
+    result.current("指示", undefined, "costume", { nsfwMode: false });
+    result.current("指示", undefined, "costume", { nsfwMode: true });
+    result.current("指示");
+
+    const bodies = mocks.startPostStream.mock.calls.map((call) => call[1]);
+    expect(bodies[0].nsfw_mode).toBe(false);
+    expect(bodies[1].nsfw_mode).toBe(true);
+    expect("nsfw_mode" in bodies[2]).toBe(false);
+  });
+
   it("does not send while a turn is already running", () => {
     setState({ isTransforming: true });
     const { result } = renderHook(() => usePlayTurn());

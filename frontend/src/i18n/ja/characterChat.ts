@@ -54,8 +54,6 @@ export const characterChat = {
   room: {
     back: "一覧へ戻る",
     backToScenario: "シナリオへ戻る",
-    hideWindow: "ウィンドウを隠す",
-    showWindow: "ウィンドウを表示",
     adventureFollow: "シナリオの姿に合わせる",
     adventureFollowHint:
       "表示モードに合わせた既定（合成モードなら相手が写る最新の場面画像、それ以外は最新の立ち絵）に戻し、以後もシナリオの変化に追従します。",

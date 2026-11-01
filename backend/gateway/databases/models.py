@@ -524,6 +524,10 @@ class CharacterPreset(Base):
     # {"speaker_id": ..., "style_id": ...}。未設定ならユーザー設定の声
     voice_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     portrait_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # サロン経営でお客様として来店するか(立ち絵があるときだけ来店候補に入る)
+    salon_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
@@ -618,6 +622,12 @@ class SessionRequest(Base):
     emphasize_hints: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="0"
     )
+    # 成人向けの依頼か(サロンの過激施術)。生成が通らず全年齢に切り戻したときは False
+    sensitive: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    # 成人向けの依頼で、願いの姿でしたいこと(お披露目の体験の場面の指示)。それ以外は None
+    experience_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     # active / fulfilled。一度満たしたら fulfilled のまま(後の手番で下がっても戻さない)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     fulfilled_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -676,7 +686,7 @@ class SalonVisit(Base):
     )
     week: Mapped[int] = mapped_column(Integer, nullable=False)
     slot: Mapped[int] = mapped_column(Integer, nullable=False)
-    # template / custom(保存済みカスタムキャラ)
+    # template / custom(保存済みカスタムキャラ) / preset(キャラクター画面で作ったキャラ)
     customer_source: Mapped[str] = mapped_column(String, nullable=False)
     customer_id: Mapped[str] = mapped_column(String, nullable=False)
     customer_name: Mapped[str] = mapped_column(String(120), nullable=False)

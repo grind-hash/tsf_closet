@@ -54,9 +54,10 @@ export const settings = {
   experimentalPromptExpander: "Prompt Expander",
   experimentalPromptExpanderDesc:
     "Show a standalone screen that expands natural-language instructions into NovelAI prompts and generates images outside of gameplay",
-  experimentalCharacterChat: "Character Chat",
-  experimentalCharacterChatDesc:
-    "Show a screen for one-on-one conversations with a character outside the TSF scenario: the guide character Serena, or a character brought back from a past session",
+  characterChatSection: "Character Chat",
+  characterChatEnabled: "Character Chat",
+  characterChatEnabledDesc:
+    "Show the one-on-one conversation screen in the menu and a Talk button on the Characters screen. You can also talk with the guide character Serena or a character brought back from a past session. The Characters screen (creating characters and starting a play) stays available when this is off",
   experimentalSalon: "Salon Management",
   experimentalSalonDesc:
     "Show a mode in the menu where you run a dress-up salon for 12 weeks, turning customers into the look they wish for. Serving uses the same rules as request mode (3 styling turns, 2 questions), and the satisfaction at checkout decides sales and reputation",

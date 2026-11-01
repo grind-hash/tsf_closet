@@ -139,6 +139,14 @@ class SessionRequestResponse(BaseModel):
         False,
         description="心境の中のヒントの一文が〔〕で囲まれているか(強調表示する)",
     )
+    sensitive: bool = Field(False, description="成人向けの依頼か(サロンの過激施術)")
+    experience: str = Field(
+        "", description="成人向けの依頼で、願いの姿でしたいこと(体験の場面の指示)"
+    )
+    sensitive_fallback: bool = Field(
+        False,
+        description="成人向けの依頼を作れず、全年齢の依頼に切り戻したか(生成直後だけ)",
+    )
 
 
 class SessionRequestCreateRequest(BaseModel):
@@ -264,6 +272,15 @@ class GameStartRequest(BaseModel):
     difficulty: str = Field("normal", description="Difficulty (easy/normal/hard)")
     nsfw_mode: bool = Field(False, description="NSFW mode")
     self_mode: bool = Field(False, description="Self mode (bypass parameters)")
+
+
+class PresetStartRequest(BaseModel):
+    """キャラクター(キャラクター画面で作ったキャラ)でのセッション開始リクエスト"""
+
+    preset_id: str = Field(..., min_length=1, description="キャラクターの ID")
+    difficulty: str = Field("normal", description="難易度")
+    nsfw_mode: bool = Field(False, description="NSFWモード")
+    self_mode: bool = Field(False, description="自分自身モード")
 
 
 class GameStartResponse(BaseModel):

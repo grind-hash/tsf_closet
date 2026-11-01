@@ -55,8 +55,6 @@ export const characterChat = {
   room: {
     back: "Back to list",
     backToScenario: "Back to the scenario",
-    hideWindow: "Hide window",
-    showWindow: "Show window",
     adventureFollow: "Follow the scenario's look",
     adventureFollowHint:
       "Returns to the default for the display mode (the latest scene image with the partner in composite mode, otherwise the latest portrait) and keeps following the scenario afterwards.",

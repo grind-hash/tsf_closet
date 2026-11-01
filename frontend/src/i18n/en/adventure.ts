@@ -534,12 +534,6 @@ export const adventure = {
     title: "Story so far",
     close: "Close the log",
   },
-  window: {
-    hide: "Hide",
-    hideHint: "Hide the message window to see the character (H)",
-    show: "Show window",
-    showHint: "Show the message window again (H)",
-  },
   sound: {
     settings: "Sound settings",
   },

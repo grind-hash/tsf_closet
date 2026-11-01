@@ -126,6 +126,9 @@ export const chat = {
     selectCharacter: "Select Character",
     loading: "Loading...",
     customImageSection: "Or use your own image",
+    customImageDeprecated:
+      "This entry will be removed in v0.12.0. Creating a character from an image and starting a play now live on the Characters screen.",
+    customImageOpenCharacters: "Open Characters",
     selectImage: "📁 Select Image",
     createdCharacters: "Created Characters",
     selectFromPromptExpander: "Select from Prompt Expander",

@@ -831,9 +831,8 @@ export default function AdventurePlay({ runId }: { runId: string }) {
                 sim ? " adventure-window-restore--romance" : ""
               }`}
               onClick={() => setMessageWindowHidden(false)}
-              title={t("adventure.window.showHint")}
             >
-              {t("adventure.window.show")}
+              {t("common.messageWindow.show")}
             </button>
           )}
 

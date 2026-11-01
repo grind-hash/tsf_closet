@@ -17,6 +17,13 @@ class SalonCreateRequest(BaseModel):
     )
 
 
+class SalonSettingsRequest(BaseModel):
+    sensitive: bool = Field(
+        ...,
+        description="過激施術(成人向けの依頼)。NSFW モードが ON のときだけ効く",
+    )
+
+
 class SalonLanguageRequest(BaseModel):
     language: str | None = Field(
         None, description="依頼・口コミの言語。未指定はユーザー設定"
@@ -25,7 +32,9 @@ class SalonLanguageRequest(BaseModel):
 
 class SalonCustomer(BaseModel):
     source: str = Field(
-        ..., description="template(同梱キャラ) / custom(カスタムキャラ)"
+        ...,
+        description="template(同梱キャラ) / custom(カスタムキャラ) / "
+        "preset(キャラクター画面で作ったキャラ)",
     )
     id: str
     name: str
@@ -82,6 +91,9 @@ class SalonRunResponse(BaseModel):
     reputation: int
     difficulty: str = Field(..., description="経営の難易度 (easy / normal / hard)")
     initial_cash: int = Field(..., description="開業資金。決算の成功の線")
+    sensitive: bool = Field(
+        False, description="過激施術の設定。NSFW モードが OFF の間は効かない"
+    )
     weekly_fixed_cost: int
     weekly_salary: int
     base_price: int

@@ -25,8 +25,15 @@ export default function SalonOffice({ runId }: { runId: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { state: settingsState } = useSettings();
-  const { activeRun, busy, error, openRun, declineVisit, closeWeek } =
-    useSalon();
+  const {
+    activeRun,
+    busy,
+    error,
+    openRun,
+    updateRunSettings,
+    declineVisit,
+    closeWeek,
+  } = useSalon();
   const [declineTarget, setDeclineTarget] = useState<SalonVisit | null>(null);
   const [closeOpen, setCloseOpen] = useState(false);
   const language = settingsState.language;
@@ -150,6 +157,35 @@ export default function SalonOffice({ runId }: { runId: string }) {
             </strong>
           </div>
         </div>
+
+        {isActive && (
+          <section className="salon-card salon-office__settings">
+            <label className="salon-toggle">
+              <span className="salon-toggle__info">
+                <strong>{t("salon.office.sensitive")}</strong>
+                <small>{t("salon.office.sensitiveHint")}</small>
+                {!settingsState.nsfwMode && (
+                  <small className="salon-office__settings-note">
+                    {t("salon.office.sensitiveNsfwOff")}{" "}
+                    <Link to={ROUTES.SETTINGS}>
+                      {t("salon.office.sensitiveOpenSettings")}
+                    </Link>
+                  </small>
+                )}
+              </span>
+              <input
+                type="checkbox"
+                className="salon-toggle__input"
+                checked={run.sensitive}
+                disabled={busy !== null}
+                onChange={(event) =>
+                  void updateRunSettings({ sensitive: event.target.checked })
+                }
+              />
+              <span className="salon-toggle__switch" aria-hidden />
+            </label>
+          </section>
+        )}
 
         {isActive && (
           <section className="salon-section">

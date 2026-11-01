@@ -53,9 +53,10 @@ export const settings = {
   experimentalPromptExpander: "Prompt Expander",
   experimentalPromptExpanderDesc:
     "自然文の指示をLLMでNovelAIプロンプトに拡張し、ゲームとは独立に画像を生成・保存できる画面をメニューに表示します",
-  experimentalCharacterChat: "キャラチャット",
-  experimentalCharacterChatDesc:
-    "TSFシナリオを経由せず、キャラクターと1対1で会話する画面をメニューに表示します。案内役のセレナと、過去セッションの人物を呼び出して話せます",
+  characterChatSection: "キャラチャット",
+  characterChatEnabled: "キャラチャット",
+  characterChatEnabledDesc:
+    "キャラクターと1対1で会話する画面をメニューに表示し、キャラクター画面に「このキャラと話す」を出します。案内役のセレナと、過去セッションの人物も呼び出して話せます。OFF にしても、キャラクター画面（キャラクターの作成・プレイの開始）は使えます",
   experimentalSalon: "サロン経営",
   experimentalSalonDesc:
     "お客様を着せ替えで願いどおりの姿にして、12週のあいだサロンを経営するモードをメニューに表示します。接客は依頼モードと同じ仕組み（施術3手・質問2回）で、会計の満足度から売上と評判が決まります",

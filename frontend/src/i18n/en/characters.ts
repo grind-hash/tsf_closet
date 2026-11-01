@@ -1,7 +1,7 @@
 export const characters = {
   title: "Characters",
   intro:
-    "Create and manage the characters you talk with in Character Chat. Set the name, first-person pronoun, personality, speech style, knowledge, look, 3D model and voice, then start a conversation as that character. Characters you make can also join normal play as cast members.",
+    "Create and manage your characters. With a portrait (an uploaded image works too), you can start a play as the character, and they also visit your salon as customers. Set the name, first-person pronoun, personality, speech style, knowledge, look, 3D model and voice to talk with them in Character Chat. Characters you make can also join normal play as cast members.",
   create: "Create a new character",
   creating: "Creating...",
   newName: "New character",
@@ -21,7 +21,32 @@ export const characters = {
   badgeVrm: "3D",
   badgeVoice: "Voice",
   noPersonality: "No personality set",
+  play: {
+    open: "Play as this character",
+    title: "Start a play as {{name}}",
+    start: "Start the play",
+    starting: "Starting...",
+    noPortrait:
+      "A portrait is needed to start a play. Upload an image or draw a portrait on the edit screen.",
+    openEditor: "Open the edit screen",
+    failed: "Could not start the play.",
+  },
+  salon: {
+    title: "Visit the salon",
+    hint: "This character visits your salon as a customer in Salon Management.",
+    noPortrait:
+      "This character visits your salon as a customer in Salon Management. They do not visit while they have no portrait.",
+  },
+  legacy: {
+    hint: 'You have {{count}} characters made with "Use your own image" on the new-play screen. That entry will be removed in v0.12.0, so you can bring them into this Characters screen.',
+    import: "Bring them into Characters",
+    importing: "Bringing them in...",
+    done: "Brought {{count}} characters into Characters.",
+    none: "There were no characters to bring in.",
+    failed: "Could not bring the characters in.",
+  },
   sections: {
+    play: "Play and salon",
     profile: "Name and personality",
     speech: "Speech",
     knowledge: "Knowledge and background",
@@ -76,6 +101,13 @@ export const characters = {
     "Replace the current appearance tags with tags made from the description?",
   generateTagsError: "Could not make appearance tags.",
   portrait: {
+    upload: "Upload an image",
+    uploading: "Uploading...",
+    uploadHint:
+      "Use an image from your device as the portrait. You can drop it anywhere on the screen.",
+    uploaded: "The image is now the portrait.",
+    dropTitle: "Drop to make this the character's portrait",
+    dropHint: "The current portrait will be replaced.",
     title: "Portrait",
     none: "No portrait yet.",
     import: "Use an image as the portrait",
@@ -97,12 +129,16 @@ export const characters = {
       "The image is now the portrait, and its appearance tags were imported.",
   },
   preview: {
+    playHint:
+      "Choose self mode or request mode and start a play from this character's portrait.",
     title: "Preview",
     vrmLoading: "Loading the 3D model...",
     talkHint:
       "Opens the latest conversation with this character, or starts a new one.",
   },
   errors: {
+    uploadFailed: "Could not use the image as the portrait.",
+    uploadNotImage: "Choose an image file.",
     loadFailed: "Could not load the character.",
     saveFailed: "Could not save.",
     createFailed: "Could not create the character.",

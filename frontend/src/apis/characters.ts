@@ -12,7 +12,9 @@ import {
   CHARACTER_PRESET,
   CHARACTER_PRESET_PORTRAIT_FROM_SOURCE,
   CHARACTER_PRESET_PORTRAIT_STREAM,
+  CHARACTER_PRESET_PORTRAIT_UPLOAD,
   CHARACTER_PRESETS,
+  CHARACTER_PRESETS_IMPORT_CUSTOM,
   CHARACTERS_FROM_GROUP,
   CHARACTERS_FROM_PRESET,
   CHARACTERS_GENERATE_PROFILE,
@@ -269,6 +271,8 @@ export interface UpdateCharacterPresetPayload {
   avatar_model_id?: string;
   /** 話者・スタイルとも空で「ユーザー設定の声」に戻す */
   voice?: CharacterVoice;
+  /** サロン経営でお客様として来店するか */
+  salon_enabled?: boolean;
 }
 
 export async function updateCharacterPreset(
@@ -302,6 +306,31 @@ export async function importCharacterPresetPortrait(
     CHARACTER_PRESET_PORTRAIT_FROM_SOURCE(presetId),
     { method: "POST", body: JSON.stringify(payload) },
   );
+}
+
+/** アップロードした画像(data URL)をキャラクターの立ち絵にする */
+export async function uploadCharacterPresetPortrait(
+  presetId: string,
+  image: string,
+): Promise<CharacterPreset> {
+  return request<CharacterPreset>(CHARACTER_PRESET_PORTRAIT_UPLOAD(presetId), {
+    method: "POST",
+    body: JSON.stringify({ image }),
+  });
+}
+
+/**
+ * 新規プレイの「作成したキャラクター」をキャラクターへ取り込み、取り込んだキャラを返す。
+ * 取り込んだものは新規プレイの一覧とサロンの来店候補から外れる
+ */
+export async function importCustomCharacterPresets(): Promise<
+  CharacterPreset[]
+> {
+  const data = await request<{ presets: CharacterPreset[] }>(
+    CHARACTER_PRESETS_IMPORT_CUSTOM,
+    { method: "POST" },
+  );
+  return data.presets;
 }
 
 export type CharacterPresetPortraitEvent =

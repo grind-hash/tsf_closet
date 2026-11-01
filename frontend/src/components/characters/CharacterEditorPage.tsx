@@ -5,12 +5,14 @@ import { openCharacterChatForPreset } from "../../apis/characterChat";
 import {
   deleteCharacterPreset,
   getCharacterPreset,
+  updateCharacterPreset,
 } from "../../apis/characters";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { ROUTES } from "../../routes";
 import type { CharacterPreset } from "../../types";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import CharacterPlayStartDialog from "./CharacterPlayStartDialog";
 import CharacterPortraitSection from "./CharacterPortraitSection";
 import CharacterPreview from "./CharacterPreview";
 import CharacterSettingsEditor from "./CharacterSettingsEditor";
@@ -23,7 +25,7 @@ interface CharacterEditorPageProps {
   presetId: string;
 }
 
-/** 1 人のキャラクターを編集する画面。右パネルにプレビューと「このキャラと話す」 */
+/** 1 人のキャラクターを編集する画面。右パネルにプレビューと「このキャラでプレイ」「このキャラと話す」 */
 export default function CharacterEditorPage({
   presetId,
 }: CharacterEditorPageProps) {
@@ -37,6 +39,8 @@ export default function CharacterEditorPage({
   const [talking, setTalking] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [playOpen, setPlayOpen] = useState(false);
+  const [salonSaving, setSalonSaving] = useState(false);
   const [panelOpen, setPanelOpen] = usePersistedState<boolean>(
     PREVIEW_PANEL_OPEN_KEY,
     true,
@@ -71,6 +75,21 @@ export default function CharacterEditorPage({
       console.error("Failed to open character chat", err);
       setError(t("characters.errors.talkFailed"));
       setTalking(false);
+    }
+  };
+
+  const handleSalonToggle = async (enabled: boolean) => {
+    setSalonSaving(true);
+    setError(null);
+    try {
+      setPreset(
+        await updateCharacterPreset(presetId, { salon_enabled: enabled }),
+      );
+    } catch (err) {
+      console.error("Failed to save salon setting", err);
+      setError(t("characters.errors.saveFailed"));
+    } finally {
+      setSalonSaving(false);
     }
   };
 
@@ -112,6 +131,7 @@ export default function CharacterEditorPage({
             preset={preset}
             talking={talking}
             onTalk={() => void handleTalk()}
+            onPlay={() => setPlayOpen(true)}
           />
         ) : undefined
       }
@@ -163,9 +183,36 @@ export default function CharacterEditorPage({
             appearance={
               <CharacterPortraitSection preset={preset} onSaved={setPreset} />
             }
+            play={
+              <label className="character-chat__switch-row">
+                <span className="character-chat__switch-info">
+                  <strong>{t("characters.salon.title")}</strong>
+                  <small>
+                    {preset.portrait_url
+                      ? t("characters.salon.hint")
+                      : t("characters.salon.noPortrait")}
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  className="character-chat__switch-input"
+                  checked={preset.salon_enabled}
+                  disabled={salonSaving}
+                  onChange={(event) =>
+                    void handleSalonToggle(event.target.checked)
+                  }
+                />
+                <span className="character-chat__switch" />
+              </label>
+            }
           />
         )}
       </div>
+
+      <CharacterPlayStartDialog
+        preset={playOpen ? preset : null}
+        onClose={() => setPlayOpen(false)}
+      />
 
       <ConfirmDialog
         open={deleteOpen}

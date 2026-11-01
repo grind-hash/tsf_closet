@@ -39,6 +39,8 @@ interface CharacterSettingsEditorProps {
   appearance?: ReactNode;
   /** 「外見と立ち絵」の節を出さないときに、代わりに出す一文 */
   appearanceNote?: ReactNode;
+  /** 「プレイ・サロン」の節の中身(キャラクター画面だけ)。省くと節ごと出さない */
+  play?: ReactNode;
 }
 
 export default function CharacterSettingsEditor({
@@ -47,6 +49,7 @@ export default function CharacterSettingsEditor({
   sectionStorageKey,
   appearance,
   appearanceNote,
+  play,
 }: CharacterSettingsEditorProps) {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
@@ -291,6 +294,16 @@ export default function CharacterSettingsEditor({
         appearanceNote && (
           <p className="character-maker__note">{appearanceNote}</p>
         )
+      )}
+
+      {play && (
+        <MakerSection
+          id="play"
+          storageKey={sectionStorageKey}
+          title={t("characters.sections.play")}
+        >
+          {play}
+        </MakerSection>
       )}
 
       <MakerSection

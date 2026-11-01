@@ -43,6 +43,24 @@
   margin: 0 0 1rem;
 }
 
+/* 非推奨の入口の案内(移行先へのリンク付き) */
+.welcome-screen__deprecated-notice {
+  margin: -0.5rem 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 6px;
+  background-color: rgba(248, 113, 113, 0.08);
+  color: var(--text-muted, #aaa);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.welcome-screen__deprecated-notice a {
+  margin-left: 0.5rem;
+  color: var(--accent, #ff4757);
+  font-weight: 600;
+}
+
 /* キャラクター選択 */
 .welcome-screen__characters {
   background-color: rgba(255, 255, 255, 0.05);
@@ -226,54 +244,6 @@
   color: var(--text-color, #eee);
 }
 
-/* 依頼モードの施術の手数(セグメント型) */
-.welcome-screen__request-turns {
-  display: grid;
-  gap: 0.35rem;
-  margin: 0.6rem 0 0 calc(44px + 0.5rem);
-  font-size: 0.85rem;
-}
-
-.welcome-screen__request-turns .welcome-screen__request-mode-desc {
-  margin: 0;
-}
-
-.welcome-screen__segments {
-  display: grid;
-  grid-auto-columns: minmax(0, 1fr);
-  grid-auto-flow: column;
-  max-width: 320px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.welcome-screen__segments button {
-  min-height: 32px;
-  padding: 0.3rem 0.5rem;
-  border: none;
-  border-left: 1px solid var(--border-color, #333);
-  background: transparent;
-  color: inherit;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.welcome-screen__segments button:first-child {
-  border-left: none;
-}
-
-.welcome-screen__segments button.is-active {
-  background: var(--accent-color, #e94560);
-  color: white;
-  font-weight: 700;
-}
-
-.welcome-screen__segments button:focus-visible {
-  outline: 2px solid var(--accent-color, #e94560);
-  outline-offset: -2px;
-}
-
 /* TSF への態度: 入力欄と、使い道を示す注記で 1 行を占める */
 .welcome-screen__tsf-attitude {
   grid-column: 1 / -1;
@@ -414,90 +384,6 @@
 .welcome-screen__profile-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
-}
-
-/* 自分自身モード・依頼モード: どちらも ON/OFF をトグルスイッチで示す */
-.welcome-screen__self-mode,
-.welcome-screen__request-mode {
-  padding: 0.75rem 1rem;
-}
-
-.welcome-screen__self-mode-label,
-.welcome-screen__request-mode-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-/* チェックボックス自体をスイッチに描き替える(ラベルのクリック・キー操作はそのまま) */
-.welcome-screen__switch {
-  position: relative;
-  flex: 0 0 auto;
-  width: 44px;
-  height: 24px;
-  margin: 0;
-  border-radius: 12px;
-  background-color: var(--border-color, #333);
-  appearance: none;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.welcome-screen__switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background-color: white;
-  transition: transform 0.2s;
-}
-
-.welcome-screen__switch:checked {
-  background-color: var(--accent-color, #e94560);
-}
-
-.welcome-screen__switch:checked::after {
-  transform: translateX(20px);
-}
-
-.welcome-screen__switch:focus-visible {
-  outline: 2px solid var(--accent-color, #e94560);
-  outline-offset: 2px;
-}
-
-/* 説明と注記はスイッチの右の見出し文字に揃える */
-.welcome-screen__self-mode-desc,
-.welcome-screen__request-mode-desc {
-  margin: 0.25rem 0 0 calc(44px + 0.5rem);
-  font-size: 0.85rem;
-  color: var(--text-muted, #888);
-}
-
-.welcome-screen__self-mode-warning {
-  margin: 0.5rem 0 0 calc(44px + 0.5rem);
-  padding: 0.5rem 0.75rem;
-  font-size: 0.85rem;
-  color: var(--warning-text, #b8860b);
-  background-color: var(--warning-bg, rgba(255, 193, 7, 0.1));
-  border: 1px solid var(--warning-border, rgba(255, 193, 7, 0.3));
-  border-radius: 6px;
-}
-
-.welcome-screen__self-mode-warning-link {
-  display: inline-block;
-  margin-left: 0.5rem;
-  color: var(--accent, #ff4757);
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.welcome-screen__self-mode-warning-link:hover {
-  text-decoration: underline;
 }
 
 /* レスポンシブ */

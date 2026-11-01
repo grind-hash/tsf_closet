@@ -47,6 +47,7 @@ from .clothing_layers import split_worn_under_layers
 from .cost_tracker import begin_cost_tracking
 from .custom_sessions import list_custom_character_profiles
 from .game_service import GameServiceError, game_service
+from .preset_sessions import list_salon_preset_customers
 from .salon_prompts import (
     build_salon_review_prompt,
     fallback_salon_review,
@@ -84,8 +85,9 @@ class SalonError(Exception):
         self.code = code
 
 
-def _customer_pool() -> list[Customer]:
-    """予約に入りうるお客様: 同梱のテンプレートキャラと保存済みのカスタムキャラ。"""
+async def _customer_pool(db: Any) -> list[Customer]:
+    """予約に入りうるお客様: 同梱のテンプレートキャラ、保存済みのカスタムキャラ、
+    来店する設定で立ち絵のあるキャラクター(キャラクター画面で作ったキャラ)。"""
     pool = [
         Customer("template", character.id, character.name)
         for character in character_manager.get_all()
@@ -93,6 +95,10 @@ def _customer_pool() -> list[Customer]:
     pool.extend(
         Customer("custom", str(profile["id"]), str(profile.get("name") or ""))
         for profile in list_custom_character_profiles()
+    )
+    pool.extend(
+        Customer("preset", item["id"], item["name"])
+        for item in await list_salon_preset_customers(db)
     )
     return pool
 
@@ -159,6 +165,7 @@ def _serialize_run(run: SalonRun, visits: list[SalonVisit]) -> dict[str, Any]:
         "reputation": run.reputation,
         "difficulty": state.get("difficulty", SALON_DEFAULT_DIFFICULTY),
         "initial_cash": _initial_cash(state),
+        "sensitive": bool(state.get("sensitive", False)),
         "weekly_fixed_cost": SALON_WEEKLY_FIXED_COST,
         "weekly_salary": SALON_WEEKLY_SALARY,
         "base_price": SALON_BASE_PRICE,
@@ -235,14 +242,16 @@ class SalonService:
             raise SalonError("salon_closed", "このサロンのシーズンは終わっています")
 
     @staticmethod
-    def _book_week(db: Any, run: SalonRun, kept: Sequence[SalonVisit] = ()) -> None:
+    async def _book_week(
+        db: Any, run: SalonRun, kept: Sequence[SalonVisit] = ()
+    ) -> None:
         """run.week の予約を評判に応じて入れる。
 
         kept は前の週に施術した姿のまま帰ったお客様の来店で、必ず予約に入れ、
         残りの枠を抽選で埋める。
         """
         fresh = pick_customers(
-            _customer_pool(),
+            await _customer_pool(db),
             seed=run.seed,
             week=run.week,
             count=bookings_count(run.reputation) - len(kept),
@@ -322,9 +331,21 @@ class SalonService:
         async with async_session_factory() as db:
             db.add(run)
             await db.flush()
-            self._book_week(db, run)
+            await self._book_week(db, run)
             await db.commit()
         return await self.get_run(run.id)
+
+    async def update_settings(self, run_id: str, *, sensitive: bool) -> dict[str, Any]:
+        """オーナー室の設定を変える。依頼は接客の開始時に作るので、次の接客から効く。"""
+        async with async_session_factory() as db:
+            run, visits = await self._load(db, run_id)
+            self._require_active(run)
+            state = _load_state(run)
+            state["sensitive"] = bool(sensitive)
+            run.state_json = json.dumps(state)
+            run.updated_at = datetime.now()
+            await db.commit()
+            return _serialize_run(run, visits)
 
     async def delete_run(self, run_id: str) -> None:
         async with async_session_factory() as db:
@@ -364,7 +385,9 @@ class SalonService:
                     "serving_other", "先に、接客中のお客様の会計を済ませてください"
                 )
             customer = visit.customer_source, visit.customer_id
-            difficulty = _load_state(run).get("difficulty", SALON_DEFAULT_DIFFICULTY)
+            state = _load_state(run)
+            difficulty = state.get("difficulty", SALON_DEFAULT_DIFFICULTY)
+            sensitive_setting = bool(state.get("sensitive", False))
             start_history_id = visit.start_history_id
             previous = next(
                 (
@@ -378,6 +401,9 @@ class SalonService:
                 (previous.session_id, previous.review) if previous else (None, None)
             )
 
+        # 過激施術は NSFW モード(成人向けの元スイッチ)が ON のときだけ効く
+        user_settings = await session_store.get_user_settings()
+        adult = sensitive_setting and bool(user_settings.get("nsfw_mode"))
         try:
             session = None
             previous_visit = None
@@ -391,7 +417,14 @@ class SalonService:
                 session, _, _ = await game_service.start_session(
                     character_id=customer[1],
                     difficulty="normal",
-                    nsfw_mode=False,
+                    nsfw_mode=adult,
+                    self_mode=False,
+                )
+            elif customer[0] == "preset":
+                session, _, _ = await game_service.start_preset_session(
+                    preset_id=customer[1],
+                    difficulty="normal",
+                    nsfw_mode=adult,
                     self_mode=False,
                 )
             else:
@@ -405,7 +438,7 @@ class SalonService:
                     gender=None,
                     base_tags="",
                     difficulty="normal",
-                    nsfw_mode=False,
+                    nsfw_mode=adult,
                     self_mode=False,
                     use_saved_profile=True,
                 )
@@ -416,6 +449,7 @@ class SalonService:
                 question_limit=SALON_QUESTION_LIMIT,
                 emphasize_hints=difficulty in SALON_HINT_EMPHASIS_DIFFICULTIES,
                 previous_visit=previous_visit,
+                sensitive=adult,
             )
         except (GameServiceError, SessionRequestError) as error:
             raise SalonError("start_failed", str(error)) from error
@@ -489,12 +523,23 @@ class SalonService:
         fulfilled = request.get("status") == "fulfilled"
         payment = visit_payment(satisfaction, fulfilled)
         delta = visit_reputation_delta(satisfaction, fulfilled)
-        # 願いを叶えたお客様は、最後の手番の姿のまま帰り、翌週もその姿で来る
+        # 願いを叶えたお客様は、最後の施術の姿のまま帰り、翌週もその姿で来る。
+        # お披露目の体験の場面は施術ではないので、持ち帰る姿にしない
+        styled = await session_store.get_latest_evaluated_history(session_id)
         latest = await session_store.get_latest_history(session_id)
         kept_history_id = (
-            latest.id
-            if latest is not None and keeps_look(fulfilled, week, total_weeks)
+            styled.id
+            if styled is not None and keeps_look(fulfilled, week, total_weeks)
             else None
+        )
+        sensitive = bool(request.get("sensitive"))
+        experience_feeling = (
+            latest.feeling_text or ""
+            if sensitive
+            and latest is not None
+            and styled is not None
+            and latest.id != styled.id
+            else ""
         )
 
         tracker = begin_cost_tracking()
@@ -505,6 +550,9 @@ class SalonService:
             fulfilled=fulfilled,
             language=language,
             keeps_look=kept_history_id is not None,
+            final_history=styled or latest,
+            sensitive=sensitive,
+            experience_feeling=experience_feeling,
         )
 
         async with async_session_factory() as db:
@@ -544,13 +592,18 @@ class SalonService:
         fulfilled: bool,
         language: str,
         keeps_look: bool = False,
+        final_history: Any | None = None,
+        sensitive: bool = False,
+        experience_feeling: str = "",
     ) -> str:
-        """お客様本人の口調で口コミを書かせる。失敗したら定型文にする。"""
+        """お客様本人の口調で口コミを書かせる。失敗したら定型文にする。
+
+        final_history は仕上がった姿の履歴(最後の施術の手番)。
+        """
         try:
             profile = await session_profile(session_id) or {}
-            latest = await session_store.get_latest_history(session_id)
             final_look = split_worn_under_layers(
-                (latest.after_description or "") if latest else ""
+                (final_history.after_description or "") if final_history else ""
             )[0]
             user_settings = await session_store.get_user_settings()
             system_prompt, user_prompt = build_salon_review_prompt(
@@ -561,6 +614,8 @@ class SalonService:
                 final_look=final_look,
                 language=language,
                 keeps_look=keeps_look,
+                sensitive=sensitive,
+                experience_feeling=experience_feeling,
             )
             raw = await generate_customer_text(
                 system_prompt,
@@ -651,7 +706,7 @@ class SalonService:
                     for item in this_week
                     if item.status == "done" and item.kept_history_id
                 ]
-                self._book_week(db, run, kept)
+                await self._book_week(db, run, kept)
             run.state_json = json.dumps(state, ensure_ascii=False)
             run.updated_at = now
             await db.commit()

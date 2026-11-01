@@ -27,6 +27,7 @@ import {
   type SalonVisit,
   type SalonVisitStart,
   startSalonVisit,
+  updateSalonRunSettings,
 } from "../apis/salon";
 import { useChat } from "./ChatContext";
 import { useGame } from "./GameContext";
@@ -42,6 +43,7 @@ export type SalonBusy =
   | "close"
   | "start"
   | "checkout"
+  | "settings"
   | null;
 
 interface SalonContextValue {
@@ -57,6 +59,8 @@ interface SalonContextValue {
     difficulty: SalonDifficulty,
   ) => Promise<SalonRun | null>;
   deleteRun: (runId: string) => Promise<void>;
+  /** 開いているサロンの設定(過激施術)を変える */
+  updateRunSettings: (settings: { sensitive: boolean }) => Promise<void>;
   declineVisit: (visitId: string) => Promise<void>;
   closeWeek: () => Promise<SalonCloseWeek | null>;
   /** 接客を始める(接客中なら戻る)。ゲームのセッションを差し替え、開始の応答を返す */
@@ -137,6 +141,21 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       });
     },
     [run],
+  );
+
+  const updateRunSettings = useCallback(
+    async (settings: { sensitive: boolean }) => {
+      if (!activeRun) return;
+      const updated = await run("settings", () =>
+        updateSalonRunSettings(activeRun.id, settings),
+      );
+      if (!updated) return;
+      setActiveRun(updated);
+      setRuns((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+    },
+    [activeRun, run],
   );
 
   const declineVisit = useCallback(
@@ -225,6 +244,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       openRun,
       createRun,
       deleteRun,
+      updateRunSettings,
       declineVisit,
       closeWeek,
       startVisit,
@@ -240,6 +260,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       openRun,
       createRun,
       deleteRun,
+      updateRunSettings,
       declineVisit,
       closeWeek,
       startVisit,

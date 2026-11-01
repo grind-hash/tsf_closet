@@ -46,6 +46,11 @@ export const salon = {
     reputation: "評判",
     weeklyBalance: "毎週の収支",
     weeklyBalanceValue: "本業 +{{salary}} / 固定費 −{{fixed}}",
+    sensitive: "過激施術（成人向け）",
+    sensitiveHint:
+      "成人向けの願いを持つお客様が来店し、お披露目でその姿での体験を1枚見せます。次に始める接客から効きます。",
+    sensitiveNsfwOff: "NSFW モードが OFF のため効きません。",
+    sensitiveOpenSettings: "設定を開く",
     bookings: "今週の予約",
     bookingsHint:
       "評判が25上がるごとに、翌週の予約が1件増えます（最大4件）。願いを叶えたお客様は、施術した姿のまま翌週も来店します。接客は施術3手・質問2回です。",
@@ -144,6 +149,13 @@ export const salon = {
     transparentHint: "お客様の背景を透過して、サロンの背景に重ねます",
     revealBefore: "ご来店時",
     revealAfter: "施術後",
+    experience: "その姿での体験",
+    experienceGenerating: "願いの姿での体験を描いています…",
+    experienceFailed:
+      "体験の場面を描けませんでした。やり直すか、このまま会計できます。",
+    experienceRetry: "体験をもう一度描く",
+    sensitiveFallback:
+      "このお客様の成人向けの依頼を作れなかったため、今回は全年齢の依頼になりました。",
     revealHint:
       "仕上がりをお客様に見ていただきます。会計すると、満足度とお支払いが決まります。",
     checkout: "会計する",
@@ -158,8 +170,6 @@ export const salon = {
     keptLook: "この姿のまま過ごすそうです。来週も、この姿でご来店になります",
     revertedLook: "元の姿に戻って、お帰りになりました",
     review: "口コミ",
-    hide: "メッセージ窓を隠す",
-    show: "メッセージ窓を表示する",
     log: "ログ",
     logTitle: "接客の記録",
     logEmpty: "まだ記録がありません",

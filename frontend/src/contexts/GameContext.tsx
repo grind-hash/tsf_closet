@@ -72,6 +72,7 @@ import {
   restoreSession as apiRestoreSession,
   startCustomGame as apiStartCustomGame,
   startGame as apiStartGame,
+  startPresetGame as apiStartPresetGame,
   updatePlayMemory as apiUpdatePlayMemory,
   updateSessionAttribute as apiUpdateSessionAttribute,
   type BranchSessionResponse,
@@ -439,11 +440,12 @@ interface GameContextType {
     options?: { inheritStats?: boolean; selfMode?: boolean },
   ) => Promise<BranchSessionResponse>;
   /**
-   * キャラクターを指定して新規セッションを開始する(キャラチャットの提案から使う)。
+   * キャラクターを指定して新規セッションを開始する(キャラチャットの提案・キャラクター画面から使う)。
+   * source は template(同梱) / custom(保存済みカスタム) / preset(キャラクター画面のキャラ)。
    * 開始後にセッションを取り直して Game 状態を差し替え、session_id を返す。失敗時は投げる。
    */
   startNewSession: (options: {
-    source: "template" | "custom";
+    source: "template" | "custom" | "preset";
     characterId: string;
     selfMode: boolean;
   }) => Promise<string>;
@@ -884,26 +886,32 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const startNewSession = useCallback(
     async (options: {
-      source: "template" | "custom";
+      source: "template" | "custom" | "preset";
       characterId: string;
       selfMode: boolean;
     }): Promise<string> => {
       // 難易度と NSFW は WelcomeScreen の開始と同じ固定値(手番ごとに設定を読み直す)
+      const common = {
+        difficulty: "normal",
+        nsfw_mode: false,
+        self_mode: options.selfMode,
+      };
       const started =
         options.source === "custom"
           ? await apiStartCustomGame({
               custom_character_id: options.characterId,
               use_saved_profile: true,
-              difficulty: "normal",
-              nsfw_mode: false,
-              self_mode: options.selfMode,
+              ...common,
             })
-          : await apiStartGame({
-              character_id: options.characterId,
-              difficulty: "normal",
-              nsfw_mode: false,
-              self_mode: options.selfMode,
-            });
+          : options.source === "preset"
+            ? await apiStartPresetGame({
+                preset_id: options.characterId,
+                ...common,
+              })
+            : await apiStartGame({
+                character_id: options.characterId,
+                ...common,
+              });
       // 開始の応答は一部の項目だけのため、セッション全体を取り直して状態を差し替える
       const data = await apiRestoreSession(started.session_id);
       const action = mapSessionResponse(

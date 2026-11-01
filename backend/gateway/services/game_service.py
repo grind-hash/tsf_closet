@@ -103,6 +103,7 @@ from .custom_sessions import (
     load_custom_character_profile,
     load_custom_session_metadata,
     normalize_gender,
+    preset_session_images_dir,
     save_custom_character,
     save_custom_session_metadata,
 )
@@ -132,6 +133,11 @@ from .litellm_client import LiteLLMClientError
 from .llm_json import strip_code_fence
 from .llm_service import LLMServiceError, llm_service
 from .memory_prompts import build_memory_priority_instruction
+from .preset_sessions import (
+    PresetSessionError,
+    load_preset_play_source,
+    portrait_png_bytes,
+)
 from .prompts import (
     FEELING_SYSTEM_PROMPT,
     build_enhanced_feeling_prompt,
@@ -841,15 +847,81 @@ class GameService:
             )
         # 相対パス（BASE_DIR からの相対）
         relative_path = f"data/history_images/custom/{custom_image_id}.png"
-
-        session = await session_store.create_session(
+        return await self._start_profiled_session(
+            image_bytes=image_bytes,
             image_path=relative_path,
-            character_id=None,  # カスタム画像なのでキャラクターIDなし
+            profile=profile,
+            metadata={"custom_character_id": custom_image_id, **profile},
+            difficulty=difficulty,
+            nsfw_mode=nsfw_mode,
             self_mode=self_mode,
         )
-        save_custom_session_metadata(
-            session.id, {"custom_character_id": custom_image_id, **profile}
+
+    async def start_preset_session(
+        self,
+        *,
+        preset_id: str,
+        difficulty: str,
+        nsfw_mode: bool,
+        self_mode: bool,
+    ) -> tuple[PersistedSession, SessionStats, str]:
+        """キャラクター(CharacterPreset)の立ち絵と人物設定でセッションを開始する。
+
+        立ち絵は開始時点のものを写して元画像にする(後で立ち絵を差し替えても壊れない)。
+        キャラクターや立ち絵が無ければ、進行中のセッションをリセットする前に失敗する。
+
+        Raises: GameServiceError(code=character_preset_not_found / image_not_found)
+        """
+        try:
+            source = await load_preset_play_source(preset_id)
+            image_bytes = portrait_png_bytes(source.image_path)
+        except PresetSessionError as error:
+            raise GameServiceError(str(error), code=error.code) from error
+        except OSError as error:
+            raise GameServiceError(
+                f"キャラクターの立ち絵を読めませんでした: {error}",
+                code="image_not_found",
+            ) from error
+        await session_store.reset_session()
+
+        base_image = f"{uuid.uuid4().hex}.png"
+        image_file = preset_session_images_dir() / base_image
+        image_file.write_bytes(image_bytes)
+        return await self._start_profiled_session(
+            image_bytes=image_bytes,
+            image_path=str(image_file.relative_to(settings.history_images_dir.parent)),
+            profile=source.profile,
+            metadata={
+                "character_preset_id": preset_id,
+                "base_image": base_image,
+                **source.profile,
+            },
+            difficulty=difficulty,
+            nsfw_mode=nsfw_mode,
+            self_mode=self_mode,
         )
+
+    async def _start_profiled_session(
+        self,
+        *,
+        image_bytes: bytes,
+        image_path: str,
+        profile: dict[str, str],
+        metadata: dict[str, Any],
+        difficulty: str,
+        nsfw_mode: bool,
+        self_mode: bool,
+    ) -> tuple[PersistedSession, SessionStats, str]:
+        """テンプレート以外の人物(カスタム画像・キャラクター)でセッションを作る。
+
+        人物像はセッションごとのメタデータ(session_{id}.json)に書き、初期状態の履歴を置く。
+        """
+        session = await session_store.create_session(
+            image_path=image_path,
+            character_id=None,  # テンプレートキャラクターではないので ID なし
+            self_mode=self_mode,
+        )
+        save_custom_session_metadata(session.id, metadata)
 
         effective_difficulty = (
             difficulty if difficulty in DIFFICULTY_PRESETS else "normal"
@@ -858,7 +930,7 @@ class GameService:
             session.id, effective_difficulty, nsfw_mode
         )
         initial_desc = self._build_initial_prompt(
-            gender=normalized_gender, base_tags=base_tags
+            gender=profile["gender"], base_tags=profile["base_tags"]
         )
         await session_store.add_history(
             session_id=session.id,

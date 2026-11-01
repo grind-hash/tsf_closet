@@ -25,6 +25,7 @@ from gateway.services.session import DEFAULT_USER_ID, session_store
 from gateway.services.session_request_prompts import build_request_generation_prompt
 from gateway.services.session_request_service import (
     GeneratedRequest,
+    GeneratedSensitiveRequest,
     RequestEvaluationOutput,
     SessionRequestError,
     compute_satisfaction,
@@ -829,3 +830,142 @@ def test_evaluation_prompt_lists_counselling_only_when_asked() -> None:
     )
     assert "reflected_answers" not in plain
     assert "counselling" not in plain_user
+
+
+_SENSITIVE_GENERATED = {
+    **_GENERATED,
+    "wish": "胸の大きな美女になって、男の人に抱きしめられてみたいんだ",
+    "experience": "仕上がった姿で、顔の見えない成人男性に後ろから抱きしめられる",
+}
+
+
+def _fake_generation_with_prompts(
+    monkeypatch, replies: list[str]
+) -> list[tuple[str, str]]:
+    prompts: list[tuple[str, str]] = []
+
+    async def fake(system_prompt: str, user_prompt: str, *, novelai_model):
+        prompts.append((system_prompt, user_prompt))
+        return replies[min(len(prompts), len(replies)) - 1]
+
+    monkeypatch.setattr(request_module, "_generate_text", fake)
+    return prompts
+
+
+@pytest.mark.asyncio
+async def test_create_request_sensitive_saves_the_experience(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    prompts = _fake_generation_with_prompts(
+        monkeypatch, [json.dumps(_SENSITIVE_GENERATED)]
+    )
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", sensitive=True
+    )
+
+    assert view["sensitive"] is True
+    assert view["sensitive_fallback"] is False
+    assert view["experience"] == _SENSITIVE_GENERATED["experience"]
+    stored = await session_store.get_session_request("s1")
+    assert stored["sensitive"] is True
+    assert stored["experience"] == _SENSITIVE_GENERATED["experience"]
+    system = prompts[0][0]
+    assert "Sexual content is allowed" in system
+    assert "18 or older" in system
+    assert '"experience"' in system
+
+
+@pytest.mark.asyncio
+async def test_create_request_falls_back_to_all_ages_when_the_model_declines(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    # 生成と修復の2回とも JSON にならない(応じない)と、全年齢で作り直す
+    prompts = _fake_generation_with_prompts(
+        monkeypatch,
+        ["その依頼には応じられません", "応じられません", json.dumps(_GENERATED)],
+    )
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", sensitive=True
+    )
+
+    assert view["sensitive"] is False
+    assert view["sensitive_fallback"] is True
+    assert view["experience"] == ""
+    assert view["wish"] == _GENERATED["wish"]
+    assert "Never write sexual content." in prompts[-1][0]
+    stored = await session_store.get_session_request("s1")
+    assert stored["sensitive"] is False
+    assert stored["experience"] == ""
+
+
+@pytest.mark.asyncio
+async def test_all_ages_request_hides_sexual_content_and_experience(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    # 全年齢の依頼では、モデルが experience を返しても保存しない
+    prompts = _fake_generation_with_prompts(
+        monkeypatch, [json.dumps(_SENSITIVE_GENERATED)]
+    )
+
+    view, _ = await session_request_service.create_request("s1", language="ja")
+
+    assert view["sensitive"] is False
+    assert view["experience"] == ""
+    assert "Never write sexual content." in prompts[0][0]
+    assert '"experience"' not in prompts[0][0]
+    assert (await session_store.get_session_request("s1"))["experience"] == ""
+
+
+def test_generated_sensitive_request_requires_the_experience() -> None:
+    with pytest.raises(ValueError):
+        GeneratedSensitiveRequest.model_validate(_GENERATED)
+    with pytest.raises(ValueError):
+        GeneratedSensitiveRequest.model_validate({**_GENERATED, "experience": "  "})
+
+
+@pytest.mark.asyncio
+async def test_ask_question_allows_adult_answers_only_for_sensitive_requests(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    prompts = _fake_generation_with_prompts(monkeypatch, ["ないしょだよ"])
+
+    for sensitive in (False, True):
+        await session_store.save_session_request(
+            "s1",
+            wish=_REQUEST["wish"],
+            preferences=_PREFERENCES,
+            language="ja",
+            sensitive=sensitive,
+            experience="抱きしめられる" if sensitive else None,
+        )
+        await session_request_service.ask_question("s1", "好きな服は？", language="ja")
+
+    assert "Never write sexual content." in prompts[0][0]
+    assert "Sexual content is allowed" in prompts[1][0]
+    assert "18 or older" in prompts[1][0]
+
+
+def test_grounded_met_ids_accepts_body_and_lingerie_tags() -> None:
+    preferences = [
+        {"id": "p1", "text": "大きな胸", "hint": "体型"},
+        {"id": "p2", "text": "黒いランジェリー", "hint": "下着"},
+    ]
+    look = "1girl, solo, long black hair, large breasts, black lingerie, garter belt"
+    ids = grounded_met_ids(
+        _output([("p1", "large breasts"), ("p2", "black lingerie")]),
+        preferences,
+        look,
+        look_is_tags=True,
+    )
+    assert ids == ["p1", "p2"]
+    # 体型の好みに髪のタグは根拠にならない
+    hair = grounded_met_ids(
+        _output([("p1", "long black hair")]), preferences, look, look_is_tags=True
+    )
+    assert hair == []

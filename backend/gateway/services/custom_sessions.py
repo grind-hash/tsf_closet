@@ -3,6 +3,10 @@
 画像とメタデータは `history_images/custom/` に置く。
 - `{custom_image_id}.png` / `.json`: 再利用できるカスタムキャラクター
 - `session_{session_id}.json`: セッションごとのプロフィール（性別・一人称・タグ）
+
+キャラクター(CharacterPreset)から始めたセッションも同じ `session_{session_id}.json` を使い、
+開始時点の立ち絵の写しは `history_images/preset_sessions/` に置く(custom に置くと
+カスタムキャラクターの一覧に混ざるため)。写しのファイル名はメタデータの base_image。
 """
 
 from __future__ import annotations
@@ -58,8 +62,18 @@ def save_custom_session_metadata(session_id: str, metadata: dict[str, Any]) -> N
     path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
 
 
+def preset_session_images_dir() -> Path:
+    """キャラクターから始めたセッションの、開始時点の立ち絵の写しを置く場所。"""
+    directory = settings.history_images_dir / "preset_sessions"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
 def delete_custom_session_metadata(session_id: str) -> None:
-    """セッションごとのプロフィールを消す。無ければ何もしない。"""
+    """セッションごとのプロフィール(と立ち絵の写し)を消す。無ければ何もしない。"""
+    base_image = str(load_custom_session_metadata(session_id).get("base_image") or "")
+    if base_image:
+        (preset_session_images_dir() / Path(base_image).name).unlink(missing_ok=True)
     path = settings.history_images_dir / "custom" / f"session_{session_id}.json"
     try:
         path.unlink(missing_ok=True)
@@ -114,11 +128,26 @@ def _custom_profile(custom_image_id: str, metadata: dict[str, Any]) -> dict[str,
 
 
 def _custom_image_files() -> list[Path]:
-    """保存済みカスタムキャラクターの画像(新しい順)。"""
-    return sorted(
-        custom_images_dir().glob("*.png"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
+    """保存済みカスタムキャラクターの画像(新しい順)。
+
+    キャラクター画面へ取り込んだもの(imported_preset_id あり)は一覧・来店候補から外す。
+    ID を指定した読み込み(load_custom_character_profile)は取り込み後も使える。
+    """
+    files = [
+        path
+        for path in custom_images_dir().glob("*.png")
+        if not _read_custom_metadata(path).get("imported_preset_id")
+    ]
+    return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def mark_custom_character_imported(custom_image_id: str, preset_id: str) -> None:
+    """カスタムキャラクターをキャラクター画面へ取り込んだ印を付ける。"""
+    image_file = custom_character_image_path(custom_image_id)
+    metadata = _read_custom_metadata(image_file)
+    metadata["imported_preset_id"] = preset_id
+    image_file.with_suffix(".json").write_text(
+        json.dumps(metadata, ensure_ascii=False), encoding="utf-8"
     )
 
 

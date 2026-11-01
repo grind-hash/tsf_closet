@@ -49,6 +49,12 @@ class _Stubs:
         self.review_prompts: list[str] = []
         self.branched: list[dict[str, Any]] = []
         self.branch_error: SessionBranchError | None = None
+        self.nsfw_modes: list[bool] = []
+        self.pool: list[Customer] = [
+            Customer("template", "yuya", "水瀬ユウヤ"),
+            Customer("template", "emi", "星野エミ"),
+            Customer("custom", "custom-1", "サクラ"),
+        ]
 
 
 @pytest.fixture
@@ -58,26 +64,25 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
         await db.commit()
     state = _Stubs()
 
-    monkeypatch.setattr(
-        salon_module,
-        "_customer_pool",
-        lambda: [
-            Customer("template", "yuya", "水瀬ユウヤ"),
-            Customer("template", "emi", "星野エミ"),
-            Customer("custom", "custom-1", "サクラ"),
-        ],
-    )
+    async def fake_pool(_db):
+        return list(state.pool)
 
-    async def fake_start_session(*, character_id, **_kwargs):
+    monkeypatch.setattr(salon_module, "_customer_pool", fake_pool)
+
+    async def fake_start_session(*, character_id, nsfw_mode, **_kwargs):
         state.started.append(("template", character_id))
+        state.nsfw_modes.append(nsfw_mode)
         session = await session_store.create_session(
             image_path="", character_id=character_id
         )
         return session, None, "normal"
 
-    async def fake_start_custom_session(*, custom_character_id, use_saved_profile, **_):
+    async def fake_start_custom_session(
+        *, custom_character_id, use_saved_profile, nsfw_mode, **_
+    ):
         assert use_saved_profile is True
         state.started.append(("custom", custom_character_id))
+        state.nsfw_modes.append(nsfw_mode)
         session = await session_store.create_session(image_path="")
         return session, None, "normal"
 
@@ -89,6 +94,7 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
         question_limit,
         emphasize_hints,
         previous_visit,
+        sensitive,
     ):
         state.request_calls.append(
             {
@@ -98,9 +104,15 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
                 "question_limit": question_limit,
                 "emphasize_hints": emphasize_hints,
                 "previous_visit": previous_visit,
+                "sensitive": sensitive,
             }
         )
-        view = {"wish": "ふんわりした姿に", "threshold": 70, "turns_used": 0}
+        view = {
+            "wish": "ふんわりした姿に",
+            "threshold": 70,
+            "turns_used": 0,
+            "sensitive": sensitive,
+        }
         state.views[session_id] = view
         return view, 0.001
 
@@ -124,7 +136,16 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
         record_cost(0.002)
         return state.review
 
+    async def fake_start_preset_session(*, preset_id, nsfw_mode, **_):
+        state.started.append(("preset", preset_id))
+        state.nsfw_modes.append(nsfw_mode)
+        session = await session_store.create_session(image_path="")
+        return session, None, "normal"
+
     monkeypatch.setattr(salon_module.game_service, "start_session", fake_start_session)
+    monkeypatch.setattr(
+        salon_module.game_service, "start_preset_session", fake_start_preset_session
+    )
     monkeypatch.setattr(
         salon_module.game_service, "start_custom_session", fake_start_custom_session
     )
@@ -239,8 +260,10 @@ async def test_start_visit_links_session_with_salon_request_limits(stubs) -> Non
             "question_limit": SALON_QUESTION_LIMIT,
             "emphasize_hints": True,
             "previous_visit": None,
+            "sensitive": False,
         }
     ]
+    assert stubs.nsfw_modes == [False]
     started = result["run"]["visits"][0]
     assert started["status"] == "serving"
     assert started["session_id"] == result["session_id"]
@@ -389,9 +412,7 @@ async def test_close_week_settles_costs_and_books_next_week(stubs) -> None:
 async def test_regular_customer_shows_visit_number_and_previous_review(
     stubs, monkeypatch
 ) -> None:
-    monkeypatch.setattr(
-        salon_module, "_customer_pool", lambda: [Customer("custom", "c1", "サクラ")]
-    )
+    stubs.pool = [Customer("custom", "c1", "サクラ")]
     run = await salon_service.create_run("店")
     visit = _booked(run)[0]
     started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
@@ -409,6 +430,7 @@ async def test_regular_customer_shows_visit_number_and_previous_review(
 
 
 async def _add_turn(isolated_db, session_id: str, history_id: str) -> None:
+    """施術の手番(依頼の評価が付く)を1件足す。"""
     async with isolated_db.async_factory() as db:
         db.add(
             History(
@@ -418,7 +440,26 @@ async def _add_turn(isolated_db, session_id: str, history_id: str) -> None:
                 image_path=f"img/{history_id}.png",
                 after_description="1girl, pale blue dress",
                 instruction_type="dress_up",
+                request_evaluation_json='{"fit": "good", "satisfaction": 82}',
                 created_at=datetime(2026, 11, 1, 12, 0),
+            )
+        )
+        await db.commit()
+
+
+async def _add_experience(isolated_db, session_id: str, history_id: str) -> None:
+    """お披露目の体験の場面(行動の手番。依頼の評価は付かない)を1件足す。"""
+    async with isolated_db.async_factory() as db:
+        db.add(
+            History(
+                id=history_id,
+                session_id=session_id,
+                instruction="顔の見えない成人男性に抱き寄せられる",
+                image_path=f"img/{history_id}.png",
+                after_description="1girl, 1boy, faceless male, pale blue dress",
+                feeling_text="胸が高鳴って、思わず目を閉じた。",
+                instruction_type="action",
+                created_at=datetime(2026, 11, 1, 12, 5),
             )
         )
         await db.commit()
@@ -565,11 +606,7 @@ async def test_review_prompt_uses_the_customers_own_profile(stubs, monkeypatch) 
         return "「ありがとう。」"
 
     monkeypatch.setattr(salon_module, "generate_customer_text", capture)
-    monkeypatch.setattr(
-        salon_module,
-        "_customer_pool",
-        lambda: [Customer("template", "char1", "水瀬ユウヤ")],
-    )
+    stubs.pool = [Customer("template", "char1", "水瀬ユウヤ")]
     run = await salon_service.create_run("店")
     visit = _booked(run)[0]
     started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
@@ -655,3 +692,112 @@ async def test_checkout_releases_the_customers_session(stubs) -> None:
     await salon_service.checkout_visit(run["id"], visit["id"], language="ja")
 
     assert await session_store.get_active_session() is None
+
+
+async def _set_nsfw_mode(isolated_db, enabled: bool) -> None:
+    async with isolated_db.async_factory() as db:
+        await db.execute(
+            update(User).where(User.id == DEFAULT_USER_ID).values(nsfw_mode=enabled)
+        )
+        await db.commit()
+
+
+async def test_sensitive_setting_defaults_off_and_is_saved(stubs) -> None:
+    run = await salon_service.create_run("店")
+    assert run["sensitive"] is False
+
+    updated = await salon_service.update_settings(run["id"], sensitive=True)
+
+    SalonRunResponse(**updated)
+    assert updated["sensitive"] is True
+    assert (await salon_service.get_run(run["id"]))["sensitive"] is True
+    # 難易度など、ほかの設定は消えない
+    assert updated["difficulty"] == run["difficulty"]
+    assert updated["initial_cash"] == run["initial_cash"]
+
+
+async def test_sensitive_setting_cannot_change_after_the_season(
+    stubs, isolated_db
+) -> None:
+    run = await salon_service.create_run("店")
+    await _set_run(isolated_db, run["id"], status="completed")
+
+    with pytest.raises(SalonError) as error:
+        await salon_service.update_settings(run["id"], sensitive=True)
+    assert error.value.code == "salon_closed"
+
+
+@pytest.mark.parametrize(
+    ("sensitive", "nsfw_mode", "adult"),
+    [(True, True, True), (True, False, False), (False, True, False)],
+)
+async def test_sensitive_requests_need_nsfw_mode(
+    stubs, isolated_db, sensitive, nsfw_mode, adult
+) -> None:
+    await _set_nsfw_mode(isolated_db, nsfw_mode)
+    run = await salon_service.create_run("店")
+    await salon_service.update_settings(run["id"], sensitive=sensitive)
+    visit = _booked(run)[0]
+
+    await salon_service.start_visit(run["id"], visit["id"], language="ja")
+
+    # 依頼も、接客のセッション(画像・心境)も同じ値にそろう
+    assert stubs.request_calls[-1]["sensitive"] is adult
+    assert stubs.nsfw_modes == [adult]
+
+
+async def test_experience_scene_is_not_kept_and_feeds_the_review(
+    stubs, isolated_db
+) -> None:
+    run = await salon_service.create_run("店")
+    await _set_nsfw_mode(isolated_db, True)
+    await salon_service.update_settings(run["id"], sensitive=True)
+    visit = _booked(run)[0]
+    started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
+    session_id = started["session_id"]
+    await session_store.save_session_request(
+        session_id, wish="ふんわりした姿に", preferences=[], language="ja"
+    )
+    await _add_turn(isolated_db, session_id, "styled")
+    await _add_experience(isolated_db, session_id, "experience")
+    stubs.views[session_id].update(status="fulfilled", satisfaction=82, turns_used=1)
+
+    done = await salon_service.checkout_visit(run["id"], visit["id"], language="ja")
+
+    async with isolated_db.async_factory() as db:
+        kept = (await db.get(SalonVisit, visit["id"])).kept_history_id
+    # 持ち帰るのは最後の施術の姿で、体験の場面ではない
+    assert kept == "styled"
+    assert done["visit"]["kept_look"] is True
+    prompt = stubs.review_prompts[-1]
+    assert "Sexual content is allowed" in prompt
+    assert "experience is how the customer felt" in prompt
+
+
+async def test_all_ages_review_ignores_a_later_non_styling_turn(
+    stubs, isolated_db
+) -> None:
+    run = await salon_service.create_run("店")
+    visit = _booked(run)[0]
+    started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
+    session_id = started["session_id"]
+    await _add_turn(isolated_db, session_id, "styled")
+    await _add_experience(isolated_db, session_id, "experience")
+    stubs.views[session_id].update(status="active", satisfaction=50, turns_used=1)
+
+    await salon_service.checkout_visit(run["id"], visit["id"], language="ja")
+
+    prompt = stubs.review_prompts[-1]
+    assert "Never write sexual content." in prompt
+    assert "experience is how" not in prompt
+
+
+async def test_character_maker_customer_starts_from_the_character(stubs) -> None:
+    stubs.pool = [Customer("preset", "preset-1", "ミナト")]
+    run = await salon_service.create_run("店")
+    visit = _booked(run)[0]
+    assert visit["customer"] == {"source": "preset", "id": "preset-1", "name": "ミナト"}
+
+    await salon_service.start_visit(run["id"], visit["id"], language="ja")
+
+    assert stubs.started == [("preset", "preset-1")]

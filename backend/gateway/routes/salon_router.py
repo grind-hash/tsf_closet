@@ -17,6 +17,7 @@ from ..schemas.salon import (
     SalonLanguageRequest,
     SalonRunListResponse,
     SalonRunResponse,
+    SalonSettingsRequest,
     SalonVisitStartResponse,
 )
 from ..services.salon_service import SalonError, salon_service
@@ -70,6 +71,22 @@ async def create_salon_run(request: SalonCreateRequest) -> SalonRunResponse:
 async def get_salon_run(run_id: str) -> SalonRunResponse:
     try:
         run = await salon_service.get_run(run_id)
+    except SalonError as error:
+        raise _http_error(error) from error
+    return SalonRunResponse(**run)
+
+
+@router.patch(
+    "/runs/{run_id}/settings",
+    response_model=SalonRunResponse,
+    summary="オーナー室の設定を変える(過激施術など)",
+    responses=_ERROR_RESPONSES,
+)
+async def update_salon_settings(
+    run_id: str, request: SalonSettingsRequest
+) -> SalonRunResponse:
+    try:
+        run = await salon_service.update_settings(run_id, sensitive=request.sensitive)
     except SalonError as error:
         raise _http_error(error) from error
     return SalonRunResponse(**run)

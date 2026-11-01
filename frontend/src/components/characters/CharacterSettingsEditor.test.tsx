@@ -65,6 +65,7 @@ const PRESET: CharacterPreset = {
   avatar_model_id: null,
   voice: null,
   portrait_url: null,
+  salon_enabled: true,
   created_at: "2026-10-26T00:00:00",
   updated_at: "2026-10-26T00:00:00",
 };

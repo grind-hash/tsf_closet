@@ -255,6 +255,24 @@ export async function startCustomGame(
   );
 }
 
+export interface StartPresetGameRequest {
+  preset_id: string;
+  difficulty: string;
+  nsfw_mode: boolean;
+  self_mode: boolean;
+}
+
+/** キャラクター画面で作ったキャラ(立ち絵が必要)で新規セッションを開始する */
+export async function startPresetGame(
+  body: StartPresetGameRequest,
+): Promise<StartGameResponse> {
+  return requestJson<StartGameResponse>(
+    `${API_BASE}/game/start-preset`,
+    jsonInit("POST", body),
+    { fallbackMessage: "Start game failed" },
+  );
+}
+
 // ----------------------------------------------------------------
 // セッション / キャラクター / 属性 / プレイメモ（GameContext から使う）
 // ----------------------------------------------------------------

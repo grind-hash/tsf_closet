@@ -14,7 +14,8 @@ export type SalonRunStatus = "active" | "completed" | "bankrupt";
 export type SalonVisitStatus = "booked" | "serving" | "done" | "declined";
 
 export interface SalonCustomer {
-  source: "template" | "custom";
+  /** template(同梱) / custom(保存済みカスタム) / preset(キャラクター画面のキャラ) */
+  source: "template" | "custom" | "preset";
   id: string;
   name: string;
 }
@@ -68,6 +69,8 @@ export interface SalonRun {
   reputation: number;
   difficulty: SalonDifficulty;
   initial_cash: number;
+  /** 過激施術(成人向けの依頼)。NSFW モードが OFF の間は効かない */
+  sensitive: boolean;
   weekly_fixed_cost: number;
   weekly_salary: number;
   base_price: number;
@@ -129,6 +132,18 @@ export function fetchSalonRun(runId: string): Promise<SalonRun> {
   return requestJson<SalonRun>(`${BASE}/${runId}`, undefined, {
     fallbackMessage: "サロンを取得できませんでした",
   });
+}
+
+/** オーナー室の設定を変える。依頼は接客の開始時に作るので、次の接客から効く */
+export function updateSalonRunSettings(
+  runId: string,
+  settings: { sensitive: boolean },
+): Promise<SalonRun> {
+  return requestJson<SalonRun>(
+    `${BASE}/${runId}/settings`,
+    jsonInit("PATCH", settings),
+    { fallbackMessage: "設定を変更できませんでした" },
+  );
 }
 
 export async function deleteSalonRun(runId: string): Promise<void> {

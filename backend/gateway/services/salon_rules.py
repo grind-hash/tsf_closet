@@ -34,7 +34,11 @@ from ..consts.salon import (
 
 @dataclass(frozen=True)
 class Customer:
-    """予約に入るお客様。source は template(同梱キャラ) / custom(保存済みカスタムキャラ)。"""
+    """予約に入るお客様。
+
+    source は template(同梱キャラ) / custom(保存済みカスタムキャラ) /
+    preset(キャラクター画面で作ったキャラ)。
+    """
 
     source: str
     id: str
