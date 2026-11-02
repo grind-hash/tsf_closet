@@ -8,18 +8,22 @@ system prompt には人物設定・記憶・調べた結果だけを載せる。
 from __future__ import annotations
 
 import json
-from collections.abc import Collection
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
 from ..consts.character_chat import (
-    APP_OVERVIEW,
+    APP_GUIDE_GROUNDING,
+    APP_GUIDE_HEADER,
+    APP_GUIDE_MISSING,
+    APP_GUIDE_UNAVAILABLE,
     BASE_CHARACTER_PERSONA,
     LOOKUP_KINDS,
     PLAY_PROPOSAL_INSTRUCTION_MAX,
     PLAY_PROPOSAL_REASON_MAX,
     PLAY_PROPOSAL_TITLE_MAX,
     REAL_WORLD_LOOKUP_KINDS,
+    SERENA_PLAY_PROPOSAL_ABILITY,
     SUMMARY_MAX_CHARS,
 )
 from ..consts.character_profile import REACTION_STYLE_LABELS_JA
@@ -240,10 +244,44 @@ def memory_block(memory_text: str | None, language: str) -> str:
     )
 
 
-def base_persona_block(language: str) -> str:
-    """案内役キャラ(セレナ)の人物設定 + アプリ概要。"""
+def app_guide_block(app_guide: Sequence[Mapping[str, Any]], language: str) -> str:
+    """遊び方ガイドの文面から、案内役キャラに渡す機能一覧を組む。
+
+    available が False の機能には無効の注記を付ける(切り替えの無い機能は None)。
+    一覧の後に、書かれていない仕様を断定させない決まりを添える。
+    一覧が空なら、推測せずガイドを案内させる一文にする。
+    """
     lang = _lang(language)
-    return f"{BASE_CHARACTER_PERSONA[lang]}\n\n{APP_OVERVIEW[lang]}"
+    lines: list[str] = []
+    for feature in app_guide:
+        title = str(feature.get("title") or "").strip()
+        desc = str(feature.get("desc") or "").strip()
+        if not title or not desc:
+            continue
+        note = str(feature.get("note") or "").strip()
+        text = f"- {title}: {desc}"
+        if note:
+            text += f" {note}"
+        if feature.get("available") is False:
+            text += f" {APP_GUIDE_UNAVAILABLE[lang]}"
+        lines.append(text)
+    if not lines:
+        return APP_GUIDE_MISSING[lang]
+    return "\n".join((APP_GUIDE_HEADER[lang], *lines, APP_GUIDE_GROUNDING[lang]))
+
+
+def base_persona_block(
+    language: str, app_guide: Sequence[Mapping[str, Any]] = ()
+) -> str:
+    """案内役キャラ(セレナ)の人物設定 + 遊び方ガイドの機能一覧 + セレナ自身の機能。"""
+    lang = _lang(language)
+    return "\n\n".join(
+        (
+            BASE_CHARACTER_PERSONA[lang],
+            app_guide_block(app_guide, lang),
+            SERENA_PLAY_PROPOSAL_ABILITY[lang],
+        )
+    )
 
 
 def _timeline_label(event_type: str, language: str) -> str:

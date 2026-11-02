@@ -36,7 +36,7 @@ interface MenuItem {
   description?: string;
 }
 
-const getMenuItems = (
+export const getMenuItems = (
   t: TFunction,
   showAdventureMenu: boolean,
   showPromptExpanderMenu: boolean,

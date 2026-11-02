@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from gateway.consts.character_chat import APP_GUIDE_MAX_ITEMS
 from gateway.services.character_chat_service import CharacterChatError
 
 router_module = importlib.import_module("gateway.routes.character_chat_router")
@@ -112,8 +113,8 @@ def test_message_rejects_empty_content(client: TestClient) -> None:
 def test_message_stream_forwards_real_world_flags(
     client: TestClient, monkeypatch
 ) -> None:
-    """設定画面のトグル(Web 検索・天気)、おすすめのプレイの依頼、返答の読み上げ有無を
-    送信ごとにサービスへ渡す。省略時は OFF。"""
+    """設定画面のトグル(Web 検索・天気)、おすすめのプレイの依頼、返答の読み上げ有無、
+    遊び方ガイドの文面を送信ごとにサービスへ渡す。省略時は OFF / 空。"""
     received: list[dict] = []
 
     async def fake_stream(*, thread_id, content, **kwargs):
@@ -128,6 +129,17 @@ def test_message_stream_forwards_real_world_flags(
         {"content": "やあ", "use_web_search": True},
         {"content": "おすすめのプレイを教えて", "request_play_proposal": True},
         {"content": "やあ", "read_aloud": True},
+        {
+            "content": "サロンって何？",
+            "app_guide": [
+                {
+                    "id": "salon",
+                    "title": "サロン経営",
+                    "desc": "12週のあいだサロンを経営します。",
+                    "available": False,
+                }
+            ],
+        },
     ):
         with client.stream(
             "POST", "/api/character-chat/threads/t1/messages/stream", json=body
@@ -140,26 +152,55 @@ def test_message_stream_forwards_real_world_flags(
             "use_weather": False,
             "request_play_proposal": False,
             "read_aloud": False,
+            "app_guide": [],
         },
         {
             "use_web_search": True,
             "use_weather": False,
             "request_play_proposal": False,
             "read_aloud": False,
+            "app_guide": [],
         },
         {
             "use_web_search": False,
             "use_weather": False,
             "request_play_proposal": True,
             "read_aloud": False,
+            "app_guide": [],
         },
         {
             "use_web_search": False,
             "use_weather": False,
             "request_play_proposal": False,
             "read_aloud": True,
+            "app_guide": [],
+        },
+        {
+            "use_web_search": False,
+            "use_weather": False,
+            "request_play_proposal": False,
+            "read_aloud": False,
+            "app_guide": [
+                {
+                    "id": "salon",
+                    "title": "サロン経営",
+                    "desc": "12週のあいだサロンを経営します。",
+                    "note": None,
+                    "available": False,
+                }
+            ],
         },
     ]
+
+
+def test_message_rejects_too_many_app_guide_items(client: TestClient) -> None:
+    """遊び方ガイドの項目数には上限がある(プロンプトの肥大を防ぐ)。"""
+    feature = {"id": "f", "title": "機能", "desc": "説明"}
+    response = client.post(
+        "/api/character-chat/threads/t1/messages/stream",
+        json={"content": "やあ", "app_guide": [feature] * (APP_GUIDE_MAX_ITEMS + 1)},
+    )
+    assert response.status_code == 422
 
 
 def test_portrait_stream_reports_unexpected_exceptions(

@@ -16,6 +16,7 @@ import { getSalonRunPath, ROUTES } from "../../routes";
 import { formatYen } from "../../utils/salonView";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import type { SalonOfficeLocationState } from "./SalonOffice";
 
 /** サロン一覧と開店(/salon) */
 export default function SalonHub() {
@@ -49,7 +50,9 @@ export default function SalonHub() {
     const created = await createRun(name.trim(), difficulty, sensitive);
     if (created) {
       setName("");
-      navigate(getSalonRunPath(created.id));
+      navigate(getSalonRunPath(created.id), {
+        state: { grandOpening: true } satisfies SalonOfficeLocationState,
+      });
     }
   };
 

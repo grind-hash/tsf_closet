@@ -269,7 +269,7 @@ type SettingsAction =
   | { type: "SET_MEMORY_TEXT"; payload: string | null };
 
 // デフォルト状態
-const defaultState: SettingsState = {
+export const defaultState: SettingsState = {
   difficulty: "normal",
   bloomCalcMethod: "legacy",
   feelingMode: "legacy",

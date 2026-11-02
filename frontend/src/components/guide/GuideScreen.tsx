@@ -1,10 +1,11 @@
 /**
  * GuideScreen - 遊び方ガイド
  *
- * 既定ではOFFの遊び方(実験的機能)のカタログ。カードのトグルは設定画面と
- * 同じ SettingsContext の値に直結し、ONにするとサイドメニューへ項目が
+ * 基本の画面の説明と、既定ではOFFの遊び方(実験的機能)のカタログ。カードのトグルは
+ * 設定画面と同じ SettingsContext の値に直結し、ONにするとサイドメニューへ項目が
  * 現れる。エンジン導入やモデル登録が必要な機能は設定画面へ誘導する。
  * プロバイダー都合で使えない機能もカードは隠さず、注記で説明する。
+ * 文面はセレナの機能知識も兼ねる(guideFeatures.ts)。
  */
 import { type ReactNode, useEffect } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +14,12 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
 import { markGuideSeen } from "../../utils/guideSeen";
 import MainLayout from "../layout/MainLayout";
+import { GUIDE_FEATURES, guideIcon } from "./guideFeatures";
 import "./GuideScreen.css";
+
+const BASIC_FEATURES = GUIDE_FEATURES.filter(
+  (feature) => feature.section === "basics",
+);
 
 interface GuideCardProps {
   icon: string;
@@ -30,7 +36,7 @@ function GuideCard({ icon, title, desc, note, children }: GuideCardProps) {
         <span className="guide-screen__card-icon" aria-hidden="true">
           {icon}
         </span>
-        <h2 className="guide-screen__card-title">{title}</h2>
+        <h3 className="guide-screen__card-title">{title}</h3>
       </div>
       <p className="guide-screen__card-desc">{desc}</p>
       {note && <p className="guide-screen__card-note">ⓘ {note}</p>}
@@ -85,9 +91,33 @@ export default function GuideScreen() {
           <p className="guide-screen__intro">{t("guide.intro")}</p>
         </header>
 
+        <h2 className="guide-screen__section-title">
+          {t("guide.sections.basics")}
+        </h2>
+        <div className="guide-screen__cards">
+          {BASIC_FEATURES.map((feature) => {
+            const entry: { title: string; desc: string; note?: string } = t(
+              `guide.${feature.key}`,
+              { returnObjects: true },
+            );
+            return (
+              <GuideCard
+                key={feature.key}
+                icon={feature.icon}
+                title={entry.title}
+                desc={entry.desc}
+                note={entry.note}
+              />
+            );
+          })}
+        </div>
+
+        <h2 className="guide-screen__section-title">
+          {t("guide.sections.features")}
+        </h2>
         <div className="guide-screen__cards">
           <GuideCard
-            icon="📖"
+            icon={guideIcon("adventure")}
             title={t("guide.adventure.title")}
             desc={t("guide.adventure.desc")}
             note={t("guide.adventure.note")}
@@ -116,7 +146,7 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
-            icon="🗨️"
+            icon={guideIcon("talk")}
             title={t("guide.talk.title")}
             desc={t("guide.talk.desc")}
             note={t("guide.talk.note")}
@@ -141,7 +171,7 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
-            icon="🎒"
+            icon={guideIcon("inventory")}
             title={t("guide.inventory.title")}
             desc={t("guide.inventory.desc")}
             note={t("guide.inventory.note")}
@@ -166,7 +196,7 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
-            icon="🧍"
+            icon={guideIcon("vrm")}
             title={t("guide.vrm.title")}
             desc={t("guide.vrm.desc")}
             note={t("guide.vrm.note")}
@@ -181,7 +211,7 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
-            icon="✨"
+            icon={guideIcon("promptExpander")}
             title={t("guide.promptExpander.title")}
             desc={t("guide.promptExpander.desc")}
             note={t("guide.promptExpander.note")}
@@ -210,7 +240,7 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
-            icon="💬"
+            icon={guideIcon("characterChat")}
             title={t("guide.characterChat.title")}
             desc={t("guide.characterChat.desc")}
             note={t("guide.characterChat.note")}
@@ -239,7 +269,7 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
-            icon="🪞"
+            icon={guideIcon("salon")}
             title={t("guide.salon.title")}
             desc={t("guide.salon.desc")}
             note={t("guide.salon.note")}
@@ -268,7 +298,7 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
-            icon="🔊"
+            icon={guideIcon("voice")}
             title={t("guide.voice.title")}
             desc={t("guide.voice.desc")}
             note={t("guide.voice.note")}
@@ -283,7 +313,7 @@ export default function GuideScreen() {
           </GuideCard>
 
           <GuideCard
-            icon="📝"
+            icon={guideIcon("playMemory")}
             title={t("guide.playMemory.title")}
             desc={t("guide.playMemory.desc")}
             note={t("guide.playMemory.note")}

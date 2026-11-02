@@ -617,6 +617,17 @@ export interface CharacterChatMessageRequest {
   request_play_proposal?: boolean;
   /** この返答を読み上げるか。読み上げないときはサーバーが返答の文数を増やす */
   read_aloud?: boolean;
+  /** 遊び方ガイドの文面といまの有効/無効。案内役のスレッドでだけ載せる(セレナの機能知識) */
+  app_guide?: AppGuideFeature[];
+}
+
+/** 遊び方ガイドの1項目。available は切り替えの無い機能なら null */
+export interface AppGuideFeature {
+  id: string;
+  title: string;
+  desc: string;
+  note: string | null;
+  available: boolean | null;
 }
 
 /** 発言を送り、判定 → (調べ物) → 返答チャンク → 確定 → (立ち絵) → (要約) → cost → complete を受ける */

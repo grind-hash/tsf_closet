@@ -1,16 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { SalonRun, SalonVisit } from "../../apis/salon";
 import { SALON_DECLINE_PENALTY } from "../../constants/salon";
 import { useSalon } from "../../contexts/SalonContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
+import { usePersistedState } from "../../hooks/usePersistedState";
+import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { getSalonVisitPath, ROUTES } from "../../routes";
 import {
+  buildOpeningCutscene,
+  buildWeekCutscene,
   formatSignedNumber,
   formatSignedYen,
   formatYen,
+  SALON_CUTSCENE_MODES,
+  type SalonCutsceneMode,
+  type SalonCutsceneScene,
   salonCashSeries,
   salonReviews,
   thisWeekVisits,
@@ -19,11 +26,29 @@ import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import SalonBgmControl from "./SalonBgmControl";
 import SalonCashChart from "./SalonCashChart";
+import SalonCutscene from "./SalonCutscene";
+
+/** 開業・週の締めの演出の設定。端末ごとの好みなのでブラウザに保存する */
+const SALON_CUTSCENE_KEY = "salon_week_cutscene";
+
+function parseCutsceneMode(raw: string): SalonCutsceneMode {
+  const value: unknown = JSON.parse(raw);
+  if (!SALON_CUTSCENE_MODES.includes(value as SalonCutsceneMode)) {
+    throw new Error("invalid");
+  }
+  return value as SalonCutsceneMode;
+}
+
+/** 一覧で開店した直後にオーナー室へ渡す router state。開業の演出を一度だけ見せる */
+export interface SalonOfficeLocationState {
+  grandOpening?: boolean;
+}
 
 /** サロンのオーナー室(/salon/:runId)。予約帳・週の締め・帳簿・口コミ・決算 */
 export default function SalonOffice({ runId }: { runId: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { state: settingsState } = useSettings();
   const {
     activeRun,
@@ -33,9 +58,21 @@ export default function SalonOffice({ runId }: { runId: string }) {
     updateRunSettings,
     declineVisit,
     closeWeek,
+    announceAchievements,
   } = useSalon();
   const [declineTarget, setDeclineTarget] = useState<SalonVisit | null>(null);
   const [closeOpen, setCloseOpen] = useState(false);
+  const [cutsceneMode, setCutsceneMode] = usePersistedState<SalonCutsceneMode>(
+    SALON_CUTSCENE_KEY,
+    "full",
+    { deserialize: parseCutsceneMode },
+  );
+  const reducedMotion = usePrefersReducedMotion();
+  // OS で動きを減らしているときは、フルでも短い版にする
+  const playedMode: SalonCutsceneMode =
+    cutsceneMode === "full" && reducedMotion ? "short" : cutsceneMode;
+  const [cutscene, setCutscene] = useState<SalonCutsceneScene | null>(null);
+  const cutsceneLabelId = useId();
   const language = settingsState.language;
 
   useEffect(() => {
@@ -49,6 +86,15 @@ export default function SalonOffice({ runId }: { runId: string }) {
   });
 
   const run = activeRun?.id === runId ? activeRun : null;
+  const grandOpening =
+    (location.state as SalonOfficeLocationState | null)?.grandOpening === true;
+  // 開店した直後だけ開業の演出を見せる。再読み込みや「戻る」で繰り返さないよう state は消す
+  useEffect(() => {
+    if (!grandOpening || !run) return;
+    navigate(location.pathname, { replace: true, state: null });
+    if (playedMode !== "none") setCutscene(buildOpeningCutscene(run));
+  }, [grandOpening, run, playedMode, navigate, location.pathname]);
+
   if (!run) {
     return (
       <MainLayout variant="salon">
@@ -89,8 +135,24 @@ export default function SalonOffice({ runId }: { runId: string }) {
   };
 
   const handleCloseWeek = async () => {
-    await closeWeek();
+    const before = run;
+    const result = await closeWeek({ announce: playedMode === "none" });
     setCloseOpen(false);
+    if (!result || playedMode === "none") return;
+    const scene = buildWeekCutscene(before, result);
+    if (scene) {
+      setCutscene(scene);
+    } else {
+      announceAchievements(result.achievements);
+    }
+  };
+
+  const handleCutsceneClose = (sawAchievements: boolean) => {
+    // 実績を見せる前に飛ばしたら、通知で知らせる(飛ばしても情報は落とさない)
+    if (cutscene?.kind === "week" && !sawAchievements) {
+      announceAchievements(cutscene.achievements);
+    }
+    setCutscene(null);
   };
 
   return (
@@ -187,6 +249,36 @@ export default function SalonOffice({ runId }: { runId: string }) {
               />
               <span className="salon-toggle__switch" aria-hidden />
             </label>
+            <div className="salon-office__setting">
+              <span className="salon-toggle__info">
+                <strong id={cutsceneLabelId}>
+                  {t("salon.office.cutscene")}
+                </strong>
+                <small>{t("salon.office.cutsceneHint")}</small>
+                {reducedMotion && cutsceneMode === "full" && (
+                  <small className="salon-office__settings-note">
+                    {t("salon.office.cutsceneReducedMotion")}
+                  </small>
+                )}
+              </span>
+              <div
+                className="salon-segments"
+                role="group"
+                aria-labelledby={cutsceneLabelId}
+              >
+                {SALON_CUTSCENE_MODES.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={cutsceneMode === value ? "is-active" : undefined}
+                    aria-pressed={cutsceneMode === value}
+                    onClick={() => setCutsceneMode(value)}
+                  >
+                    {t(`salon.office.cutsceneModes.${value}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
           </section>
         )}
 
@@ -390,6 +482,16 @@ export default function SalonOffice({ runId }: { runId: string }) {
         )}
         <p>{t("salon.office.closeWeekBody")}</p>
       </ConfirmDialog>
+
+      {cutscene && playedMode !== "none" && (
+        <SalonCutscene
+          scene={cutscene}
+          mode={playedMode}
+          language={language}
+          onClose={handleCutsceneClose}
+          onPreferShort={() => setCutsceneMode("short")}
+        />
+      )}
     </MainLayout>
   );
 }

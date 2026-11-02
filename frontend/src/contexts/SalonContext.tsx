@@ -22,6 +22,7 @@ import {
   deleteSalonRun,
   fetchSalonRun,
   fetchSalonRuns,
+  type SalonAchievementUnlocked,
   type SalonCloseWeek,
   type SalonDifficulty,
   type SalonRun,
@@ -66,7 +67,15 @@ interface SalonContextValue {
   /** 開いているサロンの設定(過激施術)を変える */
   updateRunSettings: (settings: { sensitive: boolean }) => Promise<void>;
   declineVisit: (visitId: string) => Promise<void>;
-  closeWeek: () => Promise<SalonCloseWeek | null>;
+  /**
+   * 週を締める。announce が false なら解除された実績の通知を出さない
+   * (週の締めのカットシーンで見せる。見せる前に閉じたら announceAchievements で補う)
+   */
+  closeWeek: (options?: {
+    announce?: boolean;
+  }) => Promise<SalonCloseWeek | null>;
+  /** 決算で解除された実績を通知で知らせる */
+  announceAchievements: (achievements: SalonAchievementUnlocked[]) => void;
   /** 接客を始める(接客中なら戻る)。ゲームのセッションを差し替え、開始の応答を返す */
   startVisit: (
     runId: string,
@@ -175,26 +184,36 @@ export function SalonProvider({ children }: { children: ReactNode }) {
     [activeRun, run],
   );
 
-  const closeWeek = useCallback(async () => {
-    if (!activeRun) return null;
-    const result = await run("close", () => closeSalonWeek(activeRun.id));
-    if (!result) return null;
-    setActiveRun(result.run);
-    for (const item of result.achievements) {
-      showAchievementNotification({
-        id: item.achievement_id,
-        name: item.name,
-        description: item.description,
-        icon: item.icon,
-        category: item.category,
-        condition_type: "",
-        condition_target: "",
-        condition_value: 0,
-        is_hidden: false,
-      });
-    }
-    return result;
-  }, [activeRun, run, showAchievementNotification]);
+  const announceAchievements = useCallback(
+    (achievements: SalonAchievementUnlocked[]) => {
+      for (const item of achievements) {
+        showAchievementNotification({
+          id: item.achievement_id,
+          name: item.name,
+          description: item.description,
+          icon: item.icon,
+          category: item.category,
+          condition_type: "",
+          condition_target: "",
+          condition_value: 0,
+          is_hidden: false,
+        });
+      }
+    },
+    [showAchievementNotification],
+  );
+
+  const closeWeek = useCallback(
+    async ({ announce = true }: { announce?: boolean } = {}) => {
+      if (!activeRun) return null;
+      const result = await run("close", () => closeSalonWeek(activeRun.id));
+      if (!result) return null;
+      setActiveRun(result.run);
+      if (announce) announceAchievements(result.achievements);
+      return result;
+    },
+    [activeRun, run, announceAchievements],
+  );
 
   const startVisit = useCallback(
     (runId: string, visitId: string) =>
@@ -267,6 +286,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       updateRunSettings,
       declineVisit,
       closeWeek,
+      announceAchievements,
       startVisit,
       buyExtraTurn,
       checkoutVisit,
@@ -284,6 +304,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       updateRunSettings,
       declineVisit,
       closeWeek,
+      announceAchievements,
       startVisit,
       buyExtraTurn,
       checkoutVisit,
