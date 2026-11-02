@@ -8,7 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from gateway.databases.character_repo import fetch_latest_character_states
+from gateway.databases.character_repo import (
+    fetch_latest_character_states,
+    latest_history_has_character_states,
+)
 from gateway.databases.models import History, User
 from gateway.databases.models import Session as SessionORM
 from gateway.services.character_service import (
@@ -23,6 +26,7 @@ from gateway.services.character_service import (
     remove_avoided_tags,
     resolve_character_look,
     upsert_protagonist_session_character,
+    with_protagonist_look,
 )
 from gateway.services.game_service import (
     GameService,
@@ -99,6 +103,45 @@ def test_fixed_look_always_uses_setting() -> None:
 def test_look_without_history_uses_setting() -> None:
     record = _rec("mio", 2, natural="ツインテールの女の子")
     assert resolve_character_look(record, {}) == ("", "spec", None)
+
+
+# 実際の不具合: サロンで姿を持ち越した再来店。主人公の行は前の来店の姿のまま引き継がれ、
+# 一人で施術した後の複数人表示の体験の手番で、その古い姿(黒髪)を今の姿として描いた
+def test_single_person_turn_look_becomes_the_protagonist_look() -> None:
+    stale = _rec(
+        "hero", 0, tags="1girl, long black hair, minidress", is_protagonist=True
+    )
+    other = _rec("emma", 1, tags="1girl, red hair")
+    styled = "1girl, blonde hair, updo, orange sequins, cocktail dress"
+
+    looks = with_protagonist_look([stale, other], {}, styled)
+
+    assert resolve_character_look(stale, looks)[:2] == (styled, "history")
+    assert "emma" not in looks
+
+
+def test_single_person_turn_look_keeps_user_changes_and_fixed_looks() -> None:
+    styled = "1girl, blonde hair, updo"
+    previous = {"hero": CharacterLook(tags="1girl, black hair", spec_rev=1)}
+    # 最後に人物ごとの姿を残した後で、ユーザーが設定を書き換えた: 設定を優先する
+    changed = _rec(
+        "hero", 0, tags="1girl, silver hair", is_protagonist=True, spec_rev=2
+    )
+    assert resolve_character_look(
+        changed, with_protagonist_look([changed], previous, styled)
+    )[:2] == ("1girl, silver hair", "spec")
+    unchanged = _rec(
+        "hero", 0, tags="1girl, silver hair", is_protagonist=True, spec_rev=1
+    )
+    assert resolve_character_look(
+        unchanged, with_protagonist_look([unchanged], previous, styled)
+    )[:2] == (styled, "history")
+    locked = _rec("hero", 0, tags="1girl, silver hair", is_protagonist=True, lock=True)
+    assert resolve_character_look(locked, with_protagonist_look([locked], {}, styled))[
+        :2
+    ] == ("1girl, silver hair", "fixed")
+    # 姿のタグが読めないときは何も足さない
+    assert with_protagonist_look([unchanged], previous, None) == previous
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +433,25 @@ async def test_latest_states_skip_turns_without_character_output(isolated_db):
         )
     assert json.loads(latest)[0]["tags"] == "second"
     assert json.loads(until_first)[0]["tags"] == "first"
+    async with factory() as db:
+        # 最新の手番は人物ごとの姿を残していない(一人で描いた)
+        assert await latest_history_has_character_states(db, "sess-1") is False
+        assert await latest_history_has_character_states(db, "missing") is False
+        db.add(
+            History(
+                id="hist-3",
+                session_id="sess-1",
+                instruction="turn 3",
+                image_path="img/3.png",
+                character_states_json=json.dumps(
+                    [{"character_id": "emma", "tags": "third", "spec_rev": 0}]
+                ),
+                created_at=base + timedelta(minutes=3),
+            )
+        )
+        await db.commit()
+    async with factory() as db:
+        assert await latest_history_has_character_states(db, "sess-1") is True
 
 
 @pytest.mark.asyncio

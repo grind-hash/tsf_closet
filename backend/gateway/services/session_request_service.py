@@ -62,6 +62,7 @@ from .llm_json import StructuredOutputError, generate_validated, validate_model_
 from .llm_service import llm_service
 from .session import session_store
 from .session_request_prompts import (
+    EXPERIENCE_IMAGE_OUTFIT_RULE,
     build_experience_feeling_context,
     build_request_evaluation_prompt,
     build_request_feeling_context,
@@ -769,6 +770,11 @@ def experience_feeling_context(request: dict[str, Any], language: str) -> str:
     if not request.get("sensitive"):
         return ""
     return build_experience_feeling_context(wish=request["wish"], language=language)
+
+
+def experience_image_context(request: dict[str, Any]) -> str:
+    """体験の場面の画像指示に添える一文(仕上げた服を残す)。他の依頼では空。"""
+    return EXPERIENCE_IMAGE_OUTFIT_RULE if request.get("sensitive") else ""
 
 
 async def _generate_text(

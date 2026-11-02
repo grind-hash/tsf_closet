@@ -365,6 +365,10 @@ def build_request_feeling_context(
     return "\n".join(lines)
 
 
+# 体験の場面の画像指示に添える一文。行為に合わせて裸にせず、仕上げた服を残させる
+EXPERIENCE_IMAGE_OUTFIT_RULE = " (The protagonist keeps the outfit of their current look, only partly undressed for the act: pulled aside, lifted, or opened. Never strip it completely.)"
+
+
 def build_experience_feeling_context(*, wish: str, language: str) -> str:
     """体験の場面(行動の手番)の心境プロンプトに添えるブロック。
 

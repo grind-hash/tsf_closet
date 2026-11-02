@@ -1285,3 +1285,7 @@ async def test_salon_experience_action_turn_is_framed_as_the_salon_dream(
     user_prompt = harness.feeling_calls[0]["user_prompt"]
     assert ("【サロンが見せる夢】" in user_prompt) is framed
     assert ("舞踏会のお姫様になってみたい" in user_prompt) is framed
+    # 画像の指示では、行為に合わせて裸にせず仕上げた服を残させる
+    assert (
+        "keeps the outfit of their current look" in repr(harness.text_calls)
+    ) is framed
