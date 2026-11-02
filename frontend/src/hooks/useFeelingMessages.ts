@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useChat } from "../contexts/ChatContext";
 import { useGame } from "../contexts/GameContext";
 import type { ChatMessage } from "../types";
+import { stripHintMarkers } from "../utils/hintMarkers";
 
 /**
  * 心境テキスト(feelingText)をチャットメッセージとして追加・更新する。
@@ -19,7 +20,8 @@ export function useFeelingMessages() {
     getLatestPendingIdentity,
   } = useChat();
   const sessionId = gameState.sessionId;
-  const feelingText = gameState.feelingText;
+  // サロンの来店で付くヒントの目印は、通常のチャットでは出さない
+  const feelingText = stripHintMarkers(gameState.feelingText);
   const isTransforming = gameState.isTransforming;
 
   const prevFeelingRef = useRef<string | null>(null);

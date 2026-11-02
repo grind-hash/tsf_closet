@@ -96,7 +96,10 @@ export interface SettingsState {
   // TSFシナリオをメニューに表示する(既定 ON。v0.9.0 で Experimental から昇格)
   adventureEnabled: boolean;
   experimentalPromptExpanderEnabled: boolean;
-  experimentalCharacterChatEnabled: boolean;
+  /** キャラチャット(既定 ON。v0.11.0 で Experimental から昇格)。OFF で「話す」の入口を隠す */
+  characterChatEnabled: boolean;
+  /** サロン経営モード(実験機能)。ON でサイドメニューに出し /salon を開ける */
+  experimentalSalonEnabled: boolean;
   // キャラチャット: セレナの Web 検索・天気。発言ごとに送り、サーバー側の設定が無ければ使われない
   characterChatWebSearchEnabled: boolean;
   characterChatWeatherEnabled: boolean;
@@ -106,6 +109,9 @@ export interface SettingsState {
 
   // お気に入り一覧からの削除時に確認ダイアログを表示する (spec 009)
   confirmFavoriteRemove: boolean;
+
+  /** ギャラリーの「すべて」にサロン経営の接客のセッションを含める(既定 OFF。「サロン経営」の絞り込みでは常に見られる) */
+  includeSalonSessionsInGallery: boolean;
 
   // 設定画面を検索・カテゴリ別の新しいレイアウトで表示する（既定 OFF）
   newSettingsScreenEnabled: boolean;
@@ -209,13 +215,15 @@ type SettingsAction =
   | { type: "SET_SHOW_REALITY_ATTRIBUTE_NOTIFICATION"; payload: boolean }
   | { type: "SET_ADVENTURE_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED"; payload: boolean }
-  | { type: "SET_EXPERIMENTAL_CHARACTER_CHAT_ENABLED"; payload: boolean }
+  | { type: "SET_CHARACTER_CHAT_ENABLED"; payload: boolean }
+  | { type: "SET_EXPERIMENTAL_SALON_ENABLED"; payload: boolean }
   | { type: "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED"; payload: boolean }
   | { type: "SET_CHARACTER_CHAT_WEATHER_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_SYSTEM_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_USER_ENABLED"; payload: boolean }
   | { type: "SET_CONFIRM_FAVORITE_REMOVE"; payload: boolean }
+  | { type: "SET_INCLUDE_SALON_SESSIONS_IN_GALLERY"; payload: boolean }
   | { type: "SET_NEW_SETTINGS_SCREEN_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_ENABLED"; payload: boolean }
   | { type: "SET_SOUND_VOLUME"; payload: number }
@@ -261,7 +269,7 @@ type SettingsAction =
   | { type: "SET_MEMORY_TEXT"; payload: string | null };
 
 // デフォルト状態
-const defaultState: SettingsState = {
+export const defaultState: SettingsState = {
   difficulty: "normal",
   bloomCalcMethod: "legacy",
   feelingMode: "legacy",
@@ -280,13 +288,15 @@ const defaultState: SettingsState = {
   showRealityAttributeNotification: true,
   adventureEnabled: true,
   experimentalPromptExpanderEnabled: false,
-  experimentalCharacterChatEnabled: false,
+  characterChatEnabled: true,
+  experimentalSalonEnabled: false,
   characterChatWebSearchEnabled: false,
   characterChatWeatherEnabled: false,
   playMemoryEnabled: false,
   playMemorySystemEnabled: true,
   playMemoryUserEnabled: true,
   confirmFavoriteRemove: true,
+  includeSalonSessionsInGallery: false,
   newSettingsScreenEnabled: false,
   soundEnabled: true,
   soundVolume: 0.5,
@@ -391,8 +401,10 @@ function settingsReducer(
       return { ...state, adventureEnabled: action.payload };
     case "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED":
       return { ...state, experimentalPromptExpanderEnabled: action.payload };
-    case "SET_EXPERIMENTAL_CHARACTER_CHAT_ENABLED":
-      return { ...state, experimentalCharacterChatEnabled: action.payload };
+    case "SET_CHARACTER_CHAT_ENABLED":
+      return { ...state, characterChatEnabled: action.payload };
+    case "SET_EXPERIMENTAL_SALON_ENABLED":
+      return { ...state, experimentalSalonEnabled: action.payload };
     case "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED":
       return { ...state, characterChatWebSearchEnabled: action.payload };
     case "SET_CHARACTER_CHAT_WEATHER_ENABLED":
@@ -405,6 +417,8 @@ function settingsReducer(
       return { ...state, playMemoryUserEnabled: action.payload };
     case "SET_CONFIRM_FAVORITE_REMOVE":
       return { ...state, confirmFavoriteRemove: action.payload };
+    case "SET_INCLUDE_SALON_SESSIONS_IN_GALLERY":
+      return { ...state, includeSalonSessionsInGallery: action.payload };
     case "SET_NEW_SETTINGS_SCREEN_ENABLED":
       return { ...state, newSettingsScreenEnabled: action.payload };
     case "SET_SOUND_ENABLED":
@@ -534,13 +548,15 @@ interface SettingsContextType {
   setShowRealityAttributeNotification: (show: boolean) => void;
   setAdventureEnabled: (enabled: boolean) => void;
   setExperimentalPromptExpanderEnabled: (enabled: boolean) => void;
-  setExperimentalCharacterChatEnabled: (enabled: boolean) => void;
+  setCharacterChatEnabled: (enabled: boolean) => void;
+  setExperimentalSalonEnabled: (enabled: boolean) => void;
   setCharacterChatWebSearchEnabled: (enabled: boolean) => void;
   setCharacterChatWeatherEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
   setPlayMemorySystemEnabled: (enabled: boolean) => void;
   setPlayMemoryUserEnabled: (enabled: boolean) => void;
   setConfirmFavoriteRemove: (enabled: boolean) => void;
+  setIncludeSalonSessionsInGallery: (enabled: boolean) => void;
   setNewSettingsScreenEnabled: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setSoundVolume: (volume: number) => void;
@@ -626,6 +642,8 @@ function loadInitialState(initial: SettingsState): SettingsState {
         // v0.9.0 で廃止: エンディングは常時表示、TSFシナリオは adventureEnabled(既定 ON)へ
         experimentalEndingEnabled: _legacyEnding,
         experimentalAdventureEnabled: _legacyAdventure,
+        // v0.11.0 で廃止: キャラチャットは characterChatEnabled(既定 ON)へ
+        experimentalCharacterChatEnabled: _legacyCharacterChat,
         ...filtered
       } = rest;
       return {
@@ -997,15 +1015,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
-  const setExperimentalCharacterChatEnabled = useCallback(
-    (enabled: boolean) => {
-      dispatch({
-        type: "SET_EXPERIMENTAL_CHARACTER_CHAT_ENABLED",
-        payload: enabled,
-      });
-    },
-    [],
-  );
+  const setCharacterChatEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_CHARACTER_CHAT_ENABLED", payload: enabled });
+  }, []);
+  const setExperimentalSalonEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_EXPERIMENTAL_SALON_ENABLED", payload: enabled });
+  }, []);
   const setCharacterChatWebSearchEnabled = useCallback((enabled: boolean) => {
     dispatch({
       type: "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED",
@@ -1026,6 +1041,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
   const setConfirmFavoriteRemove = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_CONFIRM_FAVORITE_REMOVE", payload: enabled });
+  }, []);
+  const setIncludeSalonSessionsInGallery = useCallback((enabled: boolean) => {
+    dispatch({
+      type: "SET_INCLUDE_SALON_SESSIONS_IN_GALLERY",
+      payload: enabled,
+    });
   }, []);
   const setNewSettingsScreenEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_NEW_SETTINGS_SCREEN_ENABLED", payload: enabled });
@@ -1303,13 +1324,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setShowRealityAttributeNotification,
       setAdventureEnabled,
       setExperimentalPromptExpanderEnabled,
-      setExperimentalCharacterChatEnabled,
+      setCharacterChatEnabled,
+      setExperimentalSalonEnabled,
       setCharacterChatWebSearchEnabled,
       setCharacterChatWeatherEnabled,
       setPlayMemoryEnabled,
       setPlayMemorySystemEnabled,
       setPlayMemoryUserEnabled,
       setConfirmFavoriteRemove,
+      setIncludeSalonSessionsInGallery,
       setNewSettingsScreenEnabled,
       setSoundEnabled,
       setSoundVolume,
@@ -1377,13 +1400,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setShowRealityAttributeNotification,
       setAdventureEnabled,
       setExperimentalPromptExpanderEnabled,
-      setExperimentalCharacterChatEnabled,
+      setCharacterChatEnabled,
+      setExperimentalSalonEnabled,
       setCharacterChatWebSearchEnabled,
       setCharacterChatWeatherEnabled,
       setPlayMemoryEnabled,
       setPlayMemorySystemEnabled,
       setPlayMemoryUserEnabled,
       setConfirmFavoriteRemove,
+      setIncludeSalonSessionsInGallery,
       setNewSettingsScreenEnabled,
       setSoundEnabled,
       setSoundVolume,

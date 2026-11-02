@@ -14,7 +14,7 @@ import re
 import shutil
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -2884,6 +2884,7 @@ class CharacterChatService:
         live2d_costume_id: str = "",
         character: dict[str, Any] | None = None,
         read_aloud: bool = False,
+        app_guide: Sequence[Mapping[str, Any]] = (),
     ) -> str:
         """返答本文の system prompt を組む。
 
@@ -2892,6 +2893,7 @@ class CharacterChatService:
         character は紐づくキャラクターの最新値(_character_context)。キャラクター種は
         その設定だけで人物を組み、セッション由来はセッションの経緯に重ねる。
         read_aloud は返答を読み上げる手番(読み上げない手番は文数を増やす)。
+        app_guide は遊び方ガイドの文面(案内役キャラの機能知識)。
         """
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -2932,7 +2934,7 @@ class CharacterChatService:
         if character is not None:
             name, pronoun = str(character["name"]), str(character["pronoun"])
         if is_base:
-            persona_text = base_persona_block(language)
+            persona_text = base_persona_block(language, app_guide)
         elif thread.kind == CHARACTER_CHAT_KIND_CHARACTER:
             persona_text = character_persona_block(
                 name=name,
@@ -3076,6 +3078,7 @@ class CharacterChatService:
         use_weather: bool = False,
         request_play_proposal: bool = False,
         read_aloud: bool = False,
+        app_guide: Sequence[Mapping[str, Any]] = (),
     ) -> AsyncGenerator[dict[str, Any], None]:
         """1 発言の処理。
 
@@ -3084,7 +3087,8 @@ class CharacterChatService:
         「おすすめのプレイを聞く」ボタンからの送信で、案内役キャラのスレッドでは判定 LLM を
         省いて必ず提案する(判定 LLM が依頼を拾った手番も提案する)。提案は
         character_message の meta.play_proposal に載る。read_aloud は返答を読み上げる
-        手番で、読み上げない手番は返答の文数を増やす。
+        手番で、読み上げない手番は返答の文数を増やす。app_guide は遊び方ガイドの文面で、
+        案内役キャラのスレッドでだけ system prompt に載る。
 
         Yields:
             status{phase: plan|search|propose|reply|portrait|memory} /
@@ -3296,6 +3300,7 @@ class CharacterChatService:
                 ),
                 character=character_context,
                 read_aloud=read_aloud,
+                app_guide=app_guide,
             )
             history = _reply_history(
                 recent, expressions=header_expressions, gestures=header_gestures

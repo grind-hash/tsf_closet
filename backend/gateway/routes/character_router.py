@@ -17,7 +17,9 @@ Endpoints (all under /api/game prefix when registered in app.py):
 - PUT    /game/character-presets/{preset_id}
 - DELETE /game/character-presets/{preset_id}
 - GET    /game/character-presets/{preset_id}/images/{filename}
+- POST   /game/character-presets/import-custom
 - POST   /game/character-presets/{preset_id}/portrait/from-source
+- POST   /game/character-presets/{preset_id}/portrait/upload
 - POST   /game/character-presets/{preset_id}/portrait/stream (SSE)
 - GET    /game/character-group-presets
 - POST   /game/character-group-presets
@@ -48,6 +50,7 @@ from ..schemas.characters import (
     CharacterPresetListResponse,
     CharacterPresetPortraitImportResponse,
     CharacterPresetPortraitRequest,
+    CharacterPresetPortraitUploadRequest,
     CharacterPresetRead,
     CharacterPresetUpdate,
     CharacterProfile,
@@ -67,11 +70,13 @@ from ..schemas.characters import (
 )
 from ..services.character_preset_portrait import (
     CharacterPresetPortraitError,
+    import_custom_characters,
     import_preset_portrait,
     preset_image_file,
     preset_portrait_url,
     remove_preset_images,
     stream_preset_portrait,
+    upload_preset_portrait,
 )
 from ..services.character_profile import (
     CharacterProfileGenerationError,
@@ -173,6 +178,7 @@ def _serialize_preset(record) -> CharacterPresetRead:
             else None
         ),
         portrait_url=preset_portrait_url(record),
+        salon_enabled=bool(record.salon_enabled),
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -708,6 +714,33 @@ async def import_character_preset_portrait(
     return CharacterPresetPortraitImportResponse(
         preset=_serialize_preset(record),
         source=CharacterSourceResolveResponse.model_validate(resolved),
+    )
+
+
+@router.post(
+    "/character-presets/{preset_id}/portrait/upload",
+    response_model=CharacterPresetRead,
+    summary="Use an uploaded image as the portrait",
+)
+async def upload_character_preset_portrait(
+    preset_id: str, payload: CharacterPresetPortraitUploadRequest
+) -> CharacterPresetRead:
+    try:
+        record = await upload_preset_portrait(preset_id, payload.image)
+    except CharacterPresetPortraitError as error:
+        raise _portrait_http_error(error) from error
+    return _serialize_preset(record)
+
+
+@router.post(
+    "/character-presets/import-custom",
+    response_model=CharacterPresetListResponse,
+    summary="Import the custom characters made on the new-play screen (deprecated)",
+)
+async def import_custom_character_presets() -> CharacterPresetListResponse:
+    records = await import_custom_characters()
+    return CharacterPresetListResponse(
+        presets=[_serialize_preset(record) for record in records]
     )
 
 

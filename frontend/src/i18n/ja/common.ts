@@ -11,4 +11,9 @@ export const common = {
   enabled: "有効",
   disabled: "無効",
   none: "なし",
+  // ADV 風画面(キャラチャット・TSFシナリオ・サロン経営)のメッセージウィンドウの表示切り替え
+  messageWindow: {
+    show: "ウィンドウを表示",
+    hide: "ウィンドウを非表示",
+  },
 };

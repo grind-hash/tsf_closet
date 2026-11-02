@@ -9,11 +9,13 @@ import type { AnlasBalance } from "../../types";
 import { speechStyleLabel } from "../../utils/adventureFormat";
 import type { AdventureSceneView } from "../../utils/adventureSceneView";
 import AdventureInventoryPanel from "./AdventureInventoryPanel";
+import AdventureRealityCostPanel from "./AdventureRealityCostPanel";
 
 export type AdventureHudPanel =
   | "milestones"
   | "clues"
   | "realityRules"
+  | "realityCosts"
   | "speechStyle"
   | "bgm"
   | "inventory";
@@ -123,6 +125,8 @@ export default function AdventureHud({
     realityRules,
     inventory,
     inventoryCount,
+    realityCosts,
+    activeRealityCostCount,
   } = scene;
   // HUD の V5 利用上限表示(実効モデルが V5 のときのみ)
   const hudUsage = runIsV5 ? (anlasBalance?.usage ?? null) : null;
@@ -425,6 +429,19 @@ export default function AdventureHud({
             <strong>{realityRules.length}</strong>
           </button>
         )}
+        {realityCosts && (
+          <button
+            type="button"
+            className={`adventure-hud__chip adventure-hud__chip--costs${
+              activeRealityCostCount > 0 ? " has-active" : ""
+            }${hudPanel === "realityCosts" ? " is-open" : ""}`}
+            aria-expanded={hudPanel === "realityCosts"}
+            onClick={() => onToggleHudPanel("realityCosts")}
+          >
+            <span>{t("adventure.realityCosts")}</span>
+            <strong>{activeRealityCostCount}</strong>
+          </button>
+        )}
         {inventory && (
           <button
             type="button"
@@ -488,6 +505,11 @@ export default function AdventureHud({
           {hudPanel === "inventory" ? (
             <AdventureInventoryPanel
               onClose={onCloseHudPanel}
+              viewingPast={viewingPast}
+            />
+          ) : hudPanel === "realityCosts" ? (
+            <AdventureRealityCostPanel
+              costs={realityCosts ?? []}
               viewingPast={viewingPast}
             />
           ) : hudPanel === "speechStyle" ? (

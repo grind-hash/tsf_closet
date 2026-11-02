@@ -156,10 +156,16 @@ export default function ChatInput({
       ? t("chat.input.imageOnlyTextToImageDisabledHint")
       : t("chat.input.imageOnlyTextToImageHint");
 
+  // 依頼モード: 施術の手数を使い切ったら着せ替え・現実改変は送れない(行動・会話は可)
+  const requestTurnsExhausted =
+    gameState.request?.turns_remaining === 0 &&
+    (state.instructionType === "dress_up" ||
+      state.instructionType === "reality_alter");
+
   // 送信ハンドラ
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!state.inputText.trim() || disabled) return;
+    if (!state.inputText.trim() || disabled || requestTurnsExhausted) return;
 
     const shouldUseMemoryForSend =
       useMemoryForSuggestion && useMemoryForImageOnSend;
@@ -257,6 +263,12 @@ export default function ChatInput({
             ✕
           </button>
         </div>
+      )}
+
+      {requestTurnsExhausted && (
+        <p className="chat-input__notice" role="status">
+          {t("chat.request.turnsExhausted")}
+        </p>
       )}
 
       {/* オプションツールバー: メモリ反映チェック / 過去から生成ボタン */}
@@ -413,7 +425,9 @@ export default function ChatInput({
         <button
           type="submit"
           className="chat-input__send-btn"
-          disabled={disabled || !state.inputText.trim()}
+          disabled={
+            disabled || !state.inputText.trim() || requestTurnsExhausted
+          }
           aria-label={t("chat.input.send")}
         >
           {t("chat.input.send")}

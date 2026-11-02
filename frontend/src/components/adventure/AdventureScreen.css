@@ -3579,7 +3579,8 @@ button:disabled {
 
   .adventure-messagebox__portrait-note,
   .adventure-messagebox__inventory-note,
-  .adventure-messagebox__boundary-note {
+  .adventure-messagebox__boundary-note,
+  .adventure-messagebox__cost-note {
     padding: 2px 8px;
     font-size: 0.7rem;
   }
@@ -4715,7 +4716,8 @@ button:disabled {
    min-width:0 と overflow-wrap で折り返し、ログ/✕ボタンを押し出さない */
 .adventure-messagebox__portrait-note,
 .adventure-messagebox__inventory-note,
-.adventure-messagebox__boundary-note {
+.adventure-messagebox__boundary-note,
+.adventure-messagebox__cost-note {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
@@ -4744,6 +4746,13 @@ button:disabled {
   border-color: rgb(239 184 90 / 55%);
   color: #f3cc84;
   background: #2a2418;
+}
+
+/* 改変の代償の発生・解決。現実改変の帰結なので紫系で他の案内と区別する */
+.adventure-messagebox__cost-note {
+  border-color: rgb(176 148 232 / 55%);
+  color: #d9c8ff;
+  background: #221d2c;
 }
 
 /* サウンドポップオーバーの見出しと読み上げ状態行 */
@@ -4935,6 +4944,100 @@ button:disabled {
 .adventure-hud__inventory-log {
   margin: 8px 0 4px;
   color: #9aa4ad;
+  font-size: 0.68rem;
+}
+
+/* 改変の代償: 未解決があるチップは件数を強調し、一覧は持ち物と同じ行様式にする */
+.adventure-hud__chip--costs.has-active strong {
+  color: #d9c8ff;
+}
+
+.adventure-hud__costs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.adventure-hud__costs li {
+  display: grid;
+  gap: 4px;
+  padding: 6px 0;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+.adventure-hud__costs li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.adventure-hud__cost-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.adventure-hud__cost-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #f2f5f7;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.adventure-hud__costs li.is-resolved strong {
+  color: #9aa4ad;
+  text-decoration: line-through;
+}
+
+/* 可変幅のバッジは行末に寄せ、本文の開始位置を揃える */
+.adventure-hud__cost-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: #1b1f24;
+  background: #b094e8;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.adventure-hud__cost-meta {
+  color: #9aa4ad;
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+
+.adventure-hud__cost-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.adventure-hud__cost-actions button {
+  margin: 0;
+  padding: 3px 8px;
+  border: 1px solid #707982;
+  border-radius: 6px;
+  color: #e6ebef;
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.adventure-hud__cost-actions button:hover:not(:disabled) {
+  border-color: #efb85a;
+  color: #efb85a;
+}
+
+.adventure-hud__cost-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.adventure-hud__cost-blocked {
+  color: #f3cc84;
   font-size: 0.68rem;
 }
 

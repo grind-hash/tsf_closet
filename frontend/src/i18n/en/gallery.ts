@@ -67,6 +67,14 @@ export const gallery = {
   deleteItemAction: "Delete",
   deleteItemError: "Failed to delete item",
   selfModeChip: "Self",
+  origin: {
+    label: "Filter by session type",
+    all: "All",
+    play: "Regular play",
+    salon: "Salon",
+    salonHidden:
+      "Salon visits are shown only under the Salon filter, as set in Settings",
+  },
   searchPlaceholder: "Search conversations by keyword…",
   searchAria: "Search session conversations",
   searchClear: "Clear search",

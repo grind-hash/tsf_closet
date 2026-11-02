@@ -185,6 +185,7 @@ async def message_stream(
                 use_weather=request.use_weather,
                 request_play_proposal=request.request_play_proposal,
                 read_aloud=request.read_aloud,
+                app_guide=[feature.model_dump() for feature in request.app_guide],
             ):
                 yield {
                     "event": event["event"],

@@ -53,9 +53,13 @@ export const settings = {
   experimentalPromptExpander: "Prompt Expander",
   experimentalPromptExpanderDesc:
     "自然文の指示をLLMでNovelAIプロンプトに拡張し、ゲームとは独立に画像を生成・保存できる画面をメニューに表示します",
-  experimentalCharacterChat: "キャラチャット",
-  experimentalCharacterChatDesc:
-    "TSFシナリオを経由せず、キャラクターと1対1で会話する画面をメニューに表示します。案内役のセレナと、過去セッションの人物を呼び出して話せます",
+  characterChatSection: "キャラチャット",
+  characterChatEnabled: "キャラチャット",
+  characterChatEnabledDesc:
+    "キャラクターと1対1で会話する画面をメニューに表示し、キャラクター画面に「このキャラと話す」を出します。案内役のセレナと、過去セッションの人物も呼び出して話せます。OFF にしても、キャラクター画面（キャラクターの作成・プレイの開始）は使えます",
+  experimentalSalon: "サロン経営",
+  experimentalSalonDesc:
+    "お客様を着せ替えで願いどおりの姿にして、12週のあいだサロンを経営するモードをメニューに表示します。接客は依頼モードと同じ仕組み（施術3手・質問2回）で、会計の満足度から売上と評判が決まります",
   characterChatWebSearch: "セレナがWeb検索で調べる",
   characterChatWebSearchDesc:
     "キャラチャットで最近の出来事や現実の話題を聞かれたときだけ、セレナがWeb検索（Tavily）で調べて答えます。送るのは話題のキーワードだけで、会話の文章は送りません。性的に露骨な内容など、Tavilyの利用規約に反するおそれのある検索はしません（セレナがその旨を伝えます）。ONにするときに利用条件への同意を確認します。検索1回につきTavilyのクレジットを1消費します。",
@@ -220,6 +224,9 @@ export const settings = {
   confirmFavoriteRemove: "お気に入り削除の確認",
   confirmFavoriteRemoveDesc:
     "お気に入り一覧から外すときに確認メッセージを表示します。「次回から表示しない」でオフにした場合も、ここで再度オンにできます",
+  gallerySalonSessions: "ギャラリーの「すべて」にサロン経営の接客を含める",
+  gallerySalonSessionsDesc:
+    "サロン経営で接客したお客様のセッションを、ギャラリーの「すべて」にも並べます。オフでも「サロン経営」の絞り込みで見られます。サロン経営を使っていなければ影響しません",
   fontSystem: "システムフォント",
   fontSystemDesc: "OS標準のUIフォントを使用",
   fontBrowserDefault: "ブラウザのデフォルト",

@@ -31,6 +31,7 @@ from ..consts.novelai_models import (
 )
 from ..consts.play_limits import REALITY_ATTRIBUTE_PREFIX
 from ..consts.prompt_expander import MAX_CHARACTER_PROMPTS_V45, max_character_prompts
+from ..consts.session_request import REQUEST_EVALUATION_FAILED
 from ..databases.base import async_session_factory
 from ..databases.character_repo import (
     fetch_latest_character_states,
@@ -102,6 +103,7 @@ from .custom_sessions import (
     load_custom_character_profile,
     load_custom_session_metadata,
     normalize_gender,
+    preset_session_images_dir,
     save_custom_character,
     save_custom_session_metadata,
 )
@@ -131,11 +133,17 @@ from .litellm_client import LiteLLMClientError
 from .llm_json import strip_code_fence
 from .llm_service import LLMServiceError, llm_service
 from .memory_prompts import build_memory_priority_instruction
+from .preset_sessions import (
+    PresetSessionError,
+    load_preset_play_source,
+    portrait_png_bytes,
+)
 from .prompts import (
     FEELING_SYSTEM_PROMPT,
     build_enhanced_feeling_prompt,
     build_feeling_prompt,
     build_observer_feeling_prompt,
+    build_request_feeling_prompt,
     enhance_prompt_for_novelai,
     get_critical_speech,
 )
@@ -147,6 +155,12 @@ from .reality_prompts import (
 )
 from .self_mode_prompts import build_self_mode_feeling_prompt
 from .session import session_store
+from .session_request_service import (
+    feeling_context,
+    is_fulfilled,
+    session_request_service,
+    turns_remaining,
+)
 from .settings_service import settings_service
 from .tag_classifier import TransformationTags
 from .tag_classifier_jev import resolve_tags
@@ -535,6 +549,20 @@ class TurnContext:
         return self.request.instruction
 
     @property
+    def character_personality(self) -> str:
+        """テンプレートキャラクターの性格。カスタム画像のキャラクターはメタデータから読む。"""
+        if self.character is not None:
+            return self.character.personality
+        return str(self.custom_metadata.get("personality") or "")
+
+    @property
+    def character_description(self) -> str:
+        """テンプレートキャラクターの説明。カスタム画像のキャラクターはメタデータから読む。"""
+        if self.character is not None:
+            return self.character.description
+        return str(self.custom_metadata.get("description") or "")
+
+    @property
     def is_novelai(self) -> bool:
         return self.provider == "novelai"
 
@@ -641,6 +669,24 @@ class _TransformationOutcome:
     tags: TransformationTags
     # この手番の指示で姿が変わった人物（主人公が対象でなければ主人公の値を動かさない）
     targets: TurnTargets = field(default_factory=TurnTargets)
+    # 依頼モード: 手番開始時点の依頼と、この手番の評価(評価しなかった・失敗は None)
+    session_request: dict | None = None
+    request_evaluation: dict | None = None
+
+
+@dataclass
+class _RequestTurnState:
+    """心境ストリームの前に行った依頼評価の結果を、履歴保存まで運ぶ入れ物。"""
+
+    evaluation: dict | None = None
+
+
+@dataclass(frozen=True)
+class _RequestFeeling:
+    """依頼モードの心境に渡す値。block は願いと評価の節、tsf_attitude は主人公の設定。"""
+
+    block: str
+    tsf_attitude: str = ""
 
 
 class GameService:
@@ -745,6 +791,7 @@ class GameService:
         nsfw_mode: bool,
         self_mode: bool,
         use_saved_profile: bool = False,
+        tsf_attitude: str = "",
     ) -> tuple[PersistedSession, SessionStats, str]:
         """アップロード画像（または保存済みカスタムキャラクター）でセッションを開始する。
 
@@ -766,6 +813,7 @@ class GameService:
             personality = str(saved.get("personality") or "")
             gender = str(saved.get("gender") or "other")
             base_tags = str(saved.get("base_tags") or "")
+            tsf_attitude = str(saved.get("tsf_attitude") or "")
         await session_store.reset_session()
 
         custom_image_id = custom_character_id or str(uuid.uuid4())
@@ -778,6 +826,7 @@ class GameService:
             "personality": personality,
             "gender": normalized_gender,
             "base_tags": base_tags,
+            "tsf_attitude": tsf_attitude.strip(),
         }
         if custom_character_id and custom_image_path.exists():
             image_bytes = custom_image_path.read_bytes()
@@ -798,15 +847,81 @@ class GameService:
             )
         # 相対パス（BASE_DIR からの相対）
         relative_path = f"data/history_images/custom/{custom_image_id}.png"
-
-        session = await session_store.create_session(
+        return await self._start_profiled_session(
+            image_bytes=image_bytes,
             image_path=relative_path,
-            character_id=None,  # カスタム画像なのでキャラクターIDなし
+            profile=profile,
+            metadata={"custom_character_id": custom_image_id, **profile},
+            difficulty=difficulty,
+            nsfw_mode=nsfw_mode,
             self_mode=self_mode,
         )
-        save_custom_session_metadata(
-            session.id, {"custom_character_id": custom_image_id, **profile}
+
+    async def start_preset_session(
+        self,
+        *,
+        preset_id: str,
+        difficulty: str,
+        nsfw_mode: bool,
+        self_mode: bool,
+    ) -> tuple[PersistedSession, SessionStats, str]:
+        """キャラクター(CharacterPreset)の立ち絵と人物設定でセッションを開始する。
+
+        立ち絵は開始時点のものを写して元画像にする(後で立ち絵を差し替えても壊れない)。
+        キャラクターや立ち絵が無ければ、進行中のセッションをリセットする前に失敗する。
+
+        Raises: GameServiceError(code=character_preset_not_found / image_not_found)
+        """
+        try:
+            source = await load_preset_play_source(preset_id)
+            image_bytes = portrait_png_bytes(source.image_path)
+        except PresetSessionError as error:
+            raise GameServiceError(str(error), code=error.code) from error
+        except OSError as error:
+            raise GameServiceError(
+                f"キャラクターの立ち絵を読めませんでした: {error}",
+                code="image_not_found",
+            ) from error
+        await session_store.reset_session()
+
+        base_image = f"{uuid.uuid4().hex}.png"
+        image_file = preset_session_images_dir() / base_image
+        image_file.write_bytes(image_bytes)
+        return await self._start_profiled_session(
+            image_bytes=image_bytes,
+            image_path=str(image_file.relative_to(settings.history_images_dir.parent)),
+            profile=source.profile,
+            metadata={
+                "character_preset_id": preset_id,
+                "base_image": base_image,
+                **source.profile,
+            },
+            difficulty=difficulty,
+            nsfw_mode=nsfw_mode,
+            self_mode=self_mode,
         )
+
+    async def _start_profiled_session(
+        self,
+        *,
+        image_bytes: bytes,
+        image_path: str,
+        profile: dict[str, str],
+        metadata: dict[str, Any],
+        difficulty: str,
+        nsfw_mode: bool,
+        self_mode: bool,
+    ) -> tuple[PersistedSession, SessionStats, str]:
+        """テンプレート以外の人物(カスタム画像・キャラクター)でセッションを作る。
+
+        人物像はセッションごとのメタデータ(session_{id}.json)に書き、初期状態の履歴を置く。
+        """
+        session = await session_store.create_session(
+            image_path=image_path,
+            character_id=None,  # テンプレートキャラクターではないので ID なし
+            self_mode=self_mode,
+        )
+        save_custom_session_metadata(session.id, metadata)
 
         effective_difficulty = (
             difficulty if difficulty in DIFFICULTY_PRESETS else "normal"
@@ -815,7 +930,7 @@ class GameService:
             session.id, effective_difficulty, nsfw_mode
         )
         initial_desc = self._build_initial_prompt(
-            gender=normalized_gender, base_tags=base_tags
+            gender=profile["gender"], base_tags=profile["base_tags"]
         )
         await session_store.add_history(
             session_id=session.id,
@@ -2643,14 +2758,15 @@ class GameService:
 
         # アクションテキストプロンプトを構築
         #   - self_mode: 自分自身プロフィールの性格を使用
+        #   - それ以外: テンプレート / カスタム画像のキャラクターの性格を使用
         #   - 変身前 (transformation_count==0): 日常生活プロンプト
         action_personality = ""
         action_description = ""
         if ctx.self_profile:
             action_personality = ctx.self_profile.get("personality", "")
-        elif ctx.character:
-            action_personality = ctx.character.personality
-            action_description = ctx.character.description
+        else:
+            action_personality = ctx.character_personality
+            action_description = ctx.character_description
         logger.info("action_gender=%s", ctx.gender)
 
         # 005: マルチキャラクター在席時のプロンプト追加
@@ -2980,6 +3096,23 @@ class GameService:
         request = ctx.request
         is_reality = request.is_reality
 
+        # 依頼モード: 施術の手数を使い切っていたら、画像生成や LLM を呼ぶ前に止める
+        # (自分自身モードは対象外)
+        session_request = (
+            None
+            if ctx.session.self_mode
+            else await session_store.get_session_request(ctx.session.id)
+        )
+        if session_request is not None:
+            remaining = turns_remaining(
+                session_request,
+                await session_store.get_request_evaluations(ctx.session.id),
+            )
+            if remaining is not None and remaining <= 0:
+                raise GameServiceError(
+                    "施術の手数を使い切りました", code="request_turn_limit"
+                )
+
         # 現在のstatsを取得 (T059: 開花度ベースの心理段階)
         current_stats = await session_store.get_or_create_session_stats(ctx.session.id)
         current_bloom = current_stats.bloom
@@ -3124,21 +3257,37 @@ class GameService:
                 novelai_image_model_override=ctx.novelai_image_model,
             )
 
+        feeling_kwargs: dict[str, Any] = {
+            "before_desc": before_desc,
+            "after_desc": after_desc,
+            "current_bloom": current_bloom,
+            "attributes": attributes,
+            "used_openings": used_openings,
+            "congruence": congruence,
+            "history_context": history_context,
+            "session_characters_section": sections.text,
+            "observed_changes": observed_changes,
+        }
+        # 依頼モード: 主人公の姿が変わる手番だけ評価する(自分自身モードは対象外)
+        if not targets.protagonist:
+            session_request = None
+        request_turn = _RequestTurnState()
+        text_stream = (
+            self._request_feeling_stream(
+                ctx,
+                session_request,
+                request_turn,
+                current_look=after_desc,
+                feeling_kwargs=feeling_kwargs,
+            )
+            if session_request is not None
+            else self._transformation_feeling_stream(ctx, **feeling_kwargs)
+        )
+
         # 4. 真の並列処理: テキストは到着順に送り、画像は完了を待つ
         result = _ParallelTurnResult()
         async for event in self._stream_parallel_turn(
-            self._transformation_feeling_stream(
-                ctx,
-                before_desc=before_desc,
-                after_desc=after_desc,
-                current_bloom=current_bloom,
-                attributes=attributes,
-                used_openings=used_openings,
-                congruence=congruence,
-                history_context=history_context,
-                session_characters_section=sections.text,
-                observed_changes=observed_changes,
-            ),
+            text_stream,
             generate_after_image,
             result,
             text_fallback=None,
@@ -3156,6 +3305,11 @@ class GameService:
         tags = await resolve_tags(ctx.original_instruction)
         stats_updates = self._advance_character_stats(ctx, targets, sections, tags)
 
+        # 依頼モード: 評価に失敗した手番も手数に数えるため、失敗の印を残す
+        stored_evaluation = request_turn.evaluation
+        if session_request is not None and stored_evaluation is None:
+            stored_evaluation = dict(REQUEST_EVALUATION_FAILED)
+
         # 5. 履歴に追加
         history = await session_store.add_history(
             session_id=ctx.session.id,
@@ -3169,6 +3323,7 @@ class GameService:
             character_states=await self._character_states_for_history(
                 ctx, sections, payload.api_characters, stats_updates=stats_updates
             ),
+            request_evaluation=stored_evaluation,
         )
 
         # FR-010: 主人公の行が無ければ作り、名前を合わせる（姿は履歴に残した）
@@ -3193,6 +3348,8 @@ class GameService:
             congruence=congruence,
             tags=tags,
             targets=targets,
+            session_request=session_request,
+            request_evaluation=stored_evaluation,
         )
         async for event in self._stream_post_turn_events(ctx, cost, outcome):
             yield event
@@ -3504,11 +3661,13 @@ class GameService:
         history_context: str,
         session_characters_section: str | None = None,
         observed_changes: tuple[tuple[str, str, str], ...] | None = None,
+        request_feeling: _RequestFeeling | None = None,
     ) -> AsyncGenerator[str, None]:
-        """自分自身モード / 現実改変 / 衣装変更のどれかの心境ストリームを返す。
+        """自分自身モード / 依頼モード / 現実改変 / 衣装変更のどれかの心境ストリームを返す。
 
         ``observed_changes`` がある手番（主人公以外だけが対象）は、どのモードでも
-        主人公が他の人物の変化を見た反応として書く。
+        主人公が他の人物の変化を見た反応として書く。``request_feeling`` があれば、
+        現実改変と衣装変更のどちらも依頼モードの心境で書く。
         """
         request = ctx.request
         if observed_changes is not None:
@@ -3518,8 +3677,8 @@ class GameService:
                 changes=observed_changes,
                 protagonist_look=after_desc,
                 is_reality=request.is_reality,
-                personality=ctx.character.personality if ctx.character else "",
-                description=ctx.character.description if ctx.character else "",
+                personality=ctx.character_personality,
+                description=ctx.character_description,
                 attributes=attributes,
                 language=ctx.language,
                 enable_multiple_people=request.enable_multiple_people,
@@ -3546,6 +3705,20 @@ class GameService:
             return self._generate_self_mode_feeling_stream(
                 self_profile=ctx.self_profile, **common
             )
+        if request_feeling is not None:
+            # 依頼モード: 本人が頼んだ姿なので、強制された変身として書く心理段階を使わない
+            return self._generate_request_feeling_stream(
+                request_feeling=request_feeling,
+                is_reality=request.is_reality,
+                pronoun=ctx.pronoun,
+                bloom=current_bloom,
+                attributes=attributes,
+                transformation_count=ctx.session.transformation_count,
+                personality=ctx.character_personality,
+                description=ctx.character_description,
+                used_openings=used_openings,
+                **common,
+            )
         if request.is_reality:
             return self._generate_reality_feeling_stream(
                 pronoun=ctx.pronoun,
@@ -3558,12 +3731,124 @@ class GameService:
             bloom=current_bloom,
             attributes=attributes,
             transformation_count=ctx.session.transformation_count,
-            personality=ctx.character.personality if ctx.character else "",
-            description=ctx.character.description if ctx.character else "",
+            personality=ctx.character_personality,
+            description=ctx.character_description,
             used_openings=used_openings,
             gender_congruence=congruence,
             **common,
         )
+
+    async def _generate_request_feeling_stream(
+        self,
+        *,
+        request_feeling: _RequestFeeling,
+        is_reality: bool,
+        before_desc: str,
+        after_desc: str,
+        instruction: str,
+        pronoun: str,
+        bloom: int,
+        attributes: list[str] | None,
+        transformation_count: int,
+        personality: str,
+        description: str,
+        used_openings: list[str] | None,
+        nsfw_mode: bool,
+        language: str,
+        enable_multiple_people: bool,
+        novelai_model_override: str | None,
+        use_memory: bool,
+        respect_clothing_layers: bool,
+        history_context: str,
+        session_characters_section: str | None,
+    ) -> AsyncGenerator[str, None]:
+        """依頼モードの心境をストリーミング生成する(着せ替え・現実改変の共通)。"""
+        system_prompt, user_prompt = build_request_feeling_prompt(
+            before_desc=before_desc,
+            after_desc=after_desc,
+            instruction=instruction,
+            is_reality=is_reality,
+            bloom=bloom,
+            pronoun=pronoun,
+            attributes=attributes,
+            nsfw_mode=nsfw_mode,
+            transformation_count=transformation_count,
+            personality=personality,
+            description=description,
+            tsf_attitude=request_feeling.tsf_attitude,
+            used_openings=used_openings,
+            enable_multiple_people=enable_multiple_people,
+            session_characters_section=session_characters_section,
+        )
+        user_prompt += history_context + request_feeling.block
+        from .conversation import get_language_rules
+
+        system_prompt = f"{system_prompt}\n\n{get_language_rules(language)}"
+        if use_memory:
+            system_prompt += await self._get_memory_priority_suffix(language)
+
+        system_prompt = append_clothing_layer_feeling_rule(
+            system_prompt, respect_clothing_layers
+        )
+        async for chunk in self._stream_feeling(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            language=language,
+            error_context="依頼モード心境ストリーミングエラー",
+            novelai_model_override=novelai_model_override,
+        ):
+            yield chunk
+
+    async def _request_feeling_stream(
+        self,
+        ctx: TurnContext,
+        session_request: dict,
+        state: _RequestTurnState,
+        *,
+        current_look: str,
+        feeling_kwargs: dict[str, Any],
+    ) -> AsyncGenerator[str, None]:
+        """依頼モード: この手番の姿を評価してから、評価を織り込んだ心境を流す。
+
+        評価は画像生成と並列のテキスト側で行う。失敗しても依頼の願いだけを添えて続ける。
+        """
+        state.evaluation = await session_request_service.evaluate_turn(
+            session_request,
+            current_look=current_look,
+            instruction=ctx.original_instruction,
+            language=ctx.language,
+            novelai_model=ctx.novelai_text_model,
+            # Opus 以外では変身後の説明がこの手番の指示しか書いていないため、
+            # 画像から読んだ手番前の姿を一緒に渡し、前の手番までの装いも判定に含める
+            previous_look=None
+            if ctx.is_novelai_opus
+            else str(feeling_kwargs.get("before_desc") or ""),
+            # Opus の姿はタグ列。根拠をタグ単位で照合する
+            look_is_tags=ctx.is_novelai_opus,
+        )
+        # 頼んでいない体の変化への反応は「TSFへの態度」に従わせる。人物パネルの主人公の
+        # 設定を優先し、無ければテンプレート / カスタム画像のキャラクターの設定、
+        # それも無ければ性格から想像させる
+        try:
+            profile = await session_store.get_protagonist_profile(ctx.session.id)
+        except Exception as error:
+            logger.warning(
+                "Protagonist profile lookup failed: %s: %s",
+                type(error).__name__,
+                error,
+            )
+            profile = None
+        async for chunk in self._transformation_feeling_stream(
+            ctx,
+            **feeling_kwargs,
+            request_feeling=_RequestFeeling(
+                block=feeling_context(session_request, state.evaluation, ctx.language),
+                tsf_attitude=str((profile or {}).get("tsf_attitude") or "").strip()
+                or str(getattr(ctx.character, "tsf_attitude", "") or "")
+                or str(ctx.custom_metadata.get("tsf_attitude") or ""),
+            ),
+        ):
+            yield chunk
 
     async def _stream_post_turn_events(
         self,
@@ -3728,6 +4013,26 @@ class GameService:
             transformation_count = await session_store.increment_transformation_count(
                 session.id
             )
+
+        # 6.0.5 依頼モード: 満足度が初めて閾値に達した手番で依頼を達成にする。
+        # 実績判定(6.2)より前に記録し、同じ手番で「依頼達成」の実績を開放する
+        if (
+            outcome.session_request is not None
+            and outcome.request_evaluation is not None
+        ):
+            newly_fulfilled = outcome.session_request.get(
+                "status"
+            ) != "fulfilled" and is_fulfilled(outcome.request_evaluation)
+            if newly_fulfilled:
+                await session_store.mark_session_request_fulfilled(
+                    session.id, history.id
+                )
+            request_view = await session_request_service.get_request_view(session.id)
+            if request_view is not None:
+                yield StreamEvent(
+                    type="request_evaluation",
+                    data={"request": request_view, "newly_fulfilled": newly_fulfilled},
+                )
 
         if not session.self_mode and new_stats is not None:
             # 6.1 エンディング判定 (T048)

@@ -21,6 +21,7 @@ import type {
   HistoryItem,
   SessionAttribute,
   SessionCharacter,
+  SessionRequestView,
   SessionStats,
   SurroundingsImageState,
 } from "../types";
@@ -60,7 +61,9 @@ import {
 } from "../apis/characters";
 import {
   addSessionAttribute as apiAddSessionAttribute,
+  askSessionRequestQuestion as apiAskSessionRequestQuestion,
   branchSessionFromHistory as apiBranchSessionFromHistory,
+  createSessionRequest as apiCreateSessionRequest,
   deleteActiveSession as apiDeleteActiveSession,
   fetchActiveSession as apiFetchActiveSession,
   fetchCharacters as apiFetchCharacters,
@@ -69,6 +72,7 @@ import {
   restoreSession as apiRestoreSession,
   startCustomGame as apiStartCustomGame,
   startGame as apiStartGame,
+  startPresetGame as apiStartPresetGame,
   updatePlayMemory as apiUpdatePlayMemory,
   updateSessionAttribute as apiUpdateSessionAttribute,
   type BranchSessionResponse,
@@ -98,6 +102,16 @@ interface GameState {
   lastSurroundingsImage: SurroundingsImageState | null;
   sessionCharacters: SessionCharacter[];
   playMemory: PlayMemoryState;
+  /** 開始画面の「依頼モード」。次に開始するセッションで依頼を作るか */
+  requestMode: boolean;
+  /** 開始画面で選んだ施術の手数の上限。null は上限なし */
+  requestTurnLimit: number | null;
+  /** 依頼モードの依頼。依頼の無いセッションは null */
+  request: SessionRequestView | null;
+  /** 依頼を生成中か */
+  requestGenerating: boolean;
+  /** 依頼の生成に失敗したときの文言。カードから作り直せるよう保持する */
+  requestError: string | null;
 }
 
 type GameAction =
@@ -123,7 +137,15 @@ type GameAction =
         selfMode: boolean;
         transformationCount: number;
         playMemory: PlayMemoryState;
+        request: SessionRequestView | null;
       };
+    }
+  | { type: "SET_REQUEST_MODE"; payload: boolean }
+  | { type: "SET_REQUEST_TURN_LIMIT"; payload: number | null }
+  | { type: "SET_REQUEST"; payload: SessionRequestView | null }
+  | {
+      type: "SET_REQUEST_GENERATING";
+      payload: { generating: boolean; error?: string | null };
     }
   | { type: "SET_CHARACTERS"; payload: Character[] }
   | { type: "UPDATE_STATS"; payload: Partial<SessionStats> }
@@ -187,6 +209,11 @@ const defaultState: GameState = {
     userText: null,
     systemUpdatedAt: null,
   },
+  requestMode: false,
+  requestTurnLimit: null,
+  request: null,
+  requestGenerating: false,
+  requestError: null,
 };
 
 function gameReducer(state: GameState, action: GameAction): GameState {
@@ -210,6 +237,9 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         lastGeneratedSeed: null,
         lastSurroundingsImage: null,
         playMemory: action.payload.playMemory ?? defaultState.playMemory,
+        request: null,
+        requestGenerating: false,
+        requestError: null,
       };
     case "RESTORE_SESSION":
       return {
@@ -226,7 +256,29 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         selfMode: action.payload.selfMode,
         transformationCount: action.payload.transformationCount,
         playMemory: action.payload.playMemory,
+        request: action.payload.request,
+        // 別セッションへ切り替えたときは生成中の表示を持ち越さない
+        ...(action.payload.sessionId !== state.sessionId
+          ? { requestGenerating: false, requestError: null }
+          : {}),
         error: null,
+      };
+    case "SET_REQUEST_MODE":
+      return { ...state, requestMode: action.payload };
+    case "SET_REQUEST_TURN_LIMIT":
+      return { ...state, requestTurnLimit: action.payload };
+    case "SET_REQUEST":
+      return {
+        ...state,
+        request: action.payload,
+        requestGenerating: false,
+        requestError: null,
+      };
+    case "SET_REQUEST_GENERATING":
+      return {
+        ...state,
+        requestGenerating: action.payload.generating,
+        requestError: action.payload.error ?? null,
       };
     case "SET_CHARACTERS":
       return { ...state, characters: action.payload };
@@ -388,11 +440,12 @@ interface GameContextType {
     options?: { inheritStats?: boolean; selfMode?: boolean },
   ) => Promise<BranchSessionResponse>;
   /**
-   * キャラクターを指定して新規セッションを開始する(キャラチャットの提案から使う)。
+   * キャラクターを指定して新規セッションを開始する(キャラチャットの提案・キャラクター画面から使う)。
+   * source は template(同梱) / custom(保存済みカスタム) / preset(キャラクター画面のキャラ)。
    * 開始後にセッションを取り直して Game 状態を差し替え、session_id を返す。失敗時は投げる。
    */
   startNewSession: (options: {
-    source: "template" | "custom";
+    source: "template" | "custom" | "preset";
     characterId: string;
     selfMode: boolean;
   }) => Promise<string>;
@@ -424,6 +477,22 @@ interface GameContextType {
   removeAttribute: (id: string) => Promise<void>;
   setAttributes: (attributes: SessionAttribute[]) => void;
   setSelfMode: (selfMode: boolean) => void;
+  /** 開始画面の「依頼モード」を切り替える */
+  setRequestMode: (requestMode: boolean) => void;
+  /** 開始画面の「施術の手数」を選ぶ。null は上限なし */
+  setRequestTurnLimit: (turnLimit: number | null) => void;
+  /**
+   * 依頼を生成する(最初の着せ替えの前なら作り直し)。開始直後は state の
+   * sessionId がまだ古いので、対象のセッション ID と手数の上限を明示して渡す
+   */
+  generateRequest: (
+    sessionId: string,
+    limits: { turnLimit: number | null; questionLimit?: number },
+  ) => Promise<void>;
+  /** カウンセリングの質問をする。失敗したら投げる(入力欄の文字を残すため) */
+  askRequestQuestion: (question: string) => Promise<void>;
+  /** 手番の評価(SSE)で届いた依頼を反映する */
+  applyRequestView: (request: SessionRequestView) => void;
   setConversationHistory: (history: ConversationMessage[]) => void;
   appendFeelingText: (chunk: string) => void;
   setFeelingText: (text: string) => void;
@@ -523,6 +592,7 @@ function mapSessionResponse(data: {
   }>;
   self_mode?: boolean;
   character_id?: string | null;
+  request?: SessionRequestView | null;
   play_memory?: {
     system_enabled?: boolean;
     user_enabled?: boolean;
@@ -580,6 +650,7 @@ function mapSessionResponse(data: {
         instruction_type: message.instruction_type ?? undefined,
       })),
       selfMode: Boolean(data.self_mode),
+      request: data.request ?? null,
       transformationCount: data.transformation_count ?? history.length,
       playMemory: {
         systemEnabled: data.play_memory?.system_enabled ?? true,
@@ -599,6 +670,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     state: settingsState,
     setPlayMemorySystemEnabled,
     setPlayMemoryUserEnabled,
+    addTotalCost,
   } = useSettings();
   const [state, dispatch] = useReducer(gameReducer, defaultState);
   const previousPlayMemoryEnabledRef = useRef(settingsState.playMemoryEnabled);
@@ -713,6 +785,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
             systemEnabled: settingsState.playMemorySystemEnabled,
             userEnabled: settingsState.playMemoryUserEnabled,
           },
+          // 同じセッションの再表示なら依頼を保ち、別セッションなら復元応答で入れ直す
+          request: sessionId === state.sessionId ? state.request : null,
         },
       });
       void syncPlayMemoryPreferences(sessionId).then((playMemory) => {
@@ -725,6 +799,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       settingsState.playMemorySystemEnabled,
       settingsState.playMemoryUserEnabled,
       state.conversationHistory,
+      state.request,
+      state.sessionId,
       syncPlayMemoryPreferences,
     ],
   );
@@ -810,26 +886,32 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const startNewSession = useCallback(
     async (options: {
-      source: "template" | "custom";
+      source: "template" | "custom" | "preset";
       characterId: string;
       selfMode: boolean;
     }): Promise<string> => {
       // 難易度と NSFW は WelcomeScreen の開始と同じ固定値(手番ごとに設定を読み直す)
+      const common = {
+        difficulty: "normal",
+        nsfw_mode: false,
+        self_mode: options.selfMode,
+      };
       const started =
         options.source === "custom"
           ? await apiStartCustomGame({
               custom_character_id: options.characterId,
               use_saved_profile: true,
-              difficulty: "normal",
-              nsfw_mode: false,
-              self_mode: options.selfMode,
+              ...common,
             })
-          : await apiStartGame({
-              character_id: options.characterId,
-              difficulty: "normal",
-              nsfw_mode: false,
-              self_mode: options.selfMode,
-            });
+          : options.source === "preset"
+            ? await apiStartPresetGame({
+                preset_id: options.characterId,
+                ...common,
+              })
+            : await apiStartGame({
+                character_id: options.characterId,
+                ...common,
+              });
       // 開始の応答は一部の項目だけのため、セッション全体を取り直して状態を差し替える
       const data = await apiRestoreSession(started.session_id);
       const action = mapSessionResponse(
@@ -967,6 +1049,70 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const setSelfMode = useCallback((selfMode: boolean) => {
     dispatch({ type: "SET_SELF_MODE", payload: selfMode });
+  }, []);
+
+  const setRequestMode = useCallback((requestMode: boolean) => {
+    dispatch({ type: "SET_REQUEST_MODE", payload: requestMode });
+  }, []);
+
+  const setRequestTurnLimit = useCallback((turnLimit: number | null) => {
+    dispatch({ type: "SET_REQUEST_TURN_LIMIT", payload: turnLimit });
+  }, []);
+
+  const generateRequest = useCallback(
+    async (
+      sessionId: string,
+      limits: { turnLimit: number | null; questionLimit?: number },
+    ) => {
+      dispatch({
+        type: "SET_REQUEST_GENERATING",
+        payload: { generating: true },
+      });
+      try {
+        const data = await apiCreateSessionRequest(
+          sessionId,
+          settingsState.language,
+          {
+            turn_limit: limits.turnLimit,
+            ...(limits.questionLimit !== undefined
+              ? { question_limit: limits.questionLimit }
+              : {}),
+          },
+        );
+        if (data.cost_usd) addTotalCost(data.cost_usd);
+        dispatch({ type: "SET_REQUEST", payload: data.request });
+      } catch (error) {
+        dispatch({
+          type: "SET_REQUEST_GENERATING",
+          payload: {
+            generating: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : t("chat.request.generateFailed"),
+          },
+        });
+      }
+    },
+    [addTotalCost, settingsState.language, t],
+  );
+
+  const askRequestQuestion = useCallback(
+    async (question: string) => {
+      if (!state.sessionId) return;
+      const data = await apiAskSessionRequestQuestion(
+        state.sessionId,
+        question,
+        settingsState.language,
+      );
+      if (data.cost_usd) addTotalCost(data.cost_usd);
+      dispatch({ type: "SET_REQUEST", payload: data.request });
+    },
+    [addTotalCost, settingsState.language, state.sessionId],
+  );
+
+  const applyRequestView = useCallback((request: SessionRequestView) => {
+    dispatch({ type: "SET_REQUEST", payload: request });
   }, []);
 
   const setConversationHistory = useCallback(
@@ -1255,6 +1401,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
       removeAttribute,
       setAttributes,
       setSelfMode,
+      setRequestMode,
+      setRequestTurnLimit,
+      generateRequest,
+      askRequestQuestion,
+      applyRequestView,
       setConversationHistory,
       appendFeelingText,
       setFeelingText,
@@ -1303,6 +1454,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
       removeAttribute,
       setAttributes,
       setSelfMode,
+      setRequestMode,
+      setRequestTurnLimit,
+      generateRequest,
+      askRequestQuestion,
+      applyRequestView,
       setConversationHistory,
       appendFeelingText,
       setFeelingText,

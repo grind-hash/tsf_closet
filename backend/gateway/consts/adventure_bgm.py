@@ -10,6 +10,10 @@ so that adding a track only requires dropping an audio file and adding a
 JSON entry. The catalog is reloaded when the file's mtime changes, so no
 server restart is needed. A broken catalog never fails a turn: the last
 successfully parsed catalog (or a minimal built-in default) is kept.
+
+Each track has a scope. Only ``adventure`` tracks are offered to the
+Adventure LLM; ``salon`` tracks are chosen by the salon screens themselves,
+and ``salon_se`` entries are the salon's one-shot sound effects.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -36,6 +41,10 @@ class BgmTrack(BaseModel):
     # 任意フィールドにしておくこと。必須にすると credit の無いカタログが検証
     # エラーでカタログ全体の破損扱いになり、BGM が組み込み既定の1曲へ劣化する。
     credit: str | None = Field(default=None, max_length=120)
+    # どのモードの曲か。adventure だけを TSF シナリオの LLM に選曲候補として渡し、
+    # salon はサロン経営の画面が幕に合わせて自分で選ぶ。salon_se はサロンの効果音
+    # (ループしない短い音)。省略時は adventure
+    scope: Literal["adventure", "salon", "salon_se"] = "adventure"
 
     @field_validator("file")
     @classmethod
@@ -49,11 +58,16 @@ class BgmCatalog(BaseModel):
     default_key: str = Field(min_length=1, max_length=64)
     tracks: list[BgmTrack] = Field(min_length=1)
 
+    def adventure_tracks(self) -> list[BgmTrack]:
+        """TSF シナリオの選曲候補。adventure の曲が1曲も無ければ全曲を使う。"""
+        tracks = [track for track in self.tracks if track.scope == "adventure"]
+        return tracks or list(self.tracks)
+
     def resolved_default_key(self) -> str:
-        keys = {track.key for track in self.tracks}
-        if self.default_key in keys:
+        tracks = self.adventure_tracks()
+        if self.default_key in {track.key for track in tracks}:
             return self.default_key
-        return self.tracks[0].key
+        return tracks[0].key
 
 
 # カタログが一度も読めない場合の最小フォールバック(daily 1曲)
@@ -97,7 +111,8 @@ def get_bgm_catalog() -> BgmCatalog:
 
 
 def get_bgm_keys() -> tuple[str, ...]:
-    return tuple(track.key for track in get_bgm_catalog().tracks)
+    """TSF シナリオの LLM が選べるキー(adventure の曲だけ)。"""
+    return tuple(track.key for track in get_bgm_catalog().adventure_tracks())
 
 
 def get_bgm_default() -> str:
@@ -107,7 +122,8 @@ def get_bgm_default() -> str:
 def get_bgm_prompt_guide() -> str:
     """Shared enumeration for the director and resolution system prompts."""
     return ", ".join(
-        f"{track.key} ({track.description})" for track in get_bgm_catalog().tracks
+        f"{track.key} ({track.description})"
+        for track in get_bgm_catalog().adventure_tracks()
     )
 
 

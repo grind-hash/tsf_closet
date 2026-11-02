@@ -54,9 +54,13 @@ export const settings = {
   experimentalPromptExpander: "Prompt Expander",
   experimentalPromptExpanderDesc:
     "Show a standalone screen that expands natural-language instructions into NovelAI prompts and generates images outside of gameplay",
-  experimentalCharacterChat: "Character Chat",
-  experimentalCharacterChatDesc:
-    "Show a screen for one-on-one conversations with a character outside the TSF scenario: the guide character Serena, or a character brought back from a past session",
+  characterChatSection: "Character Chat",
+  characterChatEnabled: "Character Chat",
+  characterChatEnabledDesc:
+    "Show the one-on-one conversation screen in the menu and a Talk button on the Characters screen. You can also talk with the guide character Serena or a character brought back from a past session. The Characters screen (creating characters and starting a play) stays available when this is off",
+  experimentalSalon: "Salon Management",
+  experimentalSalonDesc:
+    "Show a mode in the menu where you run a dress-up salon for 12 weeks, turning customers into the look they wish for. Serving uses the same rules as request mode (3 styling turns, 2 questions), and the satisfaction at checkout decides sales and reputation",
   characterChatWebSearch: "Let Serena search the web",
   characterChatWebSearchDesc:
     "In Character Chat, Serena searches the web (Tavily) only when you ask about recent events or real-world topics. Only the topic keywords are sent, never the conversation text. Searches that may go against Tavily's terms, such as sexually explicit topics, are skipped (Serena tells you when this happens). You are asked to agree to the terms when turning this on. Each search uses 1 Tavily credit.",
@@ -221,6 +225,9 @@ export const settings = {
   confirmFavoriteRemove: "Confirm favorite removal",
   confirmFavoriteRemoveDesc:
     "Show a confirmation when removing items from the favorites list. If you chose “Don’t show again”, you can re-enable it here",
+  gallerySalonSessions: "Include salon visits in the gallery's All view",
+  gallerySalonSessionsDesc:
+    "List the sessions of customers you served in Salon mode under All in the gallery as well. When off, they are still shown under the Salon filter. Has no effect if you do not use Salon mode",
   fontPreview: "The quick brown fox jumps あいうえお 0123456789",
   fontSystem: "System Font",
   fontSystemDesc: "Use the OS system UI font",

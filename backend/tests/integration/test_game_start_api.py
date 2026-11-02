@@ -140,3 +140,42 @@ def test_start_custom_with_unknown_saved_profile_keeps_active_session(client):
     assert response.json()["detail"]["error"] == "custom_character_not_found"
     # 見つからないときは、進行中のセッションを非アクティブ化しない
     assert client.get("/api/game/session").json()["session_id"] == active
+
+
+def test_start_preset_uses_the_character_portrait(client, isolated_db):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from gateway.databases.models import CharacterPreset
+
+    portrait_dir = settings.history_images_dir.parent / "character_images" / "p1"
+    portrait_dir.mkdir(parents=True)
+    buffer = BytesIO()
+    Image.new("RGB", (4, 4), "white").save(buffer, format="PNG")
+    (portrait_dir / "source-1.png").write_bytes(buffer.getvalue())
+    with isolated_db.sync_factory() as db:
+        db.add(
+            CharacterPreset(
+                id="p1",
+                name="ミナト",
+                appearance_tags="short black hair",
+                profile_json='{"gender": "man", "pronoun": "俺"}',
+                portrait_path="character_images/p1/source-1.png",
+            )
+        )
+        db.add(CharacterPreset(id="p2", name="ハルト", appearance_tags=""))
+        db.commit()
+
+    response = client.post(
+        "/api/game/start-preset", json={"preset_id": "p1", "self_mode": True}
+    )
+    missing_portrait = client.post("/api/game/start-preset", json={"preset_id": "p2"})
+
+    assert response.status_code == 200
+    session = client.get("/api/game/session").json()
+    assert session["session_id"] == response.json()["session_id"]
+    assert session["self_mode"] is True
+    assert [item["instruction"] for item in session["history"]] == ["初期状態"]
+    assert missing_portrait.status_code == 400
+    assert missing_portrait.json()["detail"]["error"] == "image_not_found"

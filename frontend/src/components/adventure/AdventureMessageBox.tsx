@@ -98,6 +98,7 @@ export default function AdventureMessageBox({
     playerDisplayName,
     inventoryNote,
     boundaryNote,
+    realityCostNote,
   } = scene;
 
   return (
@@ -151,6 +152,12 @@ export default function AdventureMessageBox({
             {boundaryNote}
           </span>
         )}
+        {realityCostNote && (
+          <span className="adventure-messagebox__cost-note">
+            <span aria-hidden>⚖</span>
+            {realityCostNote}
+          </span>
+        )}
         <button
           type="button"
           className="adventure-messagebox__log-button"
@@ -163,8 +170,8 @@ export default function AdventureMessageBox({
           type="button"
           className="adventure-messagebox__hide-button"
           onClick={onHide}
-          title={t("adventure.window.hideHint")}
-          aria-label={t("adventure.window.hide")}
+          title={t("common.messageWindow.hide")}
+          aria-label={t("common.messageWindow.hide")}
           tabIndex={hidden ? -1 : undefined}
         >
           ✕

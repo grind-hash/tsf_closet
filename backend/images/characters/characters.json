@@ -8,7 +8,8 @@
     "pronoun": "僕",
     "personality": "素直で恥ずかしがり屋",
     "gender": "man",
-    "fallback": "char1"
+    "fallback": "char1",
+    "tsf_attitude": "女の子の格好は照れくさくて抵抗があるが、可愛いものへの興味はこっそり持っている"
   },
   {
     "id": "char2",
@@ -19,6 +20,29 @@
     "pronoun": "私",
     "personality": "素直で恥ずかしがり屋",
     "gender": "woman",
-    "fallback": "char2"
+    "fallback": "char2",
+    "tsf_attitude": "男の子になるなんて想像したこともないが、自分と違う姿には少しだけ好奇心がある"
+  },
+  {
+    "id": "char3",
+    "name": "乙姫カズヤ",
+    "image_path": "images/characters/char3.png",
+    "description": "24歳のシステムエンジニア。焦げ茶の短いくせ毛で、瞳は灰色。いつも無表情。白いTシャツと黒の短パン姿。",
+    "base_tags": "dark brown hair, short hair, messy hair, gray eyes, slim, white t-shirt, black shorts",
+    "pronoun": "俺",
+    "personality": "無愛想で冷静、几帳面で真面目",
+    "gender": "man",
+    "tsf_attitude": "誰にも言えないが、華やかなドレスをまとうお嬢様にずっと憧れている"
+  },
+  {
+    "id": "char4",
+    "name": "柊ハルカ",
+    "image_path": "images/characters/char4.png",
+    "description": "21歳の女子大生で剣道部員。黒髪の長いポニーテールで、瞳は茶色。白いTシャツと黒の短パン姿。",
+    "base_tags": "black hair, long hair, high ponytail, brown eyes, athletic, white t-shirt, black shorts",
+    "pronoun": "私",
+    "personality": "明るく元気で、まっすぐな性格",
+    "gender": "woman",
+    "tsf_attitude": "一度でいいから、王子様のようにかっこいい男の子として過ごしてみたいという好奇心がある"
   }
 ]

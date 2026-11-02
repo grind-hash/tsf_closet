@@ -5,10 +5,37 @@ export const guide = {
   enable: "Enable",
   addedToMenu: "Added to the menu",
   openSettings: "Open settings",
+  sections: {
+    basics: "Basic screens",
+    features: "More ways to play",
+  },
+  newGame: {
+    title: "Normal Play",
+    desc: "Give the character dress-up, reality-alteration or action instructions, and an image and inner monologue are generated. The mental parameters (bloom / shame / adaptation) change as you play, with endings and achievements.",
+    note: "Choose request mode on the new-play screen and the character asks you for the look they want. Fulfil the wish by dressing them up, and work out their hidden preferences from reactions and hints.",
+  },
+  gallery: {
+    title: "Gallery",
+    desc: "Look back at past sessions and generated images. Images you like can be saved as favorites.",
+  },
+  characters: {
+    title: "Characters",
+    desc: "Create and manage characters. With a portrait (an uploaded image works too), you can start a play with that character. Set a name, personality, speech style, look and voice, and you can talk with them as that character in Character Chat.",
+    note: 'Starting a play from your own image has moved here from "Or use your own image" on the new-play screen. That entry on the new-play screen is deprecated and will be removed in v0.12.0.',
+  },
+  records: {
+    title: "Endings & Achievements",
+    desc: "Look back at the endings you have reached and the achievements you have unlocked.",
+  },
+  settings: {
+    title: "Settings",
+    desc: "Change the difficulty, NSFW, language, image and text providers, read-aloud and more.",
+    note: 'The "Preference Memory", which summarizes your tastes from past play, is also generated and edited in the settings screen.',
+  },
   adventure: {
     title: "TSF Scenario",
     desc: "A standalone novel game that starts from a transformed state. Five mission types including a romance simulation, with reality alteration and automatic BGM selection.",
-    note: "Each turn runs text and image generation, so wait times are longer than in normal play.",
+    note: 'Each turn runs text and image generation, so wait times are longer than in normal play. You can preview the BGM with "BGM Test" in the menu.',
     open: "Open TSF Scenario",
   },
   talk: {
@@ -41,6 +68,12 @@ export const guide = {
     desc: "Talk one-on-one with a character outside the TSF scenario. The guide character Serena remembers your tastes and past play and looks things up when you ask about recent sessions or tendencies. You can also bring back a character from a past session with the feelings they had at that point, choose the appearance from past images, and ask for a change of clothes to redraw the portrait.",
     note: 'Each reply first decides what to look up, so replies take a little longer than a plain chat. Asking for a change of clothes also runs image generation. Optionally, turning on "Let Serena check the weather" and "Let Serena search the web" in the settings screen lets her look up the weather and recent topics on the web (requires server-side setup).',
     open: "Open Character Chat",
+  },
+  salon: {
+    title: "Salon Management",
+    desc: "Run a salon for 12 weeks, making your customers' wishes come true with a change of look. Serving works like request mode: ask counselling questions to draw out clues to tastes the customer keeps unsaid, then finish the look in 3 styling turns. The satisfaction at checkout decides sales and reputation, and higher reputation brings more bookings.",
+    note: "The difficulty you choose when opening sets the opening funds. Cover the weekly fixed costs with your sales and end the season with more cash than you started with. Each styling turn generates an image, and the questions and reviews use text generation. Opening a salon and closing a week play a short scene; choose Full, Short or Off in the owner's office.",
+    open: "Open Salon Management",
   },
   voice: {
     title: "Line Read-Aloud (Speech Synthesis)",

@@ -17,6 +17,7 @@ from ..schemas.session import (
     HistoryItem,
     PlayMemoryResponse,
     SessionAttributeResponse,
+    SessionRequestResponse,
     SessionResponse,
 )
 from ..settings.config import settings
@@ -135,4 +136,24 @@ async def build_session_response(
         conversation_history=conversation_history,
         self_mode=session.self_mode,
         play_memory=build_play_memory_response(session),
+        request=await _build_request_response(store, session),
+    )
+
+
+async def _build_request_response(
+    store: DatabaseSessionStore, session: PersistedSession
+) -> SessionRequestResponse | None:
+    # session_request_service は session ストアを import するため遅延 import する
+    from .session_request_service import public_request_view
+
+    request = await store.get_session_request(session.id)
+    if request is None:
+        return None
+    evaluations = await store.get_request_evaluations(session.id)
+    return SessionRequestResponse(
+        **public_request_view(
+            request,
+            evaluations,
+            can_regenerate=session.transformation_count == 0,
+        )
     )

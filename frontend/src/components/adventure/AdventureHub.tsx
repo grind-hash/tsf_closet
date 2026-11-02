@@ -320,6 +320,10 @@ export default function AdventureHub() {
   const [inventoryEnabled, setInventoryEnabled] = useState(
     () => savedSetupPrefs.inventoryEnabled === true,
   );
+  // 改変の代償(全プリセット)。現実改変のたびに代償が生まれるため既定 OFF
+  const [realityCostEnabled, setRealityCostEnabled] = useState(
+    () => savedSetupPrefs.realityCostEnabled === true,
+  );
   const [enableCompositeScene, setEnableCompositeScene] = useState(() =>
     typeof savedSetupPrefs.enableCompositeScene === "boolean"
       ? savedSetupPrefs.enableCompositeScene
@@ -409,6 +413,7 @@ export default function AdventureHub() {
       romancePlayerName,
       imageModel: imageModelChoice,
       inventoryEnabled,
+      realityCostEnabled,
     };
     try {
       writeStorage("local", SETUP_PREFS_STORAGE_KEY, JSON.stringify(prefs));
@@ -430,6 +435,7 @@ export default function AdventureHub() {
     romancePlayerName,
     imageModelChoice,
     inventoryEnabled,
+    realityCostEnabled,
   ]);
 
   // 保存済みの Prompt Expander エントリが取得できなかったら、セッションの解決へ倒す
@@ -793,6 +799,8 @@ export default function AdventureHub() {
         companion_mode: setupCompanion,
         // 持ち物システム。作品シナリオはサーバ側で無視される
         inventory_enabled: startMode === "generated" && inventoryEnabled,
+        // 改変の代償。作品シナリオはサーバ側で無視される
+        reality_cost_enabled: startMode === "generated" && realityCostEnabled,
         // 登録済みモデルに限って送る(削除済みの保存値は「なし」に倒す)
         companion_avatar_id:
           setupCompanion && setupAvatarKnown ? companionAvatarId : undefined,
@@ -996,6 +1004,15 @@ export default function AdventureHub() {
                   checked={inventoryEnabled}
                   disabled={setupGenerating || loading || creating}
                   onChange={setInventoryEnabled}
+                />
+                {/* 改変の代償(全プリセット)。既定 OFF。現実改変のたびに課題が増える */}
+                <AdventureToggleRow
+                  className="adventure-reality-cost-toggle"
+                  label={t("adventure.realityCost.enable")}
+                  hint={t("adventure.realityCost.hint")}
+                  checked={realityCostEnabled}
+                  disabled={setupGenerating || loading || creating}
+                  onChange={setRealityCostEnabled}
                 />
                 {/* ヒントは label の外に出す。label 内に入れると入力の
                     アクセシブル名にヒント全文が混ざる */}

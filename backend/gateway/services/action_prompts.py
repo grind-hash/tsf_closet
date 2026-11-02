@@ -205,6 +205,7 @@ Structure:
 Output only the positive prompt in English. No explanation."""
 
 ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NOVELAI_NSFW = """You are an assistant that converts a brief Japanese action/scene-change instruction into a single positive prompt for NovelAI (diffusion) image-to-image. This is NSFW mode.
+Everyone depicted is an adult (18 or older); never use tags for children or younger-looking bodies (e.g. child, loli, shota).
 
 Strict requirements:
 - You are ONLY changing the BACKGROUND / ENVIRONMENT / LIGHTING. The character must remain EXACTLY the same.
@@ -242,6 +243,7 @@ Important constraints:
 Output a single English editing prompt, 50-100 words."""
 
 ACTION_IMAGE_EDIT_SYSTEM_PROMPT_NSFW = """You are an AI image editing assistant (Qwen Image Edit). This is NSFW mode.
+Everyone depicted is an adult (18 or older); never use tags for children or younger-looking bodies (e.g. child, loli, shota).
 
 Your task: Change ONLY the background/environment/scene of the image.
 Keep the person EXACTLY as they are — same outfit, same pose, same expression, same body, same level of exposure.
@@ -293,7 +295,7 @@ The user performs an action that may change the scene, clothing, pose, or any co
 JSON only. No explanation or preamble."""
 
 ACTION_NOVELAI_PROMPT_GENERATION_SYSTEM_NSFW = """You are a NovelAI image generation prompt expert for ACTION instructions.
-Adult content tags are allowed.
+Adult content tags are allowed. Everyone depicted is an adult (18 or older); never use tags for children or younger-looking bodies (e.g. child, loli, shota).
 
 The user performs an action that may change the scene, clothing, pose, or any combination of these.
 
@@ -749,9 +751,9 @@ def get_action_novelai_prompt_generation_system(
             "(string). Each person is a SEPARATE object:\n"
             "```json\n"
             '{"characters": [\n'
-            '  {"tags": "short black hair, blue eyes, bra, flat chest, sitting, '
+            '  {"tags": "1boy, short black hair, blue eyes, bra, flat chest, sitting, '
             'talking", "position": "center"},\n'
-            '  {"tags": "male, bra, brown hair, sitting, talking", '
+            '  {"tags": "1girl, brown hair, sitting, talking", '
             '"position": "right"}\n'
             '], "scene": "masterpiece, best quality, very aesthetic, anime, moe, cafe, '
             'table"}\n'
@@ -760,6 +762,10 @@ def get_action_novelai_prompt_generation_system(
             "for others.\n"
             "- Each character's \"tags\" field has ONLY that character's own "
             'tags. No "solo" tag in multi-person mode.\n'
+            "- Each character's tags start with that person's own sex token "
+            "(1girl or 1boy). The main character's sex token and body come from "
+            "the previous prompt (keep 1boy for a male main character even when "
+            "the other person is a woman).\n"
             '- Do NOT use the single "character" key when 2+ people are '
             "present.\n"
             "\n"

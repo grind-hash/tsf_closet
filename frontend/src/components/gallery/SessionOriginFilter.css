@@ -1,0 +1,60 @@
+/* セッション一覧の絞り込みチップ(Prompt Expander のエントリ絞り込みと同じ見た目) */
+.session-origin-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.session-origin-filter__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 999px;
+  background: var(--bg-color, #1a1a2e);
+  color: var(--text-color, #eee);
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.session-origin-filter__chip:hover {
+  background: var(--hover-bg, #1f2f50);
+}
+
+.session-origin-filter__chip.is-active {
+  border-color: var(--accent-color, #e94560);
+  background: var(--accent-color, #e94560);
+  color: #fff;
+  font-weight: 600;
+}
+
+.session-origin-filter__count {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 15%);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* サロン経営の接客から生まれたセッションの印(カードの名前の横) */
+.session-origin-salon-chip {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid #b8924c;
+  border-radius: 2px;
+  color: #d6b46f;
+  background: #14110d;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  vertical-align: middle;
+}

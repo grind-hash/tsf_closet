@@ -37,6 +37,8 @@ export type AdventureSetupPrefs = {
   imageModel: string;
   /** 持ち物システム(全プリセット)。既定 OFF */
   inventoryEnabled: boolean;
+  /** 改変の代償(全プリセット)。既定 OFF */
+  realityCostEnabled: boolean;
 };
 
 export function readSetupPrefs(): Partial<AdventureSetupPrefs> {

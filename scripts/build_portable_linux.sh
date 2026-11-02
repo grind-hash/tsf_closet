@@ -309,6 +309,20 @@ cp -r "$BACKEND_DIR/gateway" "$PACKAGE_BACKEND_DIR/"
 find "$PACKAGE_BACKEND_DIR/gateway" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 write_success "gateway/ をコピー"
 
+# サロンの効果音は再配布できない素材なのでリポジトリに無い(.gitignore)。
+# 手元の gateway/data/bgm に置いたものが上のコピーでパッケージに入る。無くてもビルドは続ける
+MISSING_SALON_SE=()
+for se_file in se01_salon_register.ogg se02_salon_ledger.ogg se03_salon_doorbell.ogg; do
+    if [[ ! -f "$PACKAGE_BACKEND_DIR/gateway/data/bgm/$se_file" ]]; then
+        MISSING_SALON_SE+=("$se_file")
+    fi
+done
+if [[ ${#MISSING_SALON_SE[@]} -eq 0 ]]; then
+    write_success "サロンの効果音を同梱"
+else
+    echo "      ! サロンの効果音が見つかりません (この音は鳴りません): ${MISSING_SALON_SE[*]}"
+fi
+
 # workflows/ をコピー
 if [[ -d "$BACKEND_DIR/workflows" ]]; then
     cp -r "$BACKEND_DIR/workflows" "$PACKAGE_BACKEND_DIR/"

@@ -14,6 +14,7 @@ import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
+import { TSF_ATTITUDE_MAX_LENGTH } from "../../constants/playLimits";
 import { useGame } from "../../contexts/GameContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
@@ -25,6 +26,9 @@ import {
 } from "../../utils/imageSizeValidator";
 import CustomImageSizeWarningModal from "../CustomImageSizeWarningModal";
 import PromptExpanderEntryPickerModal from "../promptExpander/PromptExpanderEntryPickerModal";
+import PlayStartModeOptions, {
+  usePlayStartBlocked,
+} from "./PlayStartModeOptions";
 import "./WelcomeScreen.css";
 
 interface WelcomeScreenProps {
@@ -39,6 +43,7 @@ interface CustomCharacter {
   pronoun: string;
   personality: string;
   gender: string;
+  tsf_attitude?: string;
 }
 
 export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
@@ -48,7 +53,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     setLoading,
     setError,
     state: gameState,
-    setSelfMode,
+    generateRequest,
   } = useGame();
 
   // キャラクター一覧
@@ -76,6 +81,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     t("chat.welcome.defaultPronoun"),
   );
   const [customPersonality, setCustomPersonality] = useState("");
+  const [customTsfAttitude, setCustomTsfAttitude] = useState("");
   const [customGender, setCustomGender] = useState("other");
   const [customBaseTags, setCustomBaseTags] = useState("");
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
@@ -89,8 +95,8 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     height: number;
   } | null>(null);
 
-  // SettingsContextからimageProvider, selfProfileを取得
-  const { state: settingsState, selfProfile } = useSettings();
+  // SettingsContextからimageProviderを取得
+  const { state: settingsState } = useSettings();
 
   // Prompt Expander（実験機能）からの画像取り込み
   const promptExpanderEnabled = settingsState.experimentalPromptExpanderEnabled;
@@ -104,7 +110,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
   const navigate = useNavigate();
 
   // 自分自身モードON + プロフィール未設定の判定
-  const selfModeNeedsProfile = gameState.selfMode && !selfProfile;
+  const selfModeNeedsProfile = usePlayStartBlocked();
 
   // キャラクター一覧を取得
   useEffect(() => {
@@ -273,6 +279,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
     setCustomDescription(character.description);
     setCustomPronoun(character.pronoun || t("chat.welcome.defaultPronoun"));
     setCustomPersonality(character.personality);
+    setCustomTsfAttitude(character.tsf_attitude || "");
     setCustomGender(character.gender || "other");
     // base_tagsが保存済みなら復元
     setCustomBaseTags(
@@ -306,6 +313,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             description: customDescription,
             pronoun: customPronoun || t("chat.welcome.defaultPronoun"),
             personality: customPersonality,
+            tsf_attitude: customTsfAttitude.trim(),
             gender: customGender || "other",
             base_tags: customBaseTags,
           }),
@@ -343,6 +351,12 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
           selectedCharacter,
           sessionData.image_path,
         );
+        // 依頼モード: 開始を待たせず、依頼カードのスピナーを出しながら生成する
+        if (gameState.requestMode && !gameState.selfMode) {
+          void generateRequest(sessionData.session_id, {
+            turnLimit: gameState.requestTurnLimit,
+          });
+        }
 
         onSessionStart?.();
       }
@@ -360,6 +374,9 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
   };
 
   const canStart = selectedCharacterId || customImage;
+  const selectedCharacter = characters.find(
+    (character) => character.id === selectedCharacterId,
+  );
 
   return (
     <div className="welcome-screen">
@@ -410,13 +427,29 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             ))}
           </div>
         )}
+        {selectedCharacter && (
+          <CharacterProfileSummary character={selectedCharacter} />
+        )}
       </div>
 
-      {/* カスタム画像 */}
+      {/* カスタム画像 (v0.12.0 で削除予定。キャラクター画面へ移行) */}
       <div className="welcome-screen__custom">
         <h3 className="welcome-screen__section-title">
           {t("chat.welcome.customImageSection")}
+          <span
+            className="feature-chip-deprecated"
+            data-removal-version="v0.12.0"
+            title={t("chat.welcome.customImageDeprecated")}
+          >
+            Deprecated
+          </span>
         </h3>
+        <p className="welcome-screen__deprecated-notice">
+          {t("chat.welcome.customImageDeprecated")}
+          <Link to={ROUTES.CHARACTERS}>
+            {t("chat.welcome.customImageOpenCharacters")}
+          </Link>
+        </p>
         <div className="welcome-screen__custom-upload">
           <input
             type="file"
@@ -523,6 +556,23 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
               <option value="woman">{t("chat.welcome.genderWoman")}</option>
               <option value="other">{t("chat.welcome.genderOther")}</option>
             </select>
+            {/* 説明が長いので 1 行を占め、使い道と例は折り返す注記で全文を見せる */}
+            <div className="welcome-screen__tsf-attitude">
+              <input
+                type="text"
+                value={customTsfAttitude}
+                onChange={(e) => setCustomTsfAttitude(e.target.value)}
+                placeholder={t("chat.welcome.tsfAttitudePlaceholder")}
+                aria-describedby="welcome-tsf-attitude-hint"
+                maxLength={TSF_ATTITUDE_MAX_LENGTH}
+              />
+              <p
+                id="welcome-tsf-attitude-hint"
+                className="welcome-screen__tsf-attitude-hint"
+              >
+                {t("chat.welcome.tsfAttitudeHint")}
+              </p>
+            </div>
             <div className="welcome-screen__base-tags-row">
               <input
                 type="text"
@@ -570,32 +620,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         )}
       </div>
 
-      {/* 自分自身モード (US5) */}
-      <div className="welcome-screen__self-mode">
-        <label className="welcome-screen__self-mode-label">
-          <input
-            type="checkbox"
-            checked={gameState.selfMode}
-            onChange={(e) => setSelfMode(e.target.checked)}
-            className="welcome-screen__self-mode-checkbox"
-          />
-          <span>{t("chat.welcome.selfMode")}</span>
-        </label>
-        <p className="welcome-screen__self-mode-desc">
-          {t("chat.welcome.selfModeDescription")}
-        </p>
-        {selfModeNeedsProfile && (
-          <p className="welcome-screen__self-mode-warning">
-            {t("chat.welcome.selfModeNoProfile")}
-            <Link
-              to={ROUTES.SETTINGS}
-              className="welcome-screen__self-mode-warning-link"
-            >
-              {t("chat.welcome.selfModeGoSettings")}
-            </Link>
-          </p>
-        )}
-      </div>
+      <PlayStartModeOptions />
 
       {/* 開始ボタン */}
       <div className="welcome-screen__actions">
@@ -633,5 +658,53 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * 選んだテンプレートキャラクターの人物像。依頼モードの依頼文と反応は性格と
+ * TSF への態度で決まるため、選ぶ前に全文で読めるようにする。空の項目は出さない。
+ */
+function CharacterProfileSummary({ character }: { character: Character }) {
+  const { t } = useTranslation();
+  const facts = [
+    {
+      key: "personality",
+      label: t("chat.welcome.profilePersonality"),
+      value: character.personality,
+    },
+    {
+      key: "pronoun",
+      label: t("chat.welcome.profilePronoun"),
+      value: character.pronoun,
+    },
+    {
+      key: "tsf_attitude",
+      label: t("chat.welcome.profileTsfAttitude"),
+      value: character.tsf_attitude,
+    },
+  ].filter((fact) => (fact.value ?? "").trim());
+  return (
+    <section
+      className="welcome-screen__profile"
+      aria-label={t("chat.welcome.profileTitle", { name: character.name })}
+    >
+      <h4 className="welcome-screen__profile-name">{character.name}</h4>
+      {character.description && (
+        <p className="welcome-screen__profile-description">
+          {character.description}
+        </p>
+      )}
+      {facts.length > 0 && (
+        <dl className="welcome-screen__profile-facts">
+          {facts.map((fact) => (
+            <div key={fact.key}>
+              <dt>{fact.label}</dt>
+              <dd>{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
   );
 }

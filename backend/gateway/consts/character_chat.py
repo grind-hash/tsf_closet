@@ -219,45 +219,63 @@ BASE_CHARACTER_PERSONA = {
     ),
 }
 
-# メタ会話用の機能一覧。セレナだけが受け取る
-APP_OVERVIEW = {
+# 機能の知識は、フロントが発言ごとに送る遊び方ガイドの文面から組む
+# (frontend/src/components/guide/guideFeatures.ts)。ここには書かない
+APP_GUIDE_MAX_ITEMS = 40
+APP_GUIDE_TITLE_MAX = 80
+APP_GUIDE_TEXT_MAX = 1000
+
+APP_GUIDE_HEADER = {
+    "ja": "TSF Closet の機能(遊び方ガイドの文面):",
+    "en": "TSF Closet features (from the in-app play guide):",
+}
+
+# 一覧に無い仕様を断定させない(非推奨かどうか・今後の予定などを推測で答えた事例がある)
+APP_GUIDE_GROUNDING = {
     "ja": (
-        "TSF Closet の主な機能:\n"
-        "- 通常プレイ: キャラクターに着せ替え・現実改変・行動を指示すると画像と心境が生成される。"
-        "心境パラメータ(開花/羞恥/適応)が変化し、エンディングや実績がある。\n"
-        "- TSFシナリオ: 目的と手数のあるシナリオを進める。恋愛シミュレーションや対面会話モードもある。\n"
-        "- ギャラリー: 過去のセッションや画像を見返す。お気に入り登録もできる。\n"
-        "- Prompt Expander: NovelAI 向けプロンプトの作成と画像生成。\n"
-        "- メモリ: 過去のプレイから好みの傾向を要約したユーザーメモリ(設定画面で生成・編集)。\n"
-        "- 設定: 難易度・NSFW・言語・画像/テキストのプロバイダ・読み上げなど。\n"
-        "- キャラチャット: いまの会話。過去セッションの人物とも話せる。姿は過去の画像から選べ、"
-        "着替えを頼むと立ち絵が変わる。\n"
-        "- おすすめのプレイ: 頼まれると、プレイ記録とメモリをもとに通常プレイの提案カード"
-        "(キャラクター・テーマ・最初の指示)を返答の下に出せる。カードのボタンで新しいプレイが"
-        "始まり、最初の指示は入力欄に入る(送信は相手が行う)。この会話の「おすすめのプレイを"
+        "アプリの機能や仕様については、この一覧に書かれていることだけを根拠に答えてください。"
+        "書かれていないこと(細かい仕様・今後の予定・非推奨かどうか・おすすめかどうか等)は断定せず、"
+        "「ガイドには書かれていない」と伝えたうえで、遊び方ガイドや画面の案内を見るよう勧めてください。"
+    ),
+    "en": (
+        "Answer questions about the app's features and behavior only from this list. "
+        "Do not assert anything it does not say (fine details, future plans, whether "
+        "something is deprecated or recommended, etc.); say the guide does not cover it "
+        "and suggest checking the play guide or the notes on that screen."
+    ),
+}
+
+APP_GUIDE_UNAVAILABLE = {
+    "ja": "(いまは無効。遊び方ガイドか設定画面で有効にすると使えます)",
+    "en": "(currently off; it can be turned on in the play guide or the settings screen)",
+}
+
+APP_GUIDE_MISSING = {
+    "ja": (
+        "TSF Closet の機能の一覧は今回受け取っていません。機能の細かい使い方を聞かれたら、"
+        "推測で答えず、サイドメニューの「遊び方ガイド」を見るよう案内してください。"
+    ),
+    "en": (
+        "You did not receive the list of TSF Closet features this time. If asked how a "
+        'feature works, do not guess; point the user to "Play Style Guide" in the side menu.'
+    ),
+}
+
+# セレナ自身の機能(おすすめのプレイ)。提案の仕組みと一緒にここで持つ
+SERENA_PLAY_PROPOSAL_ABILITY = {
+    "ja": (
+        "あなたにできること — おすすめのプレイ: 頼まれると、プレイ記録とメモリをもとに通常プレイの"
+        "提案カード(キャラクター・テーマ・最初の指示)を返答の下に出せる。カードのボタンで新しい"
+        "プレイが始まり、最初の指示は入力欄に入る(送信は相手が行う)。この会話の「おすすめのプレイを"
         "聞く」ボタンからも頼める。カードは提案を用意できた返答にだけ付く。"
     ),
     "en": (
-        "Main features of TSF Closet:\n"
-        "- Normal play: give the character dress-up, reality-alteration or action "
-        "instructions and an image plus inner monologue are generated. Mental parameters "
-        "(bloom / shame / adaptation) change, with endings and achievements.\n"
-        "- TSF scenario: play a scenario with an objective and a turn limit, including a "
-        "romance simulation and a face-to-face conversation mode.\n"
-        "- Gallery: look back at past sessions and images; favorites can be saved.\n"
-        "- Prompt Expander: build NovelAI prompts and generate images.\n"
-        "- Memory: a user memory summarizing tastes from past play (generated and edited "
-        "in Settings).\n"
-        "- Settings: difficulty, NSFW, language, image/text providers, speech, etc.\n"
-        "- Character chat: this conversation. You can also talk with a character from a "
-        "past session, choose the appearance from past images, and ask for a change of "
-        "clothes to redraw the portrait.\n"
-        "- Recommended play: when asked, you can show a normal-play proposal card "
-        "(character, theme and first instruction) under your reply, based on the user's "
-        "play records and memory. Its button starts a new play and puts the first "
-        "instruction into the input box (the user sends it). The user can also ask with "
-        "the recommended-play button in this chat. A card appears only on replies where "
-        "a proposal was prepared."
+        "What you can do — recommended play: when asked, you can show a normal-play "
+        "proposal card (character, theme and first instruction) under your reply, based on "
+        "the user's play records and memory. Its button starts a new play and puts the "
+        "first instruction into the input box (the user sends it). The user can also ask "
+        "with the recommended-play button in this chat. A card appears only on replies "
+        "where a proposal was prepared."
     ),
 }
 

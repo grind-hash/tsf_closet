@@ -8177,3 +8177,363 @@ def test_image_prompt_output_tolerates_garbage_identity_tags() -> None:
     assert (
         AdventureImagePromptOutput(scene_tags="x", player_tags="y").identity_tags == ""
     )
+
+
+# ---- 改変の代償(reality_cost_enabled) ----
+
+
+def test_reality_cost_prompts_only_when_enabled() -> None:
+    service = AdventureService()
+    assert "active_reality_costs" not in service._narrative_system_prompt("ja")
+    assert "active_reality_costs" in service._narrative_system_prompt(
+        "ja", reality_cost=True
+    )
+    plain = service._resolution_system_prompt("ja")
+    assert "resolved_reality_cost_ids" not in plain
+    tracking = service._resolution_system_prompt("ja", reality_cost=True)
+    assert '"resolved_reality_cost_ids":[]' in tracking
+    assert '"reality_cost":' not in tracking
+    due = service._resolution_system_prompt(
+        "ja", reality_cost=True, reality_cost_due=True
+    )
+    assert '"reality_cost":{"text":"...","severity":"minor"}' in due
+    assert "costs money to settle" not in due
+    romance_due = service._resolution_system_prompt(
+        "ja", romance=True, reality_cost=True, reality_cost_due=True
+    )
+    assert "costs money to settle" in romance_due
+
+
+def test_build_turn_contexts_marks_alteration_turns_as_reality_cost_due() -> None:
+    service = AdventureService()
+    run = make_romance_run(turn_count=1)
+    run.turns = []
+    run.objective = "仲良くなる"
+    run.language = "ja"
+    state = json.loads(run.state_json)
+    state["reality_cost_enabled"] = True
+    state["reality_costs"] = [
+        {"id": "cost1", "text": "罰金", "amount": 3000, "resolved_turn": None},
+        {"id": "cost2", "text": "済んだ噂", "resolved_turn": 1},
+    ]
+
+    altered = service._build_turn_contexts(
+        run,
+        json.loads(json.dumps(state)),
+        user_input="現実改変：主人公は豪邸の主である",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+    )
+    assert altered.reality_cost_enabled is True
+    assert altered.reality_cost_source == "主人公は豪邸の主である"
+    assert altered.turn_context["reality_cost_due"] is True
+    assert altered.turn_context["active_reality_costs"] == [
+        {"id": "cost1", "text": "罰金", "kind": "bill", "amount": 3000}
+    ]
+    assert "reality_costs" not in altered.turn_context["state"]
+    assert "reality_cost_enabled" not in altered.turn_context["state"]
+
+    talk = service._build_turn_contexts(
+        run,
+        json.loads(json.dumps(state)),
+        user_input="話しかける",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+    )
+    assert talk.reality_cost_source is None
+    assert "reality_cost_due" not in talk.turn_context
+
+    # エピローグでは代償を発生させない
+    epilogue = service._build_turn_contexts(
+        run,
+        json.loads(json.dumps(state)),
+        user_input="現実改変：主人公は王女である",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=True,
+    )
+    assert epilogue.reality_cost_source is None
+
+    state["reality_cost_enabled"] = False
+    off = service._build_turn_contexts(
+        run,
+        json.loads(json.dumps(state)),
+        user_input="現実改変：主人公は豪邸の主である",
+        input_kind="free_text",
+        gift_id=None,
+        epilogue=False,
+    )
+    assert off.reality_cost_enabled is False
+    assert "active_reality_costs" not in off.turn_context
+
+
+def test_rewind_keep_keys_cover_reality_cost_setting_only() -> None:
+    assert "reality_cost_enabled" in AdventureService._REWIND_KEEP_KEYS
+    assert "reality_costs" not in AdventureService._REWIND_KEEP_KEYS
+
+
+async def _run_reality_cost_turn(
+    service: AdventureService,
+    monkeypatch,
+    run: SimpleNamespace,
+    persisted: SimpleNamespace,
+    *,
+    resolution,
+    romance_resolution: dict,
+    reality_cost_source: str | None,
+    input_kind: str = "free_text",
+    user_input: str = "話す",
+) -> list[dict]:
+    from gateway.services.adventure_service import _TurnContexts
+
+    def fake_contexts(_run, state, **_kwargs):
+        return _TurnContexts(
+            turn_context={"player_input": user_input},
+            visual_turn_context={"player_input": user_input},
+            input_kind=input_kind,
+            narration_voice="second_person",
+            narration_pronoun="あなた",
+            speech_rule="",
+            appearance_update_allowed=False,
+            template=None,
+            template_resolution={},
+            romance_sim=state["sim"],
+            romance_resolution=romance_resolution,
+            appearance_lock="",
+            previous_choice_key=(),
+            script_names=("美咲", "主人公"),
+            reality_cost_enabled=True,
+            reality_cost_source=reality_cost_source,
+        )
+
+    async def fake_stream(system_prompt, user_prompt, **kwargs):
+        yield "美咲「えっ」"
+
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        service, "_companion_outfit_options", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(service, "_build_turn_contexts", fake_contexts)
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_feeling_stream",
+        fake_stream,
+    )
+    monkeypatch.setattr(
+        service, "_generate_resolution_output", AsyncMock(return_value=resolution)
+    )
+    monkeypatch.setattr(
+        service, "_generate_visual_output", AsyncMock(return_value=_companion_visual())
+    )
+    monkeypatch.setattr(
+        service, "_ensure_romance_background_unlocked", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        service, "_generate_partner_portrait_unlocked", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service._image_calls_parallelizable",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _fake_database(persisted),
+    )
+    return [
+        event
+        async for event in service.stream_turn(
+            run_id="run-1",
+            client_turn_id="c-4",
+            user_input=user_input,
+            input_kind=input_kind,
+            generate_partner_portrait=False,
+        )
+    ]
+
+
+def _reality_cost_stream_run(costs: list[dict] | None = None):
+    run, persisted = _companion_stream_run()
+    state = json.loads(run.state_json)
+    state["reality_cost_enabled"] = True
+    if costs is not None:
+        state["reality_costs"] = costs
+        state["reality_cost_next_id"] = len(costs) + 1
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    persisted.state_json = run.state_json
+    return run, persisted
+
+
+_TALK_RESOLUTION = {
+    "kind": "talk",
+    "day": 2,
+    "slot": "day",
+    "next_day": 2,
+    "next_slot": "night",
+    "total_days": 7,
+    "money_delta": 0,
+    "affection_delta": 0,
+}
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_alteration_creates_bill_and_gates_dating_success(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run, persisted = _reality_cost_stream_run()
+    resolution = _romance_resolution(
+        start_dating=True,
+        reality_cost={
+            "text": "交際の噂で大学から呼び出し料が届く",
+            "severity": "major",
+        },
+        # 宣言手番の解決申告は無視される
+        resolved_reality_cost_ids=["cost1"],
+    )
+
+    events = await _run_reality_cost_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        resolution=resolution,
+        romance_resolution={**_TALK_RESOLUTION, "kind": "alter"},
+        reality_cost_source="美咲と主人公は付き合っている",
+        input_kind="reality_alter",
+        user_input="現実改変：美咲と主人公は付き合っている",
+    )
+
+    turn = _turn_payload(events)
+    assert turn["reality_costs_applied"] == [
+        {
+            "type": "created",
+            "id": "cost1",
+            "text": "交際の噂で大学から呼び出し料が届く",
+            "amount": 6000,
+        }
+    ]
+    assert turn["reality_costs"][0]["resolved_turn"] is None
+    # 改変で交際を始めても、未払いの請求が残る限り部分成功に留まる
+    assert turn["run_status"] == "partial"
+    assert "未解決の代償" in turn["ending_summary"]
+    assert persisted.status == "partial"
+    saved = json.loads(persisted.state_json)
+    assert saved["reality_costs"][0]["source_rule"] == "美咲と主人公は付き合っている"
+
+
+@pytest.mark.asyncio
+async def test_stream_turn_ignores_story_resolution_for_bills_and_clears_record(
+    monkeypatch, tmp_path
+) -> None:
+    service = AdventureService()
+    service._images_dir = tmp_path
+    run, persisted = _reality_cost_stream_run(
+        [
+            {
+                "id": "cost1",
+                "text": "罰金",
+                "severity": "minor",
+                "amount": 3000,
+                "created_turn": 1,
+                "resolved_turn": None,
+            }
+        ]
+    )
+    state = json.loads(run.state_json)
+    state["reality_costs_applied"] = [{"type": "created", "id": "cost1"}]
+    run.state_json = json.dumps(state, ensure_ascii=False)
+    persisted.state_json = run.state_json
+
+    events = await _run_reality_cost_turn(
+        service,
+        monkeypatch,
+        run,
+        persisted,
+        resolution=_romance_resolution(resolved_reality_cost_ids=["cost1"]),
+        romance_resolution=_TALK_RESOLUTION,
+        reality_cost_source=None,
+    )
+
+    turn = _turn_payload(events)
+    # 請求は物語では解決しない。前手番の発生記録は残さない
+    assert turn["reality_costs"][0]["resolved_turn"] is None
+    assert turn["reality_costs_applied"] == []
+    assert turn["run_status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_pay_reality_cost_updates_money_without_spending_a_turn(
+    monkeypatch,
+) -> None:
+    service = AdventureService()
+    run, persisted = _reality_cost_stream_run(
+        [
+            {
+                "id": "cost1",
+                "text": "罰金",
+                "severity": "minor",
+                "amount": 3000,
+                "created_turn": 1,
+                "resolved_turn": None,
+            }
+        ]
+    )
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        _fake_database(persisted),
+    )
+    # 配信形の組み立ては別テストで確かめるため、ここでは state だけを返す
+    monkeypatch.setattr(
+        service,
+        "_serialize_run",
+        lambda run, _turns: {
+            "turn_count": run.turn_count,
+            **json.loads(run.state_json),
+        },
+    )
+
+    result = await service.pay_reality_cost("run-1", "cost1")
+
+    assert result["reality_costs"][0]["resolution"] == "paid"
+    assert result["reality_costs"][0]["resolved_turn"] == 3
+    assert result["sim"]["money"] == 2000
+    assert result["turn_count"] == 3
+    saved = json.loads(persisted.state_json)
+    assert saved["sim"]["money"] == 2000
+
+    with pytest.raises(AdventureError) as again:
+        await service.pay_reality_cost("run-1", "cost1")
+    assert again.value.code == "reality_cost_already_resolved"
+
+    run.status = "partial"
+    with pytest.raises(AdventureError) as ended:
+        await service.pay_reality_cost("run-1", "cost1")
+    assert ended.value.code == "run_completed"
+
+
+def test_serialize_run_and_turn_expose_reality_costs() -> None:
+    service = AdventureService()
+    turn = make_serializable_turn(
+        {
+            "reality_cost_enabled": True,
+            "reality_costs": [
+                {
+                    "id": "cost1",
+                    "text": "噂",
+                    "severity": "minor",
+                    "resolved_turn": None,
+                }
+            ],
+            "reality_costs_applied": [
+                {"type": "created", "id": "cost1", "text": "噂", "amount": None}
+            ],
+        }
+    )
+    payload = service._serialize_turn(turn)
+    assert payload["reality_costs"][0]["text"] == "噂"
+    assert payload["reality_costs_applied"][0]["type"] == "created"
+    plain = service._serialize_turn(make_serializable_turn({"clues": []}))
+    assert "reality_costs" not in plain

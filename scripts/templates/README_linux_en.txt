@@ -279,4 +279,28 @@
        on your Linux distribution.
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Credits (Audio Materials)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  The salon management sound effects use
+  the following materials.
+
+  ■ OtoLogic
+    https://otologic.jp/
+    License: CC BY 4.0
+    https://creativecommons.org/licenses/by/4.0/
+    Materials: レジ ドロワー02 (cash drawer 02),
+               本03 (book 03)
+    Modification: converted to OGG format
+
+  ■ Pocket Sound (ポケットサウンド)
+    https://pocket-se.info/
+    Materials: ドアベル＃3「チリン」 (door bell #3)
+    Modification: converted to OGG format
+
+  All rights to each audio material belong
+  to their respective owners.
+
+
 ============================================

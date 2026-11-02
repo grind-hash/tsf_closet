@@ -17,6 +17,7 @@ from gateway.services.character_chat_models import (
 )
 from gateway.services.character_chat_prompts import (
     adventure_persona_prompt,
+    app_guide_block,
     appearance_change_system_prompt,
     appearance_change_user_prompt,
     base_persona_block,
@@ -42,6 +43,70 @@ def test_memory_block_empty_and_wrapped() -> None:
     assert "この人について知っていること" in block
     assert "メイド服を好む" in block
     assert "最優先" not in block
+
+
+GUIDE = [
+    {
+        "id": "newGame",
+        "title": "通常プレイ",
+        "desc": "着せ替えを指示すると画像と心境が生成されます。",
+        "note": None,
+        "available": None,
+    },
+    {
+        "id": "salon",
+        "title": "サロン経営",
+        "desc": "12週のあいだサロンを経営します。",
+        "note": "開業資金は難易度で変わります。",
+        "available": False,
+    },
+    {
+        "id": "adventure",
+        "title": "TSFシナリオ",
+        "desc": "変身後の状態から始まるノベルゲームです。",
+        "note": None,
+        "available": True,
+    },
+]
+
+
+def test_app_guide_block_lists_guide_text_and_marks_disabled() -> None:
+    """セレナの機能知識は遊び方ガイドの文面から組み、無効な機能には有効化の案内を添える。"""
+    block = app_guide_block(GUIDE, "ja")
+    assert block.startswith("TSF Closet の機能")
+    salon_line = next(line for line in block.splitlines() if "サロン経営" in line)
+    assert "開業資金は難易度で変わります。" in salon_line
+    assert "いまは無効" in salon_line
+    adventure_line = next(line for line in block.splitlines() if "TSFシナリオ" in line)
+    assert "いまは無効" not in adventure_line
+    basic_line = next(line for line in block.splitlines() if "通常プレイ" in line)
+    assert "いまは無効" not in basic_line
+    assert "currently off" in app_guide_block(GUIDE, "en")
+
+
+def test_app_guide_block_forbids_asserting_unlisted_facts() -> None:
+    """一覧に無い仕様(非推奨かどうか等)を断定させず、ガイドを案内させる。"""
+    ja = app_guide_block(GUIDE, "ja")
+    assert "書かれていることだけを根拠" in ja
+    assert "非推奨かどうか" in ja
+    assert ja.rstrip().endswith("勧めてください。")
+    en = app_guide_block(GUIDE, "en")
+    assert "only from this list" in en
+    assert "deprecated" in en
+
+
+def test_app_guide_block_without_guide_points_to_play_guide() -> None:
+    """ガイドを受け取れなかったときは、機能を推測させずガイドへ案内させる。"""
+    assert "遊び方ガイド" in app_guide_block([], "ja")
+    assert "推測" in app_guide_block([], "ja")
+    assert "Play Style Guide" in app_guide_block([], "en")
+
+
+def test_base_persona_block_combines_persona_guide_and_ability() -> None:
+    block = base_persona_block("ja", GUIDE)
+    assert "セレナ" in block
+    assert "サロン経営" in block
+    assert "おすすめのプレイ" in block
 
 
 def test_reply_system_prompt_includes_sections() -> None:

@@ -8,12 +8,17 @@ Prompt Expander)の画像を取り込むか、外見タグから描く。生成�
 
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
 import shutil
 import uuid
 from collections.abc import AsyncGenerator
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 from ..consts.novelai_models import resolve_user_image_model
 from ..databases.base import async_session_factory
@@ -21,8 +26,17 @@ from ..databases.character_repo import fetch_character_preset
 from ..databases.models import CharacterPreset
 from ..settings.config import settings
 from .character_profile import CharacterSourceNotFoundError, resolve_character_source
-from .character_service import record_profile, with_gender_token
+from .character_service import (
+    CharacterPresetService,
+    record_profile,
+    with_gender_token,
+)
 from .cost_tracker import begin_cost_tracking
+from .custom_sessions import (
+    custom_character_image_path,
+    list_custom_character_profiles,
+    mark_custom_character_imported,
+)
 from .image_paths import resolve_stored_image_path
 from .portrait_generation import PortraitGenerationError, generate_portrait_bytes
 from .providers import Provider, resolve_image_provider
@@ -164,6 +178,95 @@ async def import_preset_portrait(
         await db.commit()
         await db.refresh(preset)
         return preset, resolved
+
+
+# アップロードを受け付ける画像の形式と、保存するときの拡張子
+_UPLOAD_SUFFIXES = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}
+
+
+def _decode_upload(image: str) -> tuple[bytes, str]:
+    """アップロードされた画像(base64、data URL 可)を (バイト列, 拡張子) にする。
+
+    PNG / JPEG / WebP 以外の形式は PNG に変換する。
+    """
+    data = image.split(",", 1)[1] if "," in image else image
+    try:
+        raw = base64.b64decode(data, validate=True)
+        with Image.open(BytesIO(raw)) as opened:
+            image_format = opened.format or ""
+            opened.load()
+            suffix = _UPLOAD_SUFFIXES.get(image_format)
+            if suffix is None:
+                converted = BytesIO()
+                opened.save(converted, format="PNG")
+                return converted.getvalue(), ".png"
+    except (binascii.Error, ValueError, OSError) as exc:
+        raise CharacterPresetPortraitError(
+            "invalid_image", "画像を読み込めませんでした"
+        ) from exc
+    return raw, suffix
+
+
+async def upload_preset_portrait(preset_id: str, image: str) -> CharacterPreset:
+    """アップロードした画像をキャラクターの立ち絵にする(素材から取り込んだ扱い)。"""
+    raw, suffix = _decode_upload(image)
+    async with async_session_factory() as db:
+        preset = await fetch_character_preset(db, preset_id)
+        if preset is None:
+            raise CharacterPresetPortraitError(
+                "preset_not_found", "キャラクターが見つかりません"
+            )
+        directory = _preset_dir(preset.id)
+        directory.mkdir(parents=True, exist_ok=True)
+        filename = f"{_SOURCE_PREFIX}{uuid.uuid4().hex[:8]}{suffix}"
+        (directory / filename).write_bytes(raw)
+        _set_portrait(preset, filename)
+        await db.commit()
+        await db.refresh(preset)
+        return preset
+
+
+def _custom_profile_to_preset(profile: dict[str, Any]) -> dict[str, Any]:
+    """カスタムキャラクターの人物設定を、キャラクターの人物設定(profile)にする。
+
+    preset_sessions.preset_play_profile の逆向き。説明は人物メモに入れる。
+    """
+    gender = str(profile.get("gender") or "")
+    return {
+        "pronoun": str(profile.get("pronoun") or ""),
+        "personality": str(profile.get("personality") or ""),
+        "gender": gender if gender in {"man", "woman"} else "",
+        "tsf_attitude": str(profile.get("tsf_attitude") or ""),
+        "memo": str(profile.get("description") or ""),
+    }
+
+
+async def import_custom_characters() -> list[CharacterPreset]:
+    """以前の「作成したキャラクター」(新規プレイでアップロードした画像)をキャラクターにする。
+
+    画像は素材から取り込んだ立ち絵として写し、外見タグを入れる。取り込んだものには
+    印を付け、新規プレイの一覧とサロンの来店候補から外す(同じ人が2人にならないように)。
+    """
+    imported: list[CharacterPreset] = []
+    async with async_session_factory() as db:
+        for profile in reversed(list_custom_character_profiles()):
+            custom_id = str(profile["id"])
+            image_file = custom_character_image_path(custom_id)
+            if not image_file.is_file():
+                continue
+            preset = await CharacterPresetService.create_preset_raw(
+                db,
+                name=str(profile.get("name") or "カスタムキャラクター")[:120],
+                appearance_tags=str(profile.get("base_tags") or ""),
+                profile=_custom_profile_to_preset(profile),
+            )
+            attach_preset_portrait(preset, image_file, generated=False)
+            imported.append(preset)
+            await db.commit()
+            mark_custom_character_imported(custom_id, preset.id)
+        for preset in imported:
+            await db.refresh(preset)
+    return imported
 
 
 async def stream_preset_portrait(

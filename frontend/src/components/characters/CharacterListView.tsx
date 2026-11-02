@@ -5,21 +5,40 @@ import { openCharacterChatForPreset } from "../../apis/characterChat";
 import {
   createCharacterPreset,
   deleteCharacterPreset,
+  importCustomCharacterPresets,
   listCharacterPresets,
 } from "../../apis/characters";
+import { useNotification } from "../../contexts/NotificationContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
 import type { CharacterPreset } from "../../types";
 import { mediaUrl } from "../../utils/adventureFormat";
+import { API_BASE } from "../../utils/api";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import CharacterPlayStartDialog from "./CharacterPlayStartDialog";
 import { EMPTY_CHARACTER_PROFILE } from "./characterMaker";
 import TrashIcon from "./TrashIcon";
 
-/** キャラクターの一覧。作成・会話の開始・編集・削除の入口 */
+/** 新規プレイの「作成したキャラクター」(v0.12.0 で削除予定)が残っている数 */
+async function countLegacyCustomCharacters(): Promise<number> {
+  const response = await fetch(`${API_BASE}/game/custom-characters`);
+  if (!response.ok) return 0;
+  const data = (await response.json()) as { characters?: unknown[] };
+  return data.characters?.length ?? 0;
+}
+
+/** キャラクターの一覧。作成・プレイの開始・会話の開始・編集・削除の入口 */
 export default function CharacterListView() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { state: settingsState } = useSettings();
+  const { showNotification } = useNotification();
+  const chatEnabled = settingsState.characterChatEnabled;
   const [presets, setPresets] = useState<CharacterPreset[] | null>(null);
+  const [playTarget, setPlayTarget] = useState<CharacterPreset | null>(null);
+  const [legacyCount, setLegacyCount] = useState(0);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [talkingId, setTalkingId] = useState<string | null>(null);
@@ -40,7 +59,31 @@ export default function CharacterListView() {
 
   useEffect(() => {
     void load();
+    countLegacyCustomCharacters()
+      .then(setLegacyCount)
+      .catch(() => setLegacyCount(0));
   }, [load]);
+
+  const handleImportLegacy = async () => {
+    setImporting(true);
+    setError(null);
+    try {
+      const imported = await importCustomCharacterPresets();
+      setLegacyCount(0);
+      showNotification(
+        "success",
+        imported.length > 0
+          ? t("characters.legacy.done", { count: imported.length })
+          : t("characters.legacy.none"),
+      );
+      await load();
+    } catch (err) {
+      console.error("Failed to import custom characters", err);
+      setError(t("characters.legacy.failed"));
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const handleCreate = async () => {
     setCreating(true);
@@ -107,6 +150,22 @@ export default function CharacterListView() {
           </button>
         </header>
 
+        {legacyCount > 0 && (
+          <div className="characters__legacy">
+            <p>{t("characters.legacy.hint", { count: legacyCount })}</p>
+            <button
+              type="button"
+              className="character-chat__secondary"
+              disabled={importing}
+              onClick={() => void handleImportLegacy()}
+            >
+              {importing
+                ? t("characters.legacy.importing")
+                : t("characters.legacy.import")}
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="character-chat__error" role="alert">
             <span>{error}</span>
@@ -163,13 +222,22 @@ export default function CharacterListView() {
                   <button
                     type="button"
                     className="character-chat__primary"
-                    disabled={talkingId !== null}
-                    onClick={() => void handleTalk(preset)}
+                    onClick={() => setPlayTarget(preset)}
                   >
-                    {talkingId === preset.id
-                      ? t("characters.talking")
-                      : t("characters.talk")}
+                    {t("characters.play.open")}
                   </button>
+                  {chatEnabled && (
+                    <button
+                      type="button"
+                      className="character-chat__secondary"
+                      disabled={talkingId !== null}
+                      onClick={() => void handleTalk(preset)}
+                    >
+                      {talkingId === preset.id
+                        ? t("characters.talking")
+                        : t("characters.talk")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="character-chat__secondary"
@@ -194,6 +262,11 @@ export default function CharacterListView() {
           </ul>
         )}
       </div>
+
+      <CharacterPlayStartDialog
+        preset={playTarget}
+        onClose={() => setPlayTarget(null)}
+      />
 
       <ConfirmDialog
         open={deleteTarget !== null}

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from ..consts.character_profile import PROFILE_TSF_ATTITUDE_MAX_LEN
 from ..consts.play_limits import ATTRIBUTE_TEXT_MAX_LENGTH
+from ..consts.session_request import (
+    REQUEST_QUESTION_LIMIT_DEFAULT,
+    REQUEST_QUESTION_LIMIT_MAX,
+    REQUEST_QUESTION_MAX,
+    REQUEST_TURN_LIMIT_MAX,
+)
 from .conversation import ConversationMessageResponse
 from .parameters import SessionStatsResponse
 
@@ -88,6 +95,90 @@ class PlayMemoryUpdateRequest(BaseModel):
     user_text: str | None = Field(None, max_length=4000)
 
 
+class RequestPreferenceResponse(BaseModel):
+    """依頼の好み1件。本文は一度満たされるまで null"""
+
+    id: str
+    hint: str = Field("", description="好みの分類(色合い・丈など)")
+    text: str | None = Field(None, description="好みの本文。満たされるまで null")
+    met: bool = Field(False, description="最新の手番で満たしているか")
+
+
+class RequestQuestionResponse(BaseModel):
+    """カウンセリングのやり取り1件"""
+
+    question: str
+    answer: str
+    reflected: bool = Field(False, description="最新の手番の姿がこの答えを汲んでいるか")
+
+
+class SessionRequestResponse(BaseModel):
+    """依頼モードの依頼(公開ビュー)"""
+
+    wish: str
+    status: str = Field("active", description="active / fulfilled")
+    satisfaction: int = Field(0, description="最新の手番の満足度 (0-100)")
+    threshold: int = Field(..., description="依頼達成となる満足度")
+    fit: str | None = Field(None, description="願いへの近さ (none〜perfect)")
+    hint: str = Field("", description="最新の手番のヒント")
+    preferences: list[RequestPreferenceResponse] = Field(default_factory=list)
+    evaluated_turns: int = 0
+    turn_limit: int | None = Field(
+        None, description="施術の手数の上限。null は上限なし"
+    )
+    turns_used: int = Field(0, description="使った手数(評価に失敗した手番も含む)")
+    turns_remaining: int | None = Field(None, description="残りの手数。null は上限なし")
+    question_limit: int = Field(0, description="カウンセリングで質問できる回数")
+    questions: list[RequestQuestionResponse] = Field(default_factory=list)
+    questions_remaining: int = 0
+    listening_bonus: int = Field(
+        0, description="最新の手番のヒアリングの反映による加点"
+    )
+    can_regenerate: bool = Field(False, description="作り直せるか(最初の着せ替え前)")
+    emphasize_hints: bool = Field(
+        False,
+        description="心境の中のヒントの一文が〔〕で囲まれているか(強調表示する)",
+    )
+    sensitive: bool = Field(False, description="成人向けの依頼か(サロンの過激施術)")
+    experience: str = Field(
+        "", description="成人向けの依頼で、願いの姿でしたいこと(体験の場面の指示)"
+    )
+    sensitive_fallback: bool = Field(
+        False,
+        description="成人向けの依頼を作れず、全年齢の依頼に切り戻したか(生成直後だけ)",
+    )
+
+
+class SessionRequestCreateRequest(BaseModel):
+    """依頼を生成(作り直し)するリクエスト"""
+
+    language: str | None = Field(None, description="依頼の言語。未指定はユーザー設定")
+    turn_limit: int | None = Field(
+        None,
+        ge=1,
+        le=REQUEST_TURN_LIMIT_MAX,
+        description="施術の手数の上限。null は上限なし",
+    )
+    question_limit: int = Field(
+        REQUEST_QUESTION_LIMIT_DEFAULT,
+        ge=0,
+        le=REQUEST_QUESTION_LIMIT_MAX,
+        description="カウンセリングで質問できる回数",
+    )
+
+
+class SessionRequestQuestionRequest(BaseModel):
+    """カウンセリングの質問"""
+
+    question: str = Field(..., min_length=1, max_length=REQUEST_QUESTION_MAX)
+    language: str | None = Field(None, description="答えの言語。未指定はユーザー設定")
+
+
+class SessionRequestCreateResponse(BaseModel):
+    request: SessionRequestResponse
+    cost_usd: float | None = Field(None, description="生成で発生したAPI料金(USD)")
+
+
 class SessionResponse(BaseModel):
     """セッション情報レスポンス"""
 
@@ -111,6 +202,9 @@ class SessionResponse(BaseModel):
     )
     self_mode: bool = Field(False, description="Self mode enabled")
     play_memory: PlayMemoryResponse = Field(default_factory=PlayMemoryResponse)
+    request: SessionRequestResponse | None = Field(
+        None, description="依頼モードの依頼。依頼の無いセッションは null"
+    )
 
 
 class BranchSessionRequest(BaseModel):
@@ -180,6 +274,15 @@ class GameStartRequest(BaseModel):
     self_mode: bool = Field(False, description="Self mode (bypass parameters)")
 
 
+class PresetStartRequest(BaseModel):
+    """キャラクター(キャラクター画面で作ったキャラ)でのセッション開始リクエスト"""
+
+    preset_id: str = Field(..., min_length=1, description="キャラクターの ID")
+    difficulty: str = Field("normal", description="難易度")
+    nsfw_mode: bool = Field(False, description="NSFWモード")
+    self_mode: bool = Field(False, description="自分自身モード")
+
+
 class GameStartResponse(BaseModel):
     """ゲーム開始レスポンス"""
 
@@ -201,6 +304,11 @@ class CustomStartRequest(BaseModel):
     personality: str = Field("", description="パーソナリティ")
     gender: str = Field("other", description="性別 (man/woman/other)")
     base_tags: str = Field("", description="Danbooru形式の外見タグ (英語)")
+    tsf_attitude: str = Field(
+        "",
+        max_length=PROFILE_TSF_ATTITUDE_MAX_LEN,
+        description="TSF(性転換・変身)への態度。依頼モードの依頼文と反応に使う",
+    )
     self_mode: bool = Field(False, description="自分自身モード")
     use_saved_profile: bool = Field(
         False,

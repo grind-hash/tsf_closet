@@ -42,9 +42,14 @@ from ..schemas.session import (
     HistorySelectResponse,
     PlayMemoryResponse,
     PlayMemoryUpdateRequest,
+    PresetStartRequest,
     SessionAttributeCreateRequest,
     SessionAttributeUpdateRequest,
     SessionListResponse,
+    SessionRequestCreateRequest,
+    SessionRequestCreateResponse,
+    SessionRequestQuestionRequest,
+    SessionRequestResponse,
     SessionResetResponse,
     SessionResponse,
     SessionSummary,
@@ -331,10 +336,36 @@ async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
             personality=request.personality,
             gender=request.gender,
             base_tags=request.base_tags,
+            tsf_attitude=request.tsf_attitude,
             difficulty=request.difficulty,
             nsfw_mode=request.nsfw_mode,
             self_mode=request.self_mode,
             use_saved_profile=request.use_saved_profile,
+        )
+    except GameServiceError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": exc.code or "invalid_request", "message": str(exc)},
+        ) from exc
+    return _game_start_response(session.id, difficulty, stats)
+
+
+@router.post(
+    "/start-preset",
+    response_model=GameStartResponse,
+    responses={400: {"model": ErrorResponse}},
+    summary="キャラクターでセッション開始",
+    description="キャラクター画面で作ったキャラの立ち絵と人物設定でゲームセッションを開始",
+)
+async def start_game_preset(request: PresetStartRequest) -> GameStartResponse:
+    from ..services.game_service import GameServiceError, game_service
+
+    try:
+        session, stats, difficulty = await game_service.start_preset_session(
+            preset_id=request.preset_id,
+            difficulty=request.difficulty,
+            nsfw_mode=request.nsfw_mode,
+            self_mode=request.self_mode,
         )
     except GameServiceError as exc:
         raise HTTPException(
@@ -580,6 +611,86 @@ async def update_play_memory(
     if updated is None:
         raise HTTPException(status_code=404, detail="session not found")
     return updated
+
+
+@router.get(
+    "/sessions/{session_id}/request",
+    response_model=SessionRequestResponse | None,
+    summary="依頼取得",
+)
+async def get_session_request(session_id: str) -> SessionRequestResponse | None:
+    """依頼モードの依頼を返す。依頼の無いセッションは null。"""
+    from ..services.session_request_service import session_request_service
+
+    view = await session_request_service.get_request_view(session_id)
+    return SessionRequestResponse(**view) if view is not None else None
+
+
+@router.post(
+    "/sessions/{session_id}/request",
+    response_model=SessionRequestCreateResponse,
+    summary="依頼生成",
+    description="キャラクターの人物像から依頼を生成する。最初の着せ替えの前なら作り直せる",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def create_session_request(
+    session_id: str, request: SessionRequestCreateRequest
+) -> SessionRequestCreateResponse:
+    from ..services.session_request_service import (
+        SessionRequestError,
+        session_request_service,
+    )
+
+    user_settings = await session_store.get_user_settings()
+    language = normalize_language(request.language or user_settings.get("language"))
+    try:
+        view, cost_usd = await session_request_service.create_request(
+            session_id,
+            language=language,
+            turn_limit=request.turn_limit,
+            question_limit=request.question_limit,
+        )
+    except SessionRequestError as error:
+        raise HTTPException(
+            status_code=404 if error.code == "session_not_found" else 400,
+            detail={"error": error.code, "message": str(error)},
+        ) from error
+    return SessionRequestCreateResponse(
+        request=SessionRequestResponse(**view), cost_usd=cost_usd or None
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/request/questions",
+    response_model=SessionRequestCreateResponse,
+    summary="依頼主への質問",
+    description="カウンセリングの質問に依頼主本人が答える。回数は依頼ごとの上限まで",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+async def ask_session_request_question(
+    session_id: str, request: SessionRequestQuestionRequest
+) -> SessionRequestCreateResponse:
+    from ..services.session_request_service import (
+        SessionRequestError,
+        session_request_service,
+    )
+
+    user_settings = await session_store.get_user_settings()
+    language = normalize_language(request.language or user_settings.get("language"))
+    try:
+        view, cost_usd = await session_request_service.ask_question(
+            session_id, request.question, language=language
+        )
+    except SessionRequestError as error:
+        raise HTTPException(
+            status_code=404
+            if error.code in {"session_not_found", "request_not_found"}
+            else 400,
+            detail={"error": error.code, "message": str(error)},
+        ) from error
+    return SessionRequestCreateResponse(
+        request=SessionRequestResponse(**view), cost_usd=cost_usd or None
+    )
 
 
 @router.post(

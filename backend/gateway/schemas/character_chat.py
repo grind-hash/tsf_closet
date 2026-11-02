@@ -6,7 +6,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..consts.character_chat import MESSAGE_MAX
+from ..consts.character_chat import (
+    APP_GUIDE_MAX_ITEMS,
+    APP_GUIDE_TEXT_MAX,
+    APP_GUIDE_TITLE_MAX,
+    MESSAGE_MAX,
+)
 
 
 class CharacterChatSourceRequest(BaseModel):
@@ -65,6 +70,18 @@ class CharacterChatAppearanceRequest(CharacterChatSourceRequest):
     """既存スレッドの姿の差し替え。"""
 
 
+class AppGuideFeature(BaseModel):
+    """遊び方ガイドの1項目(フロントの i18n の文面)。案内役キャラの機能知識になる。"""
+
+    id: str = Field(..., min_length=1, max_length=64)
+    title: str = Field(..., min_length=1, max_length=APP_GUIDE_TITLE_MAX)
+    desc: str = Field(..., min_length=1, max_length=APP_GUIDE_TEXT_MAX)
+    note: str | None = Field(None, max_length=APP_GUIDE_TEXT_MAX)
+    available: bool | None = Field(
+        None, description="いま使えるか。切り替えの無い機能は null"
+    )
+
+
 class CharacterChatMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=MESSAGE_MAX)
     # 設定画面のトグル。案内役キャラのスレッドで、サーバーにキー・地点があるときだけ効く
@@ -75,6 +92,10 @@ class CharacterChatMessageRequest(BaseModel):
     request_play_proposal: bool = False
     # この返答を読み上げるか。読み上げない手番は返答の文数を増やす
     read_aloud: bool = False
+    # 遊び方ガイドの文面といまの有効/無効。案内役キャラのスレッドでだけ使う
+    app_guide: list[AppGuideFeature] = Field(
+        default_factory=list, max_length=APP_GUIDE_MAX_ITEMS
+    )
 
 
 class CharacterChatAdventureAppearanceRequest(BaseModel):

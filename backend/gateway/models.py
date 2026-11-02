@@ -247,6 +247,8 @@ class Character:
     personality: str = ""
     gender: str = "man"
     base_tags: str = ""
+    # 性転換・変身(TSF)への態度。依頼モードの依頼文と、頼んでいない体の変化への反応に使う
+    tsf_attitude: str = ""
 
 
 @dataclass
@@ -268,6 +270,8 @@ class PersistedHistory:
     seed: int | None = None
     surroundings_image_path: str | None = None
     character_states_json: str | None = None
+    # 依頼モード: この手番の評価(JSON)。依頼の無いセッション・評価しない手番は None
+    request_evaluation_json: str | None = None
 
     @classmethod
     def from_row(cls, row: dict) -> PersistedHistory:

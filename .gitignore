@@ -51,6 +51,12 @@ data/
 *.sqlite
 *.db
 
+# サロンの効果音は再配布できない素材なので、リポジトリには含めない。
+# 開発者の手元に置き、ポータブル版の zip(scripts/build_portable.ps1)にだけ同梱する
+backend/gateway/data/bgm/se01_salon_register.ogg
+backend/gateway/data/bgm/se02_salon_ledger.ogg
+backend/gateway/data/bgm/se03_salon_doorbell.ogg
+
 # Generated images
 images/dist/*.png
 images/source/*.jpg

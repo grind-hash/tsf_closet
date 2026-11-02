@@ -30,6 +30,17 @@
   color: var(--text-muted, #888);
 }
 
+.guide-screen__section-title {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-muted, #aaa);
+}
+
+.guide-screen__cards + .guide-screen__section-title {
+  margin-top: 2.5rem;
+}
+
 .guide-screen__cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));

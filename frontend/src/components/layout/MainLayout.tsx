@@ -22,6 +22,8 @@ interface MainLayoutProps {
   rightPanel?: ReactNode;
   showRightPanel?: boolean;
   onToggleRightPanel?: () => void;
+  /** 画面ごとの見た目。salon はサイドメニューもサロンの配色にする */
+  variant?: "default" | "salon";
 }
 
 export default function MainLayout({
@@ -29,11 +31,12 @@ export default function MainLayout({
   rightPanel,
   showRightPanel = false,
   onToggleRightPanel,
+  variant = "default",
 }: MainLayoutProps) {
   const { t } = useTranslation();
 
   // 右パネルが表示されている場合、グリッドを3カラムに変更
-  const layoutClassName = `main-layout${showRightPanel && rightPanel ? " has-right-panel" : ""}`;
+  const layoutClassName = `main-layout${showRightPanel && rightPanel ? " has-right-panel" : ""}${variant === "salon" ? " main-layout--salon" : ""}`;
 
   return (
     <div className={layoutClassName}>

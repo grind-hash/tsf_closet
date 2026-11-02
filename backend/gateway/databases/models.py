@@ -179,6 +179,9 @@ class History(Base):
     # 複数人表示: この手番で描いた各人物の姿 [{character_id, tags, spec_rev}]。
     # 人物ごとのタグが無い手番（非 Opus・生成失敗など）は NULL
     character_states_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 依頼モード: この手番の評価 {satisfaction, fit, met_preference_ids, hint}。
+    # 依頼の無いセッション・評価しない手番は NULL
+    request_evaluation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
@@ -521,6 +524,10 @@ class CharacterPreset(Base):
     # {"speaker_id": ..., "style_id": ...}。未設定ならユーザー設定の声
     voice_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     portrait_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # サロン経営でお客様として来店するか(立ち絵があるときだけ来店候補に入る)
+    salon_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )
@@ -582,6 +589,148 @@ class PlaySummary(Base):
     )
 
     session: Mapped[Session] = relationship(backref="play_summary")
+
+
+class SessionRequest(Base):
+    """依頼モード: キャラクターが「なりたい姿」を依頼する、セッション 1 件の依頼内容。
+
+    願い(表示)と伏せた好みは LLM が生成する。手番ごとの評価は
+    history.request_evaluation_json に置き、ここは依頼そのものと達成状態だけを持つ。
+    """
+
+    __tablename__ = "session_requests"
+
+    session_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    wish_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # [{id, text, hint}]。text はフロントへ送らない(満たされた分だけ開示する)
+    preferences_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    language: Mapped[str] = mapped_column(String, nullable=False, default="ja")
+    # 施術の手数の上限。None は上限なし。使った手数は履歴の評価済み手番から数える
+    turn_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # カウンセリングで質問できる回数と、そのやり取り [{question, answer}]
+    question_limit: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=2, server_default="2"
+    )
+    questions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    # 心境の中のヒント(まだ満たされていない好みをほのめかす一文)に目印を付けさせるか
+    emphasize_hints: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    # 成人向けの依頼か(サロンの過激施術)。生成が通らず全年齢に切り戻したときは False
+    sensitive: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    # 成人向けの依頼で、願いの姿でしたいこと(お披露目の体験の場面の指示)。それ以外は None
+    experience_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # active / fulfilled。一度満たしたら fulfilled のまま(後の手番で下がっても戻さない)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    fulfilled_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+
+class SalonRun(Base):
+    """サロン経営モードの1シーズン(開店から決算まで)。
+
+    数値(現金・評判・週)は Python が決める。週ごとの収支の記録と決算は state_json に置く。
+    """
+
+    __tablename__ = "salon_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    # active / completed / bankrupt
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    week: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    total_weeks: Mapped[int] = mapped_column(Integer, nullable=False)
+    cash: Mapped[int] = mapped_column(Integer, nullable=False)
+    reputation: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 予約の抽選に使う。run ごとに固定し、同じ週の予約は作り直しても同じになる
+    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (Index("idx_salon_runs_user_updated", "user_id", "updated_at"),)
+
+
+class SalonVisit(Base):
+    """サロンへの来店1件(予約から会計まで)。接客は依頼付きの通常セッションで行う。"""
+
+    __tablename__ = "salon_visits"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    salon_id: Mapped[str] = mapped_column(
+        String, ForeignKey("salon_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    week: Mapped[int] = mapped_column(Integer, nullable=False)
+    slot: Mapped[int] = mapped_column(Integer, nullable=False)
+    # template / custom(保存済みカスタムキャラ) / preset(キャラクター画面で作ったキャラ)
+    customer_source: Mapped[str] = mapped_column(String, nullable=False)
+    customer_id: Mapped[str] = mapped_column(String, nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    session_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    # booked / serving / done / declined
+    status: Mapped[str] = mapped_column(String, nullable=False, default="booked")
+    satisfaction: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fulfilled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    payment: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    reputation_delta: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    review: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 願いを叶えて、施術した姿のまま帰ったときの最後の手番。翌週もこの姿で来店する
+    kept_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 前回持ち帰った姿で来店する予約なら、その手番。接客はここから分岐して始める
+    start_history_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 過激施術のお披露目で体験の場面まで描けたときの、満足度への加点(satisfaction に含む)
+    experience_bonus: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # 資金で足した施術の代金(購入時に現金から引いている)。足した手数は代金 ÷ 単価
+    extra_cost: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("idx_salon_visits_salon_week", "salon_id", "week", "slot"),
+        Index("idx_salon_visits_session", "session_id"),
+    )
 
 
 class ParameterChangeLog(Base):

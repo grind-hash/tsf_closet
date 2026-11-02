@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
@@ -16,12 +17,14 @@ from sqlalchemy import and_, delete, desc, func, or_, select
 from ..databases.base import async_session_factory
 from ..databases.models import History as HistoryORM
 from ..databases.models import PlaySummary as PlaySummaryORM
+from ..databases.models import SalonVisit
 from ..databases.models import Session as SessionORM
 from ..schemas.gallery import (
     DeleteResponse,
     GalleryDetailResponse,
     GalleryItem,
     GalleryListResponse,
+    GalleryOriginCounts,
     GallerySession,
     GallerySessionsResponse,
 )
@@ -69,6 +72,13 @@ async def get_gallery_sessions(
         description="フリーワード検索（会話・指示・感想・説明・要約タイトルなど）",
         max_length=200,
     ),
+    origin: Literal["all", "play", "salon"] = Query(
+        "all",
+        description=(
+            "絞り込み。play はサロン経営の接客から生まれたセッションを除き、"
+            "salon はそれだけにする"
+        ),
+    ),
 ):
     """ギャラリーのセッション一覧を取得（q 指定時はやり取りを横断検索）"""
     offset = (page - 1) * page_size
@@ -76,12 +86,44 @@ async def get_gallery_sessions(
     match_select = (
         matching_session_ids_select(f"%{escape_like(query)}%") if query else None
     )
+    salon_select = select(SalonVisit.session_id).where(
+        SalonVisit.session_id.is_not(None)
+    )
+    search_conditions = (
+        [HistoryORM.session_id.in_(match_select)] if match_select is not None else []
+    )
+    conditions = [*search_conditions]
+    if origin == "salon":
+        conditions.append(HistoryORM.session_id.in_(salon_select))
+    elif origin == "play":
+        conditions.append(HistoryORM.session_id.not_in(salon_select))
 
     async with async_session_factory() as db_session:
-        total_stmt = select(func.count(func.distinct(HistoryORM.session_id)))
-        if match_select is not None:
-            total_stmt = total_stmt.where(HistoryORM.session_id.in_(match_select))
-        total = (await db_session.execute(total_stmt)).scalar() or 0
+
+        async def count_sessions(*extra: Any) -> int:
+            stmt = select(func.count(func.distinct(HistoryORM.session_id)))
+            criteria = [*search_conditions, *extra]
+            if criteria:
+                stmt = stmt.where(*criteria)
+            return (await db_session.execute(stmt)).scalar() or 0
+
+        all_count = await count_sessions()
+        salon_count = await count_sessions(HistoryORM.session_id.in_(salon_select))
+        origin_counts = GalleryOriginCounts(
+            all=all_count, play=all_count - salon_count, salon=salon_count
+        )
+        total = {"all": all_count, "play": all_count - salon_count}.get(
+            origin, salon_count
+        )
+        has_salon_sessions = salon_count > 0
+        if query and not has_salon_sessions:
+            has_salon_sessions = (
+                await db_session.execute(
+                    select(HistoryORM.session_id)
+                    .where(HistoryORM.session_id.in_(salon_select))
+                    .limit(1)
+                )
+            ).first() is not None
 
         summary_base = select(
             HistoryORM.session_id.label("session_id"),
@@ -89,18 +131,16 @@ async def get_gallery_sessions(
             func.min(HistoryORM.created_at).label("first_timestamp"),
             func.max(HistoryORM.created_at).label("last_timestamp"),
         )
-        if match_select is not None:
-            summary_base = summary_base.where(HistoryORM.session_id.in_(match_select))
+        if conditions:
+            summary_base = summary_base.where(*conditions)
         summary_subquery = summary_base.group_by(HistoryORM.session_id).subquery()
 
         latest_created_base = select(
             HistoryORM.session_id.label("session_id"),
             func.max(HistoryORM.created_at).label("max_created_at"),
         )
-        if match_select is not None:
-            latest_created_base = latest_created_base.where(
-                HistoryORM.session_id.in_(match_select)
-            )
+        if conditions:
+            latest_created_base = latest_created_base.where(*conditions)
         latest_created_subquery = latest_created_base.group_by(
             HistoryORM.session_id
         ).subquery()
@@ -156,6 +196,20 @@ async def get_gallery_sessions(
         if query and rows:
             session_ids = [str(row.session_id) for row in rows]
             snippets = await fetch_match_snippets(db_session, session_ids, query)
+        salon_ids: set[str] = set()
+        if rows:
+            salon_ids = {
+                str(session_id)
+                for session_id in (
+                    await db_session.execute(
+                        select(SalonVisit.session_id).where(
+                            SalonVisit.session_id.in_(
+                                [str(row.session_id) for row in rows]
+                            )
+                        )
+                    )
+                ).scalars()
+            }
 
     char_manager = CharacterManager()
 
@@ -204,6 +258,7 @@ async def get_gallery_sessions(
                 has_summary=bool(row.has_summary),
                 match_snippet=snippets.get(session_id),
                 last_instruction=last_instruction,
+                origin="salon" if session_id in salon_ids else "play",
             )
         )
 
@@ -215,6 +270,8 @@ async def get_gallery_sessions(
         page=page,
         page_size=page_size,
         has_more=has_more,
+        origin_counts=origin_counts,
+        has_salon_sessions=has_salon_sessions,
     )
 
 

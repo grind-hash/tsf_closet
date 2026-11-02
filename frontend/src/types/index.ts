@@ -38,6 +38,12 @@ export interface Character {
   name: string;
   thumbnail: string;
   description: string;
+  /** 以下はテンプレートキャラクター一覧(/game/characters)が返す人物像 */
+  pronoun?: string;
+  personality?: string;
+  gender?: string;
+  /** TSF(性転換・変身)への態度。依頼モードの依頼文と反応に使う */
+  tsf_attitude?: string;
 }
 
 // Ending
@@ -318,7 +324,7 @@ export interface Achievement {
   id: string;
   name: string;
   description: string;
-  category: string; // transform, crossdress, reality, collection
+  category: string; // transform, crossdress, reality, collection, self, salon
   icon: string;
   condition_type: string; // count, specific, threshold
   condition_target: string;
@@ -374,6 +380,8 @@ export interface GallerySession {
   match_snippet?: string | null;
   /** 最新 History の指示テキスト（セッション識別用） */
   last_instruction?: string | null;
+  /** play: 通常のプレイ / salon: サロン経営の接客から生まれたセッション */
+  origin?: "play" | "salon";
 }
 
 /**
@@ -565,6 +573,8 @@ export interface CharacterPreset {
   voice: CharacterVoice | null;
   /** 立ち絵(API 相対 URL)。未設定なら null */
   portrait_url: string | null;
+  /** サロン経営でお客様として来店するか(立ち絵があるときだけ来店候補に入る) */
+  salon_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -590,4 +600,59 @@ export interface CharacterGroupPreset {
   members: CharacterGroupMember[];
   created_at: string;
   updated_at: string;
+}
+
+/** 依頼モード: 依頼の好み1件。本文は一度満たされるまで null */
+export interface SessionRequestPreference {
+  id: string;
+  /** 好みの分類(色合い・丈など)。未開示でも見える手掛かり */
+  hint: string;
+  text: string | null;
+  /** 最新の手番で満たしているか */
+  met: boolean;
+}
+
+/** 依頼モードの依頼(公開ビュー)。backend の SessionRequestResponse と同じ形 */
+export interface SessionRequestView {
+  wish: string;
+  status: "active" | "fulfilled" | string;
+  /** 最新の手番の満足度 (0-100) */
+  satisfaction: number;
+  /** 依頼達成となる満足度 */
+  threshold: number;
+  fit: string | null;
+  /** 最新の手番のヒント。好みを全部満たしていれば空 */
+  hint: string;
+  preferences: SessionRequestPreference[];
+  evaluated_turns: number;
+  /** 施術の手数の上限。null は上限なし */
+  turn_limit: number | null;
+  /** 使った手数(評価に失敗した手番も含む) */
+  turns_used: number;
+  /** 残りの手数。null は上限なし */
+  turns_remaining: number | null;
+  /** カウンセリングで質問できる回数と、そのやり取り */
+  question_limit: number;
+  questions: SessionRequestQuestion[];
+  questions_remaining: number;
+  /** 最新の手番で、カウンセリングの答えを汲んだことによる加点 */
+  listening_bonus: number;
+  /** 依頼を作り直せるか(最初の着せ替えの前だけ) */
+  can_regenerate: boolean;
+  /** 心境の中のヒントの一文が〔〕で囲まれているか(サロンのやさしい・ふつう) */
+  emphasize_hints?: boolean;
+  /** 成人向けの依頼か(サロンの過激施術) */
+  sensitive?: boolean;
+  /** 成人向けの依頼で、願いの姿でしたいこと(お披露目の体験の場面の指示) */
+  experience?: string;
+  /** 成人向けの依頼を作れず、全年齢の依頼に切り戻したか(生成した直後の応答だけ) */
+  sensitive_fallback?: boolean;
+}
+
+/** カウンセリングのやり取り1件 */
+export interface SessionRequestQuestion {
+  question: string;
+  answer: string;
+  /** 最新の手番の姿がこの答えを汲んでいるか(加点の対象) */
+  reflected: boolean;
 }

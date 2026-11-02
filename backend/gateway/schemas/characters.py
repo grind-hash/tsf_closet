@@ -38,6 +38,11 @@ class CharacterInfo(BaseModel):
     name: str = Field(..., description="キャラクター名")
     thumbnail: str = Field(..., description="Base64エンコードされたサムネイル画像")
     description: str = Field(..., description="キャラクター説明")
+    # 開始画面で選んだキャラクターの人物像として表示する
+    pronoun: str = Field("", description="一人称")
+    personality: str = Field("", description="性格")
+    gender: str = Field("", description="性別 (man/woman/other)")
+    tsf_attitude: str = Field("", description="TSF(性転換・変身)への態度")
 
 
 class CharacterListResponse(BaseModel):
@@ -186,6 +191,8 @@ class CharacterPresetRead(BaseModel):
     voice: CharacterVoice | None = None
     # 立ち絵(API 相対 URL)。未設定なら None
     portrait_url: str | None = None
+    # サロン経営でお客様として来店するか(立ち絵があるときだけ来店候補に入る)
+    salon_enabled: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -231,6 +238,13 @@ class CharacterPresetUpdate(BaseModel):
     )
     avatar_model_id: str | None = Field(None, max_length=64)
     voice: CharacterVoice | None = None
+    salon_enabled: bool | None = None
+
+
+class CharacterPresetPortraitUploadRequest(BaseModel):
+    """アップロードした画像をキャラクターの立ち絵にするリクエスト。"""
+
+    image: str = Field(..., min_length=1, description="Base64 の画像(data URL 可)")
 
 
 class CharacterPresetPortraitRequest(BaseModel):

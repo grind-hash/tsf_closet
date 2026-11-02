@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -51,6 +53,16 @@ class GallerySession(BaseModel):
     has_summary: bool = False
     match_snippet: str | None = None
     last_instruction: str | None = None
+    # play: 通常のプレイ / salon: サロン経営の接客から生まれたセッション
+    origin: Literal["play", "salon"] = "play"
+
+
+class GalleryOriginCounts(BaseModel):
+    """絞り込み(すべて / 通常プレイ / サロン経営)ごとのセッション数。検索語を反映する。"""
+
+    all: int = 0
+    play: int = 0
+    salon: int = 0
 
 
 class GallerySessionsResponse(BaseModel):
@@ -61,6 +73,9 @@ class GallerySessionsResponse(BaseModel):
     page: int
     page_size: int
     has_more: bool
+    origin_counts: GalleryOriginCounts = GalleryOriginCounts()
+    # 検索語によらず、サロン経営の接客のセッションが1件でもあるか(絞り込みを出すかの判断用)
+    has_salon_sessions: bool = False
 
 
 class GalleryListResponse(BaseModel):

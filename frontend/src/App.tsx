@@ -21,18 +21,18 @@ import NovelAIWarningModal from "./components/NovelAIWarningModal";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import PromptExpanderScreen from "./components/promptExpander/PromptExpanderScreen";
 import SessionListModal from "./components/SessionListModal";
+import SalonScreen from "./components/salon/SalonScreen";
 import SettingsScreen from "./components/settings/SettingsScreen";
 import { AdventureProvider } from "./contexts/AdventureContext";
 import { CharacterChatProvider } from "./contexts/CharacterChatContext";
 import { PromptExpanderProvider } from "./contexts/PromptExpanderContext";
+import { SalonProvider } from "./contexts/SalonContext";
 import { useSettings } from "./contexts/SettingsContext";
-import { useGameSSE } from "./hooks/useGameSSE";
+import { usePlayTurn } from "./hooks/usePlayTurn";
 import { getGameSessionPath } from "./routes";
 // MainLayout は各画面コンポーネント内で使用
 import type { NovelAISubscriptionResponse } from "./types";
-import { DEFAULT_INPAINT_SETTINGS } from "./types";
 import { API_BASE } from "./utils/api";
-import { isHistoryLookbackEnabled } from "./utils/historyLookback";
 import {
   readStorage,
   readStorageFlag,
@@ -106,11 +106,11 @@ function AppRoutes() {
       </AdventureProvider>
     );
   }
-  // キャラチャット（実験機能）。/talk と /talk/:threadId。ゲートは設定画面のトグル
+  // キャラチャット（既定 ON）。/talk と /talk/:threadId。ゲートは設定画面のトグル
   if (location.pathname === "/talk" || location.pathname.startsWith("/talk/")) {
     // TSFシナリオの「トーク」から遷移するため、Adventure が有効なら通す
     if (
-      !settingsState.experimentalCharacterChatEnabled &&
+      !settingsState.characterChatEnabled &&
       !settingsState.adventureEnabled
     ) {
       return <Navigate to="/play/new" replace />;
@@ -121,18 +121,26 @@ function AppRoutes() {
       </CharacterChatProvider>
     );
   }
-  // キャラクター（キャラチャットで話すキャラクターの作成・管理）。ゲートはキャラチャットと同じ
+  // キャラクター（キャラクターの作成・管理と、そのキャラでのプレイ開始）。常に開ける
   if (
     location.pathname === "/characters" ||
     location.pathname.startsWith("/characters/")
   ) {
-    if (
-      !settingsState.experimentalCharacterChatEnabled &&
-      !settingsState.adventureEnabled
-    ) {
+    return <CharactersScreen />;
+  }
+  // サロン経営（実験機能）。/salon・/salon/:runId・/salon/:runId/visits/:visitId
+  if (
+    location.pathname === "/salon" ||
+    location.pathname.startsWith("/salon/")
+  ) {
+    if (!settingsState.experimentalSalonEnabled) {
       return <Navigate to="/play/new" replace />;
     }
-    return <CharactersScreen />;
+    return (
+      <SalonProvider>
+        <SalonScreen />
+      </SalonProvider>
+    );
   }
   // Prompt Expander（実験機能）。ゲートは設定画面のトグルで切り替える
   if (location.pathname.startsWith("/prompt-expander")) {
@@ -158,7 +166,6 @@ function AppMain() {
     resetTotalCost,
     setAnlasBalance,
     setNovelaiTier,
-    isNovelaiV5Active,
   } = useSettings();
   const {
     state: gameState,
@@ -184,8 +191,6 @@ function AppMain() {
   // NovelAI APIキー同意モーダル関連
   const [showApiKeyConsent, setShowApiKeyConsent] = useState(false);
   const [apiKeyConsentDeclined, setApiKeyConsentDeclined] = useState(false);
-
-  const sse = useGameSSE();
 
   const replacePathWithSessionId = useCallback((sessionId: string | null) => {
     if (!sessionId) {
@@ -386,154 +391,8 @@ function AppMain() {
     setApiKeyConsentDeclined(true);
   }, []);
 
-  // 変身実行
-  const handleTransform = useCallback(
-    (
-      instruction: string,
-      costumeImage?: string,
-      transformationType: string = "costume",
-      options?: {
-        maskImage?: string;
-        maskId?: string;
-        inpaintStrength?: number;
-        inpaintNoise?: number;
-        negativePrompt?: string;
-        promptOverride?: string;
-        imageOnlyTextToImage?: boolean;
-        characterReferences?: Array<{
-          imageData: string;
-          type: string;
-          strength: number;
-          fidelity: number;
-        }>;
-      },
-      instructionType?: string,
-      pendingToken?: string,
-      useMemory: boolean = false,
-    ) => {
-      void pendingToken;
-      if (!gameState.sessionId || gameState.isTransforming) return;
-
-      // POST リクエストボディを構築
-      const body: Record<string, unknown> = {
-        session_id: gameState.sessionId,
-        instruction,
-        transformation_type: transformationType,
-        language: settingsState.language,
-      };
-      if (instructionType) {
-        body.instruction_type = instructionType;
-      }
-      body.use_history_lookback = isHistoryLookbackEnabled(
-        settingsState.historyLookbackTargets,
-        instructionType,
-      );
-      body.use_memory = useMemory;
-      body.use_play_memory = settingsState.playMemoryEnabled;
-      // Include seed if specified in settings
-      if (settingsState.seed !== null) {
-        body.seed = settingsState.seed;
-      }
-      // US3: Include surroundings image generation setting
-      if (settingsState.enableSurroundingsImage) {
-        body.enable_surroundings_image = true;
-        if (settingsState.surroundingsIncludePeople) {
-          body.surroundings_include_people = true;
-        }
-      }
-      // Clothing color consistency experimental feature
-      if (settingsState.clothingColorConsistency) {
-        body.clothing_color_consistency = true;
-      }
-      if (settingsState.respectClothingLayers) {
-        body.respect_clothing_layers = true;
-      }
-
-      // Multiple people experimental feature.
-      // パネル OFF でも複数人表示自体は維持し、
-      // 画像プロンプトへの session_characters 注入のみ use_character_panel でゲートする。
-      if (settingsState.enableMultiplePeople) {
-        body.enable_multiple_people = true;
-      }
-      body.use_character_panel = settingsState.multiCharacterPanelEnabled;
-      if (costumeImage) {
-        body.costume_image = costumeImage;
-      }
-      if (options?.maskImage) {
-        body.mask_image = options.maskImage;
-      } else if (options?.maskId) {
-        body.mask_id = options.maskId;
-      }
-
-      // NovelAI利用時は常にi2i強度とノイズを送信（Image2Image必須）
-      // optionsで明示的に指定された場合はそちらを優先、なければデフォルト値を使用
-      if (settingsState.imageProvider === "novelai") {
-        body.inpaint_strength =
-          options?.inpaintStrength ?? DEFAULT_INPAINT_SETTINGS.i2iStrength;
-        body.inpaint_noise =
-          options?.inpaintNoise ?? DEFAULT_INPAINT_SETTINGS.inpaintNoise;
-      } else {
-        // NovelAI以外の場合は、明示的に指定された場合のみ送信
-        if (options?.inpaintStrength !== undefined) {
-          body.inpaint_strength = options.inpaintStrength;
-        }
-        if (options?.inpaintNoise !== undefined) {
-          body.inpaint_noise = options.inpaintNoise;
-        }
-      }
-
-      if (options?.negativePrompt) {
-        body.negative_prompt = options.negativePrompt;
-      }
-      if (options?.promptOverride) {
-        body.prompt_override = options.promptOverride;
-      }
-      // 画像のみモード: 前画像を使わず text-to-image で生成する
-      if (options?.imageOnlyTextToImage) {
-        body.image_only_text_to_image = true;
-      }
-      // Build character_references for NovelAI precise reference images
-      // (V5系モデルは精密参照非対応のため送らない)
-      if (
-        !isNovelaiV5Active &&
-        options?.characterReferences &&
-        options.characterReferences.length > 0
-      ) {
-        body.character_references = options.characterReferences.map((ref) => {
-          // Strip data URL prefix (e.g. "data:image/png;base64,") to get raw base64
-          let imageBase64 = ref.imageData;
-          if (imageBase64.startsWith("data:")) {
-            imageBase64 = imageBase64.split(",", 2)[1] || imageBase64;
-          }
-          return {
-            image: imageBase64,
-            type: ref.type,
-            strength: ref.strength,
-            fidelity: ref.fidelity,
-          };
-        });
-      }
-
-      sse.startPostStream(`${API_BASE}/game/play/stream`, body, pendingToken);
-    },
-    [
-      gameState.sessionId,
-      gameState.isTransforming,
-      sse,
-      settingsState.language,
-      settingsState.seed,
-      settingsState.enableSurroundingsImage,
-      settingsState.surroundingsIncludePeople,
-      settingsState.clothingColorConsistency,
-      settingsState.respectClothingLayers,
-      settingsState.enableMultiplePeople,
-      settingsState.multiCharacterPanelEnabled,
-      settingsState.imageProvider,
-      settingsState.playMemoryEnabled,
-      settingsState.historyLookbackTargets,
-      isNovelaiV5Active,
-    ],
-  );
+  // 変身実行（送信内容の組み立ては usePlayTurn と共有）
+  const handleTransform = usePlayTurn();
 
   // リセット
   const handleReset = useCallback(async () => {

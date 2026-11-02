@@ -67,6 +67,14 @@ export const gallery = {
   deleteItemAction: "削除する",
   deleteItemError: "アイテムの削除に失敗しました",
   selfModeChip: "自分自身",
+  origin: {
+    label: "セッションの種類で絞り込む",
+    all: "すべて",
+    play: "通常プレイ",
+    salon: "サロン経営",
+    salonHidden:
+      "サロン経営の接客は、設定により「サロン経営」の絞り込みでだけ表示しています",
+  },
   searchPlaceholder: "やり取りをキーワード検索…",
   searchAria: "セッションのやり取りを検索",
   searchClear: "検索をクリア",

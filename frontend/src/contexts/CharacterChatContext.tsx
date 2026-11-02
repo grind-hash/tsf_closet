@@ -19,6 +19,7 @@ import { useTranslation } from "react-i18next";
 import {
   type CharacterChatAdventureAppearanceMode,
   type CharacterChatAvatarMode,
+  type CharacterChatKind,
   type CharacterChatMessage,
   type CharacterChatMessageRequest,
   type CharacterChatPhase,
@@ -43,6 +44,7 @@ import {
   unlinkCharacterChatCharacter,
 } from "../apis/characterChat";
 import type { AdventureSourceSelection } from "../components/adventure/AdventureSessionPickerModal";
+import { buildSerenaAppGuide } from "../components/guide/guideFeatures";
 import type { AvatarExpressionKey } from "../constants/companionAvatar";
 import {
   type UseAdventureVoiceResult,
@@ -254,6 +256,8 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
   // 送信中に別スレッドへ移動しても古いストリームの結果を混ぜない
   const activeThreadIdRef = useRef<string | null>(null);
   activeThreadIdRef.current = activeThread?.id ?? null;
+  const activeThreadKindRef = useRef<CharacterChatKind | null>(null);
+  activeThreadKindRef.current = activeThread?.kind ?? null;
   const activeThreadRef = useRef(activeThread);
   activeThreadRef.current = activeThread;
   const threadEpochRef = useRef(0);
@@ -475,6 +479,10 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
           use_weather: settingsState.characterChatWeatherEnabled,
           ...(requestPlayProposal ? { request_play_proposal: true } : {}),
           read_aloud: voiceRef.current.canSpeak,
+          // セレナの機能知識は遊び方ガイドの文面から作る
+          ...(activeThreadKindRef.current === "base"
+            ? { app_guide: buildSerenaAppGuide(t, settingsState) }
+            : {}),
         };
         await streamCharacterChatMessage(threadId, request, (event) => {
           if (
@@ -569,15 +577,7 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
       }
       return characterMessage;
     },
-    [
-      sending,
-      settingsState.characterChatWebSearchEnabled,
-      settingsState.characterChatWeatherEnabled,
-      addTotalCost,
-      showNotification,
-      speakMessage,
-      t,
-    ],
+    [sending, settingsState, addTotalCost, showNotification, speakMessage, t],
   );
 
   const requestPlayProposal = useCallback(

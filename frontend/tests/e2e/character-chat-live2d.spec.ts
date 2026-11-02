@@ -563,7 +563,7 @@ for (const viewport of [
       animations: "disabled",
     });
     await page
-      .getByRole("button", { name: "ウィンドウを隠す", exact: true })
+      .getByRole("button", { name: "ウィンドウを非表示", exact: true })
       .click();
     await expect(input).toBeHidden();
     const show = page.getByRole("button", {
@@ -597,7 +597,7 @@ test("確定返答で読み上げ開始、無音と有音、停止・再読み�
   await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 20000 });
   await send(page);
   await page
-    .getByRole("button", { name: "ウィンドウを隠す", exact: true })
+    .getByRole("button", { name: "ウィンドウを非表示", exact: true })
     .click();
   await expect(page.locator(".character-chat-room__messagebox")).toBeHidden();
   await emit(page, "chat_done", reply("sad"));

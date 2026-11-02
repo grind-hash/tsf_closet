@@ -294,6 +294,16 @@ Copy-Item -Path $GatewaySrc -Destination $GatewayDst -Recurse -Force
 Get-ChildItem -Path $GatewayDst -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
 Write-Success "gateway/ をコピー"
 
+# サロンの効果音は再配布できない素材なのでリポジトリに無い(.gitignore)。
+# 手元の gateway/data/bgm に置いたものが上のコピーで zip に入る。無くてもビルドは続ける
+$SalonSeFiles = @("se01_salon_register.ogg", "se02_salon_ledger.ogg", "se03_salon_doorbell.ogg")
+$MissingSalonSe = @($SalonSeFiles | Where-Object { -not (Test-Path (Join-Path $GatewayDst "data\bgm\$_")) })
+if ($MissingSalonSe.Count -eq 0) {
+    Write-Success "サロンの効果音を同梱"
+} else {
+    Write-Host "      ! サロンの効果音が見つかりません (この音は鳴りません): $($MissingSalonSe -join ', ')" -ForegroundColor Yellow
+}
+
 # workflows/ をコピー
 $WorkflowsSrc = Join-Path $BackendDir "workflows"
 if (Test-Path $WorkflowsSrc) {

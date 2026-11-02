@@ -44,6 +44,12 @@ export const CHARACTER_PRESET_PORTRAIT_FROM_SOURCE = (
 export const CHARACTER_PRESET_PORTRAIT_STREAM = (presetId: string): string =>
   `${API_BASE}/game/character-presets/${encodeURIComponent(presetId)}/portrait/stream`;
 
+export const CHARACTER_PRESET_PORTRAIT_UPLOAD = (presetId: string): string =>
+  `${API_BASE}/game/character-presets/${encodeURIComponent(presetId)}/portrait/upload`;
+
+/** 新規プレイの「作成したキャラクター」をキャラクターへ取り込む(v0.12.0 で削除予定) */
+export const CHARACTER_PRESETS_IMPORT_CUSTOM = `${API_BASE}/game/character-presets/import-custom`;
+
 export const CHARACTERS_FROM_GROUP = (
   sessionId: string,
   groupId: string,

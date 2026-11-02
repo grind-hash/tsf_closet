@@ -43,6 +43,24 @@
   margin: 0 0 1rem;
 }
 
+/* 非推奨の入口の案内(移行先へのリンク付き) */
+.welcome-screen__deprecated-notice {
+  margin: -0.5rem 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 6px;
+  background-color: rgba(248, 113, 113, 0.08);
+  color: var(--text-muted, #aaa);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.welcome-screen__deprecated-notice a {
+  margin-left: 0.5rem;
+  color: var(--accent, #ff4757);
+  font-weight: 600;
+}
+
 /* キャラクター選択 */
 .welcome-screen__characters {
   background-color: rgba(255, 255, 255, 0.05);
@@ -226,6 +244,20 @@
   color: var(--text-color, #eee);
 }
 
+/* TSF への態度: 入力欄と、使い道を示す注記で 1 行を占める */
+.welcome-screen__tsf-attitude {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.welcome-screen__tsf-attitude-hint {
+  margin: 0;
+  color: var(--text-muted, #888);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 /* 外見タグ行 (入力欄 + 自動生成ボタン) */
 .welcome-screen__base-tags-row {
   grid-column: 1 / -1;
@@ -307,44 +339,51 @@
 }
 
 /* Self mode section */
-.welcome-screen__self-mode {
-  padding: 0.75rem 1rem;
-}
-
-.welcome-screen__self-mode-label {
-  display: flex;
-  align-items: center;
+/* 選んだテンプレートキャラクターの人物像。文章は省略せず全文を出す */
+.welcome-screen__profile {
+  display: grid;
   gap: 0.5rem;
-  cursor: pointer;
-  font-weight: 500;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background-color: var(--bg-color, #1a1a2e);
 }
 
-.welcome-screen__self-mode-desc {
-  margin: 0.25rem 0 0 1.75rem;
-  font-size: 0.85rem;
-  color: var(--text-muted, #888);
-}
-
-.welcome-screen__self-mode-warning {
-  margin: 0.5rem 0 0 1.75rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.85rem;
-  color: var(--warning-text, #b8860b);
-  background-color: var(--warning-bg, rgba(255, 193, 7, 0.1));
-  border: 1px solid var(--warning-border, rgba(255, 193, 7, 0.3));
-  border-radius: 6px;
-}
-
-.welcome-screen__self-mode-warning-link {
-  display: inline-block;
-  margin-left: 0.5rem;
-  color: var(--accent, #ff4757);
-  text-decoration: none;
+.welcome-screen__profile-name {
+  margin: 0;
+  font-size: 1rem;
   font-weight: 600;
 }
 
-.welcome-screen__self-mode-warning-link:hover {
-  text-decoration: underline;
+.welcome-screen__profile-description {
+  margin: 0;
+  color: var(--text-muted, #888);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.welcome-screen__profile-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.welcome-screen__profile-facts > div {
+  display: contents;
+}
+
+.welcome-screen__profile-facts dt {
+  color: var(--text-muted, #888);
+  font-weight: 600;
+}
+
+.welcome-screen__profile-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 /* レスポンシブ */

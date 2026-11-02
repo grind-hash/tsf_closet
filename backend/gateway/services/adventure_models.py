@@ -28,6 +28,7 @@ from ..consts.companion_avatar import (
     normalize_avatar_outfit_key,
 )
 from .adventure_inventory import coerce_reality_patch, coerce_world_events
+from .adventure_reality_cost import coerce_cost_ids, coerce_reality_cost
 from .adventure_romance import RomanceAlteredGift
 
 logger = logging.getLogger(__name__)
@@ -448,12 +449,27 @@ class AdventureResolutionOutput(BaseModel):
     # apply_romance_outcome / _apply_time_limit_alteration が適用する
     world_events: list[dict[str, Any]] = Field(default_factory=list)
     reality_patch: dict[str, Any] | None = None
+    # 改変の代償(reality_cost_enabled)。reality_cost は代償が発生する手番だけ、
+    # resolved_reality_cost_ids は宣言以外の手番だけ読む。採否と金額は
+    # adventure_reality_cost が決める
+    reality_cost: dict[str, Any] | None = None
+    resolved_reality_cost_ids: list[str] = Field(default_factory=list)
 
     @field_validator("world_events", mode="before")
     @classmethod
     def coerce_world_events_field(cls, value: Any) -> Any:
         # 壊れた要素は捨て、検証エラー→修復リトライへ落とさない
         return coerce_world_events(value)
+
+    @field_validator("reality_cost", mode="before")
+    @classmethod
+    def coerce_reality_cost_field(cls, value: Any) -> Any:
+        return coerce_reality_cost(value)
+
+    @field_validator("resolved_reality_cost_ids", mode="before")
+    @classmethod
+    def coerce_resolved_reality_cost_ids(cls, value: Any) -> Any:
+        return coerce_cost_ids(value)
 
     @field_validator("reality_patch", mode="before")
     @classmethod

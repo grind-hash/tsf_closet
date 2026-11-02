@@ -18,6 +18,7 @@ from .llm_json import strip_code_fence
 from .session import session_store
 from .summary_prompts import (
     build_branch_situation_user_prompt,
+    build_summary_request_note,
     build_summary_user_prompt,
     get_branch_situation_system_prompt,
     get_summary_system_prompt,
@@ -74,6 +75,21 @@ class SummaryService:
         # Build prompts
         system_prompt = get_summary_system_prompt(language)
         user_prompt = build_summary_user_prompt(timeline_data, language)
+        request = await session_store.get_session_request(session_id)
+        if request is not None:
+            # 評価に失敗した手番(失敗の印)は満足度を持たないので除く
+            scored = [
+                item
+                for item in await session_store.get_request_evaluations(session_id)
+                if not item.get("failed")
+            ]
+            satisfaction = int(scored[-1].get("satisfaction") or 0) if scored else 0
+            user_prompt += build_summary_request_note(
+                request,
+                satisfaction,
+                request.get("status") == "fulfilled",
+                language,
+            )
 
         logger.info(
             "Generating summary for session %s (%d actions)",

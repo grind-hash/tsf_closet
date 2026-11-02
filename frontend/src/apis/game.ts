@@ -3,7 +3,7 @@
  * プロンプトプレビュー・最新履歴削除など
  */
 
-import type { Character, InstructionType } from "../types";
+import type { Character, InstructionType, SessionRequestView } from "../types";
 import { API_BASE } from "../utils/api";
 import { jsonInit, requestJson } from "../utils/http";
 
@@ -255,6 +255,24 @@ export async function startCustomGame(
   );
 }
 
+export interface StartPresetGameRequest {
+  preset_id: string;
+  difficulty: string;
+  nsfw_mode: boolean;
+  self_mode: boolean;
+}
+
+/** キャラクター画面で作ったキャラ(立ち絵が必要)で新規セッションを開始する */
+export async function startPresetGame(
+  body: StartPresetGameRequest,
+): Promise<StartGameResponse> {
+  return requestJson<StartGameResponse>(
+    `${API_BASE}/game/start-preset`,
+    jsonInit("POST", body),
+    { fallbackMessage: "Start game failed" },
+  );
+}
+
 // ----------------------------------------------------------------
 // セッション / キャラクター / 属性 / プレイメモ（GameContext から使う）
 // ----------------------------------------------------------------
@@ -368,5 +386,35 @@ export async function regeneratePlayMemory(
     `${API_BASE}/game/sessions/${sessionId}/play-memory/regenerate?${params}`,
     { method: "POST" },
     { fallbackMessage: "自動メモの再生成に失敗しました" },
+  );
+}
+
+export interface CreateSessionRequestResponse {
+  request: SessionRequestView;
+  /** OpenRouter 利用時のみ。生成で発生した API 料金(USD) */
+  cost_usd: number | null;
+}
+
+/** 依頼モード: キャラクターの依頼を生成する(最初の着せ替え前なら作り直し) */
+export async function createSessionRequest(
+  sessionId: string,
+  language: string,
+  limits: { turn_limit: number | null; question_limit?: number },
+): Promise<CreateSessionRequestResponse> {
+  return requestJson<CreateSessionRequestResponse>(
+    `${API_BASE}/game/sessions/${sessionId}/request`,
+    jsonInit("POST", { language, ...limits }),
+  );
+}
+
+/** 依頼モード: カウンセリングの質問に、依頼主本人が答える */
+export async function askSessionRequestQuestion(
+  sessionId: string,
+  question: string,
+  language: string,
+): Promise<CreateSessionRequestResponse> {
+  return requestJson<CreateSessionRequestResponse>(
+    `${API_BASE}/game/sessions/${sessionId}/request/questions`,
+    jsonInit("POST", { question, language }),
   );
 }

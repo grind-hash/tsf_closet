@@ -28,12 +28,25 @@ interface DeleteItemResponse {
   message: string;
 }
 
+/** セッション一覧の絞り込み。play はサロン経営の接客を除き、salon はそれだけにする */
+export type GallerySessionOrigin = "all" | "play" | "salon";
+
+/** 絞り込みごとのセッション数(検索語を反映) */
+export interface GalleryOriginCounts {
+  all: number;
+  play: number;
+  salon: number;
+}
+
 export interface GallerySessionsResponse {
   sessions: GallerySession[];
   total: number;
   page: number;
   page_size: number;
   has_more: boolean;
+  origin_counts?: GalleryOriginCounts;
+  /** 検索語によらず、サロン経営の接客のセッションが1件でもあるか */
+  has_salon_sessions?: boolean;
 }
 
 /**
@@ -43,6 +56,7 @@ export async function fetchGallerySessions(
   page: number = 1,
   pageSize: number = 20,
   q?: string,
+  origin: GallerySessionOrigin = "all",
 ): Promise<GallerySessionsResponse> {
   const params = new URLSearchParams({
     page: String(page),
@@ -51,6 +65,9 @@ export async function fetchGallerySessions(
   const query = q?.trim();
   if (query) {
     params.append("q", query);
+  }
+  if (origin !== "all") {
+    params.append("origin", origin);
   }
   return requestJson<GallerySessionsResponse>(
     `${API_BASE}/gallery/sessions?${params}`,

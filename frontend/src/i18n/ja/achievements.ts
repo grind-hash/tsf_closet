@@ -6,6 +6,7 @@ export const achievements = {
   filterReality: "現実改変",
   filterCollection: "コレクション",
   filterSelf: "自分モード",
+  filterSalon: "サロン経営",
   transformCount: "変身回数: {{count}}",
   crossdressCount: "女装回数: {{count}}",
   realityAlterCount: "現実改変回数: {{count}}",

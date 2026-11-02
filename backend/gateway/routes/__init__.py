@@ -13,6 +13,7 @@ from .memory_router import router as memory_router
 from .novelai_router import router as novelai_router
 from .openai_images_router import router as openai_images_router
 from .prompt_expander_router import router as prompt_expander_router
+from .salon_router import router as salon_router
 from .settings_router import router as settings_router
 from .system_router import router as system_router
 
@@ -32,6 +33,7 @@ __all__ = [
     "novelai_router",
     "openai_images_router",
     "prompt_expander_router",
+    "salon_router",
     "settings_router",
     "system_router",
 ]

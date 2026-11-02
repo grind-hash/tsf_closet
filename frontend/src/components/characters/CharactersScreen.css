@@ -98,6 +98,7 @@
 
 .characters__card-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
 }
@@ -389,4 +390,58 @@
   justify-content: flex-end;
   padding: 12px 18px;
   border-top: 1px solid #394149;
+}
+
+/* 新規プレイの「作成したキャラクター」の取り込み(v0.12.0 で削除予定) */
+.characters__legacy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--warning-border, rgba(255, 193, 7, 0.3));
+  border-radius: 10px;
+  background-color: var(--warning-bg, rgba(255, 193, 7, 0.1));
+}
+
+.characters__legacy p {
+  flex: 1 1 280px;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+/* キャラクターでプレイを始めるダイアログ */
+.character-play-dialog__warning,
+.character-play-dialog__error {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.character-play-dialog__warning {
+  border: 1px solid var(--warning-border, rgba(255, 193, 7, 0.3));
+  background-color: var(--warning-bg, rgba(255, 193, 7, 0.1));
+  color: var(--warning-text, #b8860b);
+}
+
+.character-play-dialog__warning a {
+  margin-left: 0.5rem;
+  color: var(--accent, #ff4757);
+  font-weight: 600;
+}
+
+.character-play-dialog__error {
+  margin-top: 0.75rem;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background-color: rgba(248, 113, 113, 0.1);
+  color: #f87171;
+}
+
+/* ダイアログの中では、切替を注意書きの左端に揃える */
+.character-play-dialog .play-start-options__mode {
+  padding-inline: 0;
 }

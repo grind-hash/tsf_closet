@@ -12,6 +12,7 @@ import type { TranslationKey } from "../../i18n";
 export const SETTINGS_CATEGORIES = [
   { id: "game", titleKey: "settings.gameSection" },
   { id: "adventure", titleKey: "settings.adventureSection" },
+  { id: "characterChat", titleKey: "settings.characterChatSection" },
   { id: "display", titleKey: "settings.displaySection" },
   { id: "image", titleKey: "settings.imageSection" },
   { id: "selfProfile", titleKey: "settings.selfProfile.sectionTitle" },
@@ -148,6 +149,14 @@ export const SETTINGS_ITEMS = [
       "settings.confirmFavoriteRemoveDesc",
     ],
   },
+  {
+    id: "gallerySalonSessions",
+    category: "display",
+    searchKeys: [
+      "settings.gallerySalonSessions",
+      "settings.gallerySalonSessionsDesc",
+    ],
+  },
 
   // 画像生成
   {
@@ -273,20 +282,28 @@ export const SETTINGS_ITEMS = [
   },
   {
     id: "characterChat",
-    category: "experimental",
+    category: "characterChat",
     searchKeys: [
-      "settings.experimentalCharacterChat",
-      "settings.experimentalCharacterChatDesc",
+      "settings.characterChatEnabled",
+      "settings.characterChatEnabledDesc",
     ],
   },
   {
     id: "characterChatRealWorld",
-    category: "experimental",
+    category: "characterChat",
     searchKeys: [
       "settings.characterChatWebSearch",
       "settings.characterChatWebSearchDesc",
       "settings.characterChatWeather",
       "settings.characterChatWeatherDesc",
+    ],
+  },
+  {
+    id: "salon",
+    category: "experimental",
+    searchKeys: [
+      "settings.experimentalSalon",
+      "settings.experimentalSalonDesc",
     ],
   },
   {
