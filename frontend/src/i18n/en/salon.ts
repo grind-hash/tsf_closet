@@ -19,6 +19,8 @@ export const salon = {
         "Opening funds {{cash}}. Neglecting your customers leads to bankruptcy",
       hard: "Opening funds {{cash}}. A run of low-satisfaction visits leads to bankruptcy",
     },
+    sensitiveHint:
+      "Customers arrive with adult wishes, and the reveal shows one picture of them living that wish. It starts as set in your most recent salon, and you can switch it in the owner's room after opening.",
     goal: "The season succeeds if your final cash is above the opening funds. As a guide, make every other customer's wish come true.",
     submit: "Open the salon",
   },
@@ -85,6 +87,7 @@ export const salon = {
     closeWeekBody:
       "After closing, you can no longer serve this week's bookings.",
     closeWeekConfirm: "Close the week",
+    ledgerExtraCost: "Extra turns {{amount}}",
     ledger: "Books",
     ledgerEmpty: "No week has been closed yet",
     ledgerColumns: {
@@ -160,6 +163,17 @@ export const salon = {
     experienceRetry: "Draw the experience again",
     sensitiveFallback:
       "An adult request could not be written for this customer, so this visit uses an all-ages request.",
+    typing: "{{name}} is speaking",
+    extraTurn: "Add a styling turn ({{price}})",
+    extraTurnHint:
+      "Pay from your cash for one more styling turn. Once per visit.",
+    extraTurnNoCash: "Not enough cash for an extra styling turn",
+    extraTurnBuying: "Preparing the extra turn…",
+    extraTurnTitle: "Add a styling turn?",
+    extraTurnBody:
+      "Pay {{price}} from your cash for one more styling turn (cash {{cash}} → {{after}}). Once per visit.",
+    extraTurnConfirm: "Pay and style",
+    extraCost: "Extra turn",
     revealHint:
       "Show the result to the customer. Checking out decides the satisfaction and the payment.",
     checkout: "Check out",

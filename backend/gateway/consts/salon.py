@@ -56,3 +56,8 @@ SALON_BOOKINGS_MAX: int = 4
 # 接客の依頼は、施術3手・カウンセリングの質問2回(小説の3時間コース)
 SALON_TURN_LIMIT: int = 3
 SALON_QUESTION_LIMIT: int = 2
+
+# 資金を払って足せる施術(手数を使い切った後、来店1回につき SALON_EXTRA_TURNS_MAX 手まで)。
+# 値段は基本料金と同じ: 成功すれば翌週の来店まで含めて得をし、失敗すれば損をする賭けにする
+SALON_EXTRA_TURN_PRICE: int = 50_000
+SALON_EXTRA_TURNS_MAX: int = 1

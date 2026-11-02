@@ -143,6 +143,19 @@ describe("usePlayTurn", () => {
     expect("nsfw_mode" in bodies[2]).toBe(false);
   });
 
+  it("turns on multiple people for one turn when asked, whatever the setting", () => {
+    const { result } = renderHook(() => usePlayTurn());
+
+    result.current("指示", undefined, "costume", {
+      enableMultiplePeople: true,
+    });
+    result.current("指示");
+
+    const bodies = mocks.startPostStream.mock.calls.map((call) => call[1]);
+    expect(bodies[0].enable_multiple_people).toBe(true);
+    expect("enable_multiple_people" in bodies[1]).toBe(false);
+  });
+
   it("does not send while a turn is already running", () => {
     setState({ isTransforming: true });
     const { result } = renderHook(() => usePlayTurn());

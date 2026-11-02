@@ -619,6 +619,21 @@ class DatabaseSessionStore:
             await db_session.refresh(row)
             return self._request_to_dict(row)
 
+    async def extend_session_request_turn_limit(
+        self, session_id: str, turns: int = 1
+    ) -> dict | None:
+        """施術の手数の上限を増やす(サロンの追加施術)。上限なしの依頼は変えない。"""
+        async with async_session_factory() as db_session:
+            row = await db_session.get(SessionRequestORM, session_id)
+            if row is None:
+                return None
+            if row.turn_limit is not None:
+                row.turn_limit = int(row.turn_limit) + turns
+                row.updated_at = datetime.now()
+                await db_session.commit()
+                await db_session.refresh(row)
+            return self._request_to_dict(row)
+
     async def mark_session_request_fulfilled(
         self, session_id: str, history_id: str
     ) -> None:

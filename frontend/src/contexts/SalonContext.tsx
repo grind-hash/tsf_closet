@@ -14,6 +14,7 @@ import {
   useState,
 } from "react";
 import {
+  buySalonExtraTurn,
   checkoutSalonVisit,
   closeSalonWeek,
   createSalonRun,
@@ -44,6 +45,7 @@ export type SalonBusy =
   | "start"
   | "checkout"
   | "settings"
+  | "extra"
   | null;
 
 interface SalonContextValue {
@@ -54,9 +56,11 @@ interface SalonContextValue {
   clearError: () => void;
   loadRuns: () => Promise<void>;
   openRun: (runId: string) => Promise<SalonRun | null>;
+  /** 開店する。sensitive は過激施術の初期値(開店後もオーナー室で切り替えられる) */
   createRun: (
     name: string,
     difficulty: SalonDifficulty,
+    sensitive: boolean,
   ) => Promise<SalonRun | null>;
   deleteRun: (runId: string) => Promise<void>;
   /** 開いているサロンの設定(過激施術)を変える */
@@ -68,6 +72,8 @@ interface SalonContextValue {
     runId: string,
     visitId: string,
   ) => Promise<SalonVisitStart | null>;
+  /** 資金を払って施術を1手足す。依頼の手数を差し替え、成功したら true */
+  buyExtraTurn: (visitId: string) => Promise<boolean>;
   /** 会計する。ゲームのセッションを手放し、会計後の来店を返す */
   checkoutVisit: (visitId: string) => Promise<SalonVisit | null>;
 }
@@ -80,7 +86,7 @@ function errorMessage(error: unknown): string {
 
 export function SalonProvider({ children }: { children: ReactNode }) {
   const { state: settingsState, addTotalCost } = useSettings();
-  const { restoreSessionById, clearSession } = useGame();
+  const { restoreSessionById, clearSession, applyRequestView } = useGame();
   const { clearMessages, setInputText } = useChat();
   const { showAchievementNotification } = useNotification();
   const [runs, setRuns] = useState<SalonRun[]>([]);
@@ -122,9 +128,9 @@ export function SalonProvider({ children }: { children: ReactNode }) {
   );
 
   const createRun = useCallback(
-    (name: string, difficulty: SalonDifficulty) =>
+    (name: string, difficulty: SalonDifficulty, sensitive: boolean) =>
       run("create", async () => {
-        const created = await createSalonRun(name, difficulty);
+        const created = await createSalonRun(name, difficulty, sensitive);
         setRuns((current) => [created, ...current]);
         setActiveRun(created);
         return created;
@@ -214,6 +220,20 @@ export function SalonProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const buyExtraTurn = useCallback(
+    async (visitId: string) => {
+      if (!activeRun) return false;
+      const result = await run("extra", () =>
+        buySalonExtraTurn(activeRun.id, visitId),
+      );
+      if (!result) return false;
+      setActiveRun(result.run);
+      if (result.request) applyRequestView(result.request);
+      return true;
+    },
+    [activeRun, applyRequestView, run],
+  );
+
   const checkoutVisit = useCallback(
     (visitId: string) => {
       const current = activeRun;
@@ -248,6 +268,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       declineVisit,
       closeWeek,
       startVisit,
+      buyExtraTurn,
       checkoutVisit,
     }),
     [
@@ -264,6 +285,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       declineVisit,
       closeWeek,
       startVisit,
+      buyExtraTurn,
       checkoutVisit,
     ],
   );

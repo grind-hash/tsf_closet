@@ -17,6 +17,11 @@ export interface TransformOptions {
   imageOnlyTextToImage?: boolean;
   /** NSFW モードをこの手番だけ上書きする(サロンは run の過激施術に合わせる) */
   nsfwMode?: boolean;
+  /**
+   * 複数人表示をこの手番だけ上書きする。サロンの体験の場面は相手役と主人公の
+   * タグを書き分けるため、設定によらず ON にする
+   */
+  enableMultiplePeople?: boolean;
   characterReferences?: Array<{
     imageData: string;
     type: string;

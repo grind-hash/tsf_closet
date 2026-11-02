@@ -43,7 +43,10 @@ export default function SalonOffice({ runId }: { runId: string }) {
   }, [openRun, runId]);
 
   // オーナー室の BGM。曲がまだ置かれていなければ鳴らさない(シナリオの曲へは倒さない)
-  const bgm = useAdventureBgm("salon_office", { fallbackToDefault: false });
+  const bgm = useAdventureBgm("salon_office", {
+    fallbackToDefault: false,
+    prefsScope: "salon",
+  });
 
   const run = activeRun?.id === runId ? activeRun : null;
   if (!run) {
@@ -279,7 +282,19 @@ export default function SalonOffice({ runId }: { runId: string }) {
                     {run.weeks.map((week) => (
                       <tr key={week.week}>
                         <th scope="row">{week.week}</th>
-                        <td>{formatYen(week.revenue, language)}</td>
+                        <td>
+                          {formatYen(week.revenue, language)}
+                          {(week.extra_cost ?? 0) > 0 && (
+                            <small className="salon-ledger__sub">
+                              {t("salon.office.ledgerExtraCost", {
+                                amount: formatSignedYen(
+                                  -(week.extra_cost ?? 0),
+                                  language,
+                                ),
+                              })}
+                            </small>
+                          )}
+                        </td>
                         <td>
                           {formatSignedYen(
                             week.salary - week.fixed_cost,

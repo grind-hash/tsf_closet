@@ -714,6 +714,10 @@ class SalonVisit(Base):
     experience_bonus: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # 資金で足した施術の代金(購入時に現金から引いている)。足した手数は代金 ÷ 単価
+    extra_cost: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         default=func.current_timestamp(), nullable=False
     )

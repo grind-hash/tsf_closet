@@ -23,6 +23,8 @@ from ..consts.salon import (
     SALON_BASE_PRICE,
     SALON_DEFAULT_DIFFICULTY,
     SALON_DIFFICULTY_INITIAL_CASH,
+    SALON_EXTRA_TURN_PRICE,
+    SALON_EXTRA_TURNS_MAX,
     SALON_HINT_EMPHASIS_DIFFICULTIES,
     SALON_INITIAL_REPUTATION,
     SALON_NAME_MAX,
@@ -152,6 +154,7 @@ def _serialize_visit(visit: SalonVisit, visits: list[SalonVisit]) -> dict[str, A
         "kept_look": visit.kept_history_id is not None,
         "returning_look": visit.start_history_id is not None,
         "experience_bonus": int(visit.experience_bonus or 0),
+        "extra_cost": int(visit.extra_cost or 0),
     }
 
 
@@ -174,6 +177,8 @@ def _serialize_run(run: SalonRun, visits: list[SalonVisit]) -> dict[str, Any]:
         "base_price": SALON_BASE_PRICE,
         "turn_limit": SALON_TURN_LIMIT,
         "question_limit": SALON_QUESTION_LIMIT,
+        "extra_turn_price": SALON_EXTRA_TURN_PRICE,
+        "extra_turns_max": SALON_EXTRA_TURNS_MAX,
         "visits": [_serialize_visit(item, ordered) for item in ordered],
         "weeks": list(state.get("weeks", [])),
         "result": state.get("result"),
@@ -305,9 +310,16 @@ class SalonService:
             return _serialize_run(run, visits)
 
     async def create_run(
-        self, name: str, difficulty: str = SALON_DEFAULT_DIFFICULTY
+        self,
+        name: str,
+        difficulty: str = SALON_DEFAULT_DIFFICULTY,
+        *,
+        sensitive: bool = False,
     ) -> dict[str, Any]:
-        """開店する。開業資金は経営の難易度で決まる。1週目の予約も入れる。"""
+        """開店する。開業資金は経営の難易度で決まる。1週目の予約も入れる。
+
+        sensitive は過激施術の初期値(開店画面が直近のサロンの設定を引き継いで渡す)。
+        """
         clean_name = " ".join(str(name or "").split())[:SALON_NAME_MAX]
         if not clean_name:
             raise SalonError("empty_name", "サロンの名前を入力してください")
@@ -326,7 +338,12 @@ class SalonService:
             reputation=SALON_INITIAL_REPUTATION,
             seed=random.randint(1, 2**31 - 1),
             state_json=json.dumps(
-                {"difficulty": difficulty, "initial_cash": initial_cash, "weeks": []}
+                {
+                    "difficulty": difficulty,
+                    "initial_cash": initial_cash,
+                    "sensitive": bool(sensitive),
+                    "weeks": [],
+                }
             ),
             created_at=now,
             updated_at=now,
@@ -646,6 +663,54 @@ class SalonService:
             )
         return fallback_salon_review(satisfaction, fulfilled, language)
 
+    async def buy_extra_turn(self, run_id: str, visit_id: str) -> dict[str, Any]:
+        """資金を払って施術を1手足す。手数を使い切った接客中の来店だけ、来店1回につき上限まで。
+
+        代金はその場で現金から引く(足りなければ買えない)。{run, request} を返す。
+        """
+        async with async_session_factory() as db:
+            run, visits = await self._load(db, run_id)
+            self._require_active(run)
+            visit = self._find_visit(visits, visit_id)
+            if visit.status != "serving" or not visit.session_id:
+                raise SalonError("not_serving", "接客中のお客様ではありません")
+            if (
+                int(visit.extra_cost or 0)
+                >= SALON_EXTRA_TURN_PRICE * SALON_EXTRA_TURNS_MAX
+            ):
+                raise SalonError("extra_turn_limit", "追加の施術はこれ以上できません")
+            if run.cash < SALON_EXTRA_TURN_PRICE:
+                raise SalonError("insufficient_cash", "追加の施術の代金が足りません")
+            session_id = visit.session_id
+
+        request = await session_request_service.get_request_view(session_id)
+        if request is None:
+            raise SalonError("request_missing", "依頼が見つかりません")
+        if request.get("turns_remaining") != 0:
+            raise SalonError("turns_left", "施術の手数を使い切ってから追加してください")
+
+        async with async_session_factory() as db:
+            run, visits = await self._load(db, run_id)
+            visit = self._find_visit(visits, visit_id)
+            if (
+                visit.status != "serving"
+                or int(visit.extra_cost or 0)
+                >= SALON_EXTRA_TURN_PRICE * SALON_EXTRA_TURNS_MAX
+                or run.cash < SALON_EXTRA_TURN_PRICE
+            ):
+                raise SalonError("extra_turn_limit", "追加の施術はこれ以上できません")
+            visit.extra_cost = int(visit.extra_cost or 0) + SALON_EXTRA_TURN_PRICE
+            visit.updated_at = datetime.now()
+            run.cash -= SALON_EXTRA_TURN_PRICE
+            run.updated_at = datetime.now()
+            await db.commit()
+            serialized = _serialize_run(run, visits)
+        await session_store.extend_session_request_turn_limit(session_id)
+        return {
+            "run": serialized,
+            "request": await session_request_service.get_request_view(session_id),
+        }
+
     async def decline_visit(self, run_id: str, visit_id: str) -> dict[str, Any]:
         """予約を断る。評判が少し下がる。"""
         async with async_session_factory() as db:
@@ -699,6 +764,7 @@ class SalonService:
                 ],
                 served=sum(1 for item in this_week if item.status == "done"),
                 declined=sum(1 for item in this_week if item.status == "declined"),
+                extra_costs=[int(item.extra_cost or 0) for item in this_week],
             )
             run.cash = summary["cash_end"]
             state = _load_state(run)

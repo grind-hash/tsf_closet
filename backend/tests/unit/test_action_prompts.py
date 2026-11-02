@@ -417,3 +417,12 @@ def test_pre_transform_action_gender_woman() -> None:
 def test_nsfw_action_image_prompts_keep_everyone_adult(prompt: str) -> None:
     # サロンの過激施術の体験の場面もこの経路で描く
     assert "Everyone depicted is an adult (18 or older)" in prompt
+
+
+def test_multi_person_action_tags_start_with_each_sex_token() -> None:
+    # サロンの体験の場面で、男性の体の主人公が相手の女性に引きずられて女性に描かれないように
+    prompt = get_action_novelai_prompt_generation_system(
+        nsfw_mode=True, enable_multiple_people=True
+    )
+    assert "start with that person's own sex token (1girl or 1boy)" in prompt
+    assert "keep 1boy for a male main character" in prompt

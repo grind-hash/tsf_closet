@@ -68,7 +68,7 @@ export function usePlayTurn(): TransformHandler {
       // Multiple people experimental feature.
       // パネル OFF でも複数人表示自体は維持し、
       // 画像プロンプトへの session_characters 注入のみ use_character_panel でゲートする。
-      if (settingsState.enableMultiplePeople) {
+      if (options?.enableMultiplePeople ?? settingsState.enableMultiplePeople) {
         body.enable_multiple_people = true;
       }
       body.use_character_panel = settingsState.multiCharacterPanelEnabled;

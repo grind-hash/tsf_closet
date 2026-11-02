@@ -32,6 +32,7 @@ function visit(overrides: Partial<SalonVisit>): SalonVisit {
     kept_look: false,
     returning_look: false,
     experience_bonus: 0,
+    extra_cost: 0,
     ...overrides,
   };
 }
@@ -48,6 +49,8 @@ function run(overrides: Partial<SalonRun>): SalonRun {
     difficulty: "normal",
     initial_cash: 2_000_000,
     sensitive: false,
+    extra_turn_price: 50_000,
+    extra_turns_max: 1,
     weekly_fixed_cost: 300_000,
     weekly_salary: 100_000,
     base_price: 50_000,

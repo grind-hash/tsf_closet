@@ -119,6 +119,7 @@ def test_week_summary_applies_salary_and_fixed_cost_only() -> None:
         1_000_000 + SALON_WEEKLY_SALARY - SALON_WEEKLY_FIXED_COST
     )
     assert summary["revenue"] == 125_000
+    assert summary["extra_cost"] == 0
     assert summary["served"] == 2
     assert summary["declined"] == 1
     assert summary["reputation_end"] == 30

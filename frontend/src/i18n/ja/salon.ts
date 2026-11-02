@@ -18,6 +18,8 @@ export const salon = {
       normal: "開業資金 {{cash}}。接客を怠ると倒産します",
       hard: "開業資金 {{cash}}。満足度の低い接客が続くと倒産します",
     },
+    sensitiveHint:
+      "成人向けの願いを持つお客様が来店し、お披露目でその姿での体験を1枚見せます。初期値は直近に遊んだサロンの設定で、開店後もオーナー室で切り替えられます。",
     goal: "期末の現金が開業資金を上回れば成功です。目安は、2回に1回お客様の願いを叶えることです。",
     submit: "開店する",
   },
@@ -83,6 +85,7 @@ export const salon = {
       "接客していない予約が {{count}} 件あります。断った扱いになり、評判が {{penalty}} 下がります。",
     closeWeekBody: "締めた後は、今週の予約を接客できません。",
     closeWeekConfirm: "週を締める",
+    ledgerExtraCost: "追加施術 {{amount}}",
     ledger: "帳簿",
     ledgerEmpty: "まだ締めた週がありません",
     ledgerColumns: {
@@ -156,6 +159,17 @@ export const salon = {
     experienceRetry: "体験をもう一度描く",
     sensitiveFallback:
       "このお客様の成人向けの依頼を作れなかったため、今回は全年齢の依頼になりました。",
+    typing: "{{name}}さんが話しています",
+    extraTurn: "追加で施術する（{{price}}）",
+    extraTurnHint:
+      "現金から代金を払って、施術をもう1手行います。来店1回につき1手までです。",
+    extraTurnNoCash: "現金が足りないため、追加の施術はできません",
+    extraTurnBuying: "追加の施術を準備しています…",
+    extraTurnTitle: "追加で施術しますか？",
+    extraTurnBody:
+      "現金から {{price}} を払って、施術をもう1手行います（現金 {{cash}} → {{after}}）。来店1回につき1手までです。",
+    extraTurnConfirm: "代金を払って施術する",
+    extraCost: "追加施術",
     revealHint:
       "仕上がりをお客様に見ていただきます。会計すると、満足度とお支払いが決まります。",
     checkout: "会計する",

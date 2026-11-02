@@ -76,3 +76,12 @@ def test_update_settings_toggles_sensitive(client: TestClient) -> None:
     assert client.get(f"/api/salon/runs/{run['id']}").json()["sensitive"] is True
     missing = client.patch("/api/salon/runs/missing/settings", json={"sensitive": True})
     assert missing.status_code == 404
+
+
+def test_create_run_can_start_with_sensitive_on(client: TestClient) -> None:
+    on = client.post("/api/salon/runs", json={"name": "店", "sensitive": True})
+    off = client.post("/api/salon/runs", json={"name": "店"})
+
+    assert on.json()["sensitive"] is True
+    # 指定しなければ OFF から始まる
+    assert off.json()["sensitive"] is False

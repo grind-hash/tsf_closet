@@ -16,6 +16,7 @@ from sqlalchemy import update
 from gateway.consts.salon import (
     SALON_BASE_PRICE,
     SALON_DIFFICULTY_INITIAL_CASH,
+    SALON_EXTRA_TURN_PRICE,
     SALON_INITIAL_REPUTATION,
     SALON_QUESTION_LIMIT,
     SALON_TOTAL_WEEKS,
@@ -26,6 +27,7 @@ from gateway.consts.salon import (
 from gateway.databases.models import History, SalonRun, SalonVisit, User
 from gateway.schemas.salon import (
     SalonCheckoutResponse,
+    SalonExtraTurnResponse,
     SalonRunResponse,
     SalonVisitStartResponse,
 )
@@ -393,6 +395,7 @@ async def test_close_week_settles_costs_and_books_next_week(stubs) -> None:
         {
             "week": 1,
             "revenue": 0,
+            "extra_cost": 0,
             "salary": SALON_WEEKLY_SALARY,
             "fixed_cost": SALON_WEEKLY_FIXED_COST,
             "served": 0,
@@ -882,3 +885,63 @@ async def test_no_experience_bonus_without_a_sensitive_experience(
     assert done["satisfaction"] == 57
     assert done["experience_bonus"] == 0
     assert done["fulfilled"] is False
+
+
+async def _serve_until_turns_run_out(stubs, isolated_db) -> tuple[dict, str, str]:
+    """施術の手数を使い切った接客中の来店を用意する。"""
+    run = await salon_service.create_run("店")
+    visit = _booked(run)[0]
+    started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
+    session_id = started["session_id"]
+    await session_store.save_session_request(
+        session_id,
+        wish="ふんわりした姿に",
+        preferences=[],
+        language="ja",
+        turn_limit=SALON_TURN_LIMIT,
+    )
+    stubs.views[session_id].update(turns_used=SALON_TURN_LIMIT, turns_remaining=0)
+    return run, visit["id"], session_id
+
+
+async def test_buy_extra_turn_pays_from_cash_and_adds_one_turn(
+    stubs, isolated_db, monkeypatch
+) -> None:
+    run, visit_id, session_id = await _serve_until_turns_run_out(stubs, isolated_db)
+
+    result = await salon_service.buy_extra_turn(run["id"], visit_id)
+
+    SalonExtraTurnResponse(**result)
+    assert result["run"]["cash"] == run["cash"] - SALON_EXTRA_TURN_PRICE
+    visit = next(item for item in result["run"]["visits"] if item["id"] == visit_id)
+    assert visit["extra_cost"] == SALON_EXTRA_TURN_PRICE
+    stored = await session_store.get_session_request(session_id)
+    assert stored["turn_limit"] == SALON_TURN_LIMIT + 1
+
+    # 来店1回につき1手まで
+    with pytest.raises(SalonError) as twice:
+        await salon_service.buy_extra_turn(run["id"], visit_id)
+    assert twice.value.code == "extra_turn_limit"
+
+    # 週を締めると、帳簿に追加施術の代金が残る
+    stubs.views[session_id].update(satisfaction=60, turns_used=4)
+    await salon_service.checkout_visit(run["id"], visit_id, language="ja")
+    closed = (await salon_service.close_week(run["id"]))["run"]
+    assert closed["weeks"][0]["extra_cost"] == SALON_EXTRA_TURN_PRICE
+
+
+async def test_extra_turn_needs_used_up_turns_and_enough_cash(
+    stubs, isolated_db
+) -> None:
+    run, visit_id, session_id = await _serve_until_turns_run_out(stubs, isolated_db)
+
+    stubs.views[session_id].update(turns_used=2, turns_remaining=1)
+    with pytest.raises(SalonError) as turns_left:
+        await salon_service.buy_extra_turn(run["id"], visit_id)
+    assert turns_left.value.code == "turns_left"
+
+    stubs.views[session_id].update(turns_used=3, turns_remaining=0)
+    await _set_run(isolated_db, run["id"], cash=SALON_EXTRA_TURN_PRICE - 1)
+    with pytest.raises(SalonError) as poor:
+        await salon_service.buy_extra_turn(run["id"], visit_id)
+    assert poor.value.code == "insufficient_cash"

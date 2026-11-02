@@ -12,6 +12,7 @@ import type { AdventureBgmKey } from "../apis/adventure";
 import { fetchAdventureBgmCatalog } from "../apis/adventure";
 import type { BgmPreferences } from "../utils/bgmPreferences";
 import {
+  type BgmPrefsScope,
   clamp01,
   loadBgmPreferences,
   saveBgmPreferences,
@@ -22,6 +23,7 @@ import {
 export {
   BGM_PREFS_STORAGE_KEY,
   type BgmPreferences,
+  SALON_BGM_PREFS_STORAGE_KEY,
 } from "../utils/bgmPreferences";
 
 /**
@@ -53,6 +55,11 @@ export interface UseAdventureBgmOptions {
    * 倒すか。既定 true。サロン経営の画面は false にし、曲が無ければ鳴らさない
    */
   fallbackToDefault?: boolean;
+  /**
+   * ミュート/音量の置き場所。既定 adventure(TSF シナリオ・BGM テスト画面と共有)。
+   * サロン経営の画面は salon にし、TSF シナリオの ON/OFF に引きずられないようにする
+   */
+  prefsScope?: BgmPrefsScope;
 }
 
 export interface UseAdventureBgmResult {
@@ -111,7 +118,10 @@ export function useAdventureBgm(
 ): UseAdventureBgmResult {
   const fallbackToDefaultRef = useRef(options.fallbackToDefault ?? true);
   fallbackToDefaultRef.current = options.fallbackToDefault ?? true;
-  const [prefs, setPrefs] = useState<BgmPreferences>(loadBgmPreferences);
+  const prefsScope = options.prefsScope ?? "adventure";
+  const [prefs, setPrefs] = useState<BgmPreferences>(() =>
+    loadBgmPreferences(prefsScope),
+  );
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   // カタログは ref に持ち、既存 callback 群の依存配列を増やさない。
   // ロード完了だけ state にして、到着時にキー変更 effect を再評価させる
@@ -418,7 +428,7 @@ export function useAdventureBgm(
       }
       setPrefs((prev) => {
         const merged = { ...prev, muted: next };
-        saveBgmPreferences(merged);
+        saveBgmPreferences(merged, prefsScope);
         return merged;
       });
       // ミュート解除はユーザー操作なので、ブロックされていた再生を再試行できる。
@@ -442,7 +452,7 @@ export function useAdventureBgm(
         }
       }
     },
-    [ensureAudio, resolveBgmUrl, swapToTarget, tryPlay],
+    [ensureAudio, prefsScope, resolveBgmUrl, swapToTarget, tryPlay],
   );
 
   const setVolume = useCallback(
@@ -452,11 +462,11 @@ export function useAdventureBgm(
       applyEffectiveVolume();
       setPrefs((prev) => {
         const merged = { ...prev, volume: clamped };
-        saveBgmPreferences(merged);
+        saveBgmPreferences(merged, prefsScope);
         return merged;
       });
     },
-    [applyEffectiveVolume],
+    [applyEffectiveVolume, prefsScope],
   );
 
   const playable = useMemo(

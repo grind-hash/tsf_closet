@@ -1,8 +1,9 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BGM_FADE_OUT_MS,
   BGM_PREFS_STORAGE_KEY,
+  SALON_BGM_PREFS_STORAGE_KEY,
   useAdventureBgm,
 } from "./useAdventureBgm";
 
@@ -71,6 +72,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   localStorage.removeItem(BGM_PREFS_STORAGE_KEY);
+  localStorage.removeItem(SALON_BGM_PREFS_STORAGE_KEY);
 });
 
 describe("useAdventureBgm", () => {
@@ -91,6 +93,40 @@ describe("useAdventureBgm", () => {
     await waitFor(() => expect(result.current.playable).toBe(false));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(sources).toEqual([]);
+  });
+
+  it("keeps the salon's mute separate from the scenario's", async () => {
+    // TSF シナリオで BGM を鳴らしていても、サロンは初めて開いたときミュートから始める
+    localStorage.setItem(
+      BGM_PREFS_STORAGE_KEY,
+      JSON.stringify({ muted: false, volume: 0.8 }),
+    );
+    const { result, unmount } = renderHook(() =>
+      useAdventureBgm("salon_office", {
+        fallbackToDefault: false,
+        prefsScope: "salon",
+      }),
+    );
+
+    await waitFor(() => expect(result.current.playable).toBe(true));
+    expect(result.current.muted).toBe(true);
+    expect(result.current.volume).toBe(0.5);
+    act(() => result.current.setMuted(false));
+
+    // サロンで鳴らしても、TSF シナリオの設定は変わらない
+    expect(
+      JSON.parse(localStorage.getItem(SALON_BGM_PREFS_STORAGE_KEY) ?? "{}"),
+    ).toEqual({
+      muted: false,
+      volume: 0.5,
+    });
+    expect(
+      JSON.parse(localStorage.getItem(BGM_PREFS_STORAGE_KEY) ?? "{}"),
+    ).toEqual({
+      muted: false,
+      volume: 0.8,
+    });
+    unmount();
   });
 
   it("keeps falling back to the default track for the scenario", async () => {

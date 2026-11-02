@@ -15,6 +15,10 @@ class SalonCreateRequest(BaseModel):
     difficulty: Literal["easy", "normal", "hard"] = Field(
         SALON_DEFAULT_DIFFICULTY, description="経営の難易度。開業資金が変わる"
     )
+    sensitive: bool = Field(
+        False,
+        description="過激施術(成人向けの依頼)。開店後もオーナー室で切り替えられる",
+    )
 
 
 class SalonSettingsRequest(BaseModel):
@@ -65,6 +69,9 @@ class SalonVisitResponse(BaseModel):
         description="過激施術のお披露目で体験まで描けたときの満足度への加点"
         "(satisfaction に含む)",
     )
+    extra_cost: int = Field(
+        0, description="資金で足した施術の代金(購入時に現金から引いている)"
+    )
 
 
 class SalonWeekResponse(BaseModel):
@@ -72,6 +79,7 @@ class SalonWeekResponse(BaseModel):
 
     week: int
     revenue: int
+    extra_cost: int = Field(0, description="追加施術の代金の合計(現金から引いた分)")
     salary: int
     fixed_cost: int
     served: int
@@ -104,6 +112,8 @@ class SalonRunResponse(BaseModel):
     base_price: int
     turn_limit: int
     question_limit: int
+    extra_turn_price: int = Field(..., description="資金で足す施術1手の値段")
+    extra_turns_max: int = Field(..., description="来店1回につき足せる施術の手数")
     visits: list[SalonVisitResponse]
     weeks: list[SalonWeekResponse]
     result: SalonResultResponse | None
@@ -135,6 +145,11 @@ class SalonAchievementUnlocked(BaseModel):
 class SalonCloseWeekResponse(BaseModel):
     run: SalonRunResponse
     achievements: list[SalonAchievementUnlocked] = Field(default_factory=list)
+
+
+class SalonExtraTurnResponse(BaseModel):
+    run: SalonRunResponse
+    request: SessionRequestResponse | None
 
 
 class SalonCheckoutResponse(BaseModel):

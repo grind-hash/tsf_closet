@@ -751,9 +751,9 @@ def get_action_novelai_prompt_generation_system(
             "(string). Each person is a SEPARATE object:\n"
             "```json\n"
             '{"characters": [\n'
-            '  {"tags": "short black hair, blue eyes, bra, flat chest, sitting, '
+            '  {"tags": "1boy, short black hair, blue eyes, bra, flat chest, sitting, '
             'talking", "position": "center"},\n'
-            '  {"tags": "male, bra, brown hair, sitting, talking", '
+            '  {"tags": "1girl, brown hair, sitting, talking", '
             '"position": "right"}\n'
             '], "scene": "masterpiece, best quality, very aesthetic, anime, moe, cafe, '
             'table"}\n'
@@ -762,6 +762,10 @@ def get_action_novelai_prompt_generation_system(
             "for others.\n"
             "- Each character's \"tags\" field has ONLY that character's own "
             'tags. No "solo" tag in multi-person mode.\n'
+            "- Each character's tags start with that person's own sex token "
+            "(1girl or 1boy). The main character's sex token and body come from "
+            "the previous prompt (keep 1boy for a male main character even when "
+            "the other person is a woman).\n"
             '- Do NOT use the single "character" key when 2+ people are '
             "present.\n"
             "\n"

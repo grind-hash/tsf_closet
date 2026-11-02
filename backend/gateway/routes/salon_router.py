@@ -14,6 +14,7 @@ from ..schemas.salon import (
     SalonCheckoutResponse,
     SalonCloseWeekResponse,
     SalonCreateRequest,
+    SalonExtraTurnResponse,
     SalonLanguageRequest,
     SalonRunListResponse,
     SalonRunResponse,
@@ -56,7 +57,9 @@ async def list_salon_runs() -> SalonRunListResponse:
 )
 async def create_salon_run(request: SalonCreateRequest) -> SalonRunResponse:
     try:
-        run = await salon_service.create_run(request.name, request.difficulty)
+        run = await salon_service.create_run(
+            request.name, request.difficulty, sensitive=request.sensitive
+        )
     except SalonError as error:
         raise _http_error(error) from error
     return SalonRunResponse(**run)
@@ -141,6 +144,20 @@ async def checkout_salon_visit(
     except SalonError as error:
         raise _http_error(error) from error
     return SalonCheckoutResponse(**result)
+
+
+@router.post(
+    "/runs/{run_id}/visits/{visit_id}/extra-turn",
+    response_model=SalonExtraTurnResponse,
+    summary="資金を払って施術を1手足す",
+    responses=_ERROR_RESPONSES,
+)
+async def buy_salon_extra_turn(run_id: str, visit_id: str) -> SalonExtraTurnResponse:
+    try:
+        result = await salon_service.buy_extra_turn(run_id, visit_id)
+    except SalonError as error:
+        raise _http_error(error) from error
+    return SalonExtraTurnResponse(**result)
 
 
 @router.post(

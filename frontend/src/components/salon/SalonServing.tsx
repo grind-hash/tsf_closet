@@ -21,6 +21,7 @@ import { getSalonRunPath } from "../../routes";
 import { splitHintMarkers, stripHintMarkers } from "../../utils/hintMarkers";
 import {
   formatSignedNumber,
+  formatSignedYen,
   formatYen,
   initialSalonAct,
   isExperienceTurn,
@@ -29,6 +30,7 @@ import {
 } from "../../utils/salonView";
 import MainLayout from "../layout/MainLayout";
 import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import SalonBgmControl from "./SalonBgmControl";
 import SalonPortrait from "./SalonPortrait";
 
@@ -75,6 +77,7 @@ export default function SalonServing({
     error: salonError,
     openRun,
     startVisit,
+    buyExtraTurn,
     checkoutVisit,
   } = useSalon();
   const { state: game, askRequestQuestion, setError: setGameError } = useGame();
@@ -84,12 +87,28 @@ export default function SalonServing({
   // 依頼は接客の開始時に NSFW モードも踏まえて決まるので、依頼の値に合わせる
   const adultTurn = Boolean(game.request?.sensitive) && settingsState.nsfwMode;
   const salonTurn = useCallback<TransformHandler>(
-    (instruction, costumeImage, transformationType, options, ...rest) =>
+    (
+      instruction,
+      costumeImage,
+      transformationType,
+      options,
+      instructionType,
+      ...rest
+    ) =>
       playTurn(
         instruction,
         costumeImage,
         transformationType,
-        { ...options, nsfwMode: adultTurn },
+        {
+          ...options,
+          nsfwMode: adultTurn,
+          // 体験の場面(行動の手番)は、主人公と相手役のタグを書き分けて描く。
+          // 混ざると主人公の髪型などが相手役へ移り、主人公の性別が入れ替わって見える
+          ...(instructionType === "action"
+            ? { enableMultiplePeople: true }
+            : {}),
+        },
+        instructionType,
         ...rest,
       ),
     [playTurn, adultTurn],
@@ -106,6 +125,7 @@ export default function SalonServing({
   const [experience, setExperience] = useState<ExperienceFrame | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState(false);
   const [checkedOut, setCheckedOut] = useState<SalonVisit | null>(null);
+  const [extraOpen, setExtraOpen] = useState(false);
   const startedRef = useRef<string | null>(null);
   // 体験の手番を送った時点の履歴の件数と、送信後に生成中になったか
   const experienceBaseRef = useRef(0);
@@ -127,7 +147,7 @@ export default function SalonServing({
       : act === "reveal" || act === "checkout"
         ? "salon_reveal"
         : "salon_serving",
-    { fallbackToDefault: false },
+    { fallbackToDefault: false, prefsScope: "salon" },
   );
 
   // 開いた来店の接客を1度だけ始める(接客中なら同じセッションに戻る)
@@ -248,7 +268,17 @@ export default function SalonServing({
   const questionsRemaining = request?.questions_remaining ?? 0;
   const latest = game.history.at(-1);
   // やさしい・ふつうの来店では、心境の中のヒントの一文に目印が付いている
-  const emphasizeHints = Boolean(request?.emphasize_hints);
+  // 資金で足した施術の手番では、最後のヒント(反応のヒントと心境の中の強調)を出さない
+  const extraTurnShown =
+    (visit?.extra_cost ?? 0) > 0 &&
+    (game.isTransforming || turnsRemaining === 0);
+  const emphasizeHints = Boolean(request?.emphasize_hints) && !extraTurnShown;
+  const extraPrice = activeRun?.extra_turn_price ?? 0;
+  const canBuyExtra =
+    activeRun !== null &&
+    visit !== null &&
+    visit.extra_cost < extraPrice * activeRun.extra_turns_max;
+  const extraAffordable = activeRun !== null && activeRun.cash >= extraPrice;
   const feeling = game.isTransforming
     ? game.feelingText
     : turnsUsed > 0
@@ -527,6 +557,12 @@ export default function SalonServing({
                     <p className="salon-window__line">「{item.answer}」</p>
                   </div>
                 ))}
+                {asking && (
+                  <div className="salon-qa">
+                    <p className="salon-qa__question">{question.trim()}</p>
+                    <SalonTyping name={customerName} />
+                  </div>
+                )}
                 <p className="salon-window__note">
                   {t("salon.serving.counselHint")}
                 </p>
@@ -540,18 +576,24 @@ export default function SalonServing({
                     className="salon-window__line"
                     text={feeling}
                     emphasizeHints={emphasizeHints}
+                    streaming={game.isTransforming}
                   />
-                ) : game.isTransforming ? null : (
+                ) : game.isTransforming ? (
+                  <SalonTyping name={customerName} />
+                ) : (
                   <p className="salon-window__note">
                     {t("salon.serving.waiting")}
                   </p>
                 )}
-                {!game.isTransforming && turnsUsed > 0 && request?.hint && (
-                  <p className="salon-window__hint">
-                    <span>{t("salon.serving.reaction")}</span>
-                    {request.hint}
-                  </p>
-                )}
+                {!game.isTransforming &&
+                  turnsUsed > 0 &&
+                  request?.hint &&
+                  !extraTurnShown && (
+                    <p className="salon-window__hint">
+                      <span>{t("salon.serving.reaction")}</span>
+                      {request.hint}
+                    </p>
+                  )}
               </>
             )}
             {act === "reveal" && reveal && (
@@ -564,12 +606,22 @@ export default function SalonServing({
                     emphasizeHints={reveal.emphasizeHints}
                   />
                 )}
-                {experienceFeeling && (
+                {(experienceFeeling || experienceBusy) && (
                   <>
                     <p className="salon-window__label">
                       {t("salon.serving.experience")}
                     </p>
-                    <p className="salon-window__line">{experienceFeeling}</p>
+                    {experienceFeeling ? (
+                      <p className="salon-window__line">
+                        {experienceFeeling}
+                        {experience?.status === "generating" &&
+                          game.isTransforming && (
+                            <span className="salon-caret" aria-hidden />
+                          )}
+                      </p>
+                    ) : (
+                      <SalonTyping name={customerName} />
+                    )}
                   </>
                 )}
                 <p className="salon-window__note">
@@ -643,9 +695,36 @@ export default function SalonServing({
             {act === "styling" && request && (
               <>
                 {turnsRemaining === 0 ? (
-                  <p className="salon-window__note">
-                    {t("salon.serving.turnsUsed")}
-                  </p>
+                  <>
+                    <p className="salon-window__note">
+                      {t("salon.serving.turnsUsed")}
+                    </p>
+                    {canBuyExtra &&
+                      (busy === "extra" ? (
+                        <p className="salon-progress" role="status">
+                          <span className="salon-spinner" aria-hidden />
+                          {t("salon.serving.extraTurnBuying")}
+                        </p>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="salon-button"
+                            disabled={!extraAffordable || busy !== null}
+                            onClick={() => setExtraOpen(true)}
+                          >
+                            {t("salon.serving.extraTurn", {
+                              price: formatYen(extraPrice, language),
+                            })}
+                          </button>
+                          <p className="salon-window__note">
+                            {extraAffordable
+                              ? t("salon.serving.extraTurnHint")
+                              : t("salon.serving.extraTurnNoCash")}
+                          </p>
+                        </>
+                      ))}
+                  </>
                 ) : (
                   <>
                     <label className="salon-field">
@@ -740,6 +819,14 @@ export default function SalonServing({
                       {checkedOut.satisfaction ?? 0}%
                     </dd>
                   </div>
+                  {checkedOut.extra_cost > 0 && (
+                    <div>
+                      <dt>{t("salon.serving.extraCost")}</dt>
+                      <dd>
+                        {formatSignedYen(-checkedOut.extra_cost, language)}
+                      </dd>
+                    </div>
+                  )}
                   {checkedOut.experience_bonus > 0 && (
                     <div>
                       <dt>{t("salon.serving.experienceBonus")}</dt>
@@ -840,6 +927,25 @@ export default function SalonServing({
         )}
       </div>
 
+      <ConfirmDialog
+        open={extraOpen}
+        title={t("salon.serving.extraTurnTitle")}
+        confirmLabel={t("salon.serving.extraTurnConfirm")}
+        cancelLabel={t("common.cancel")}
+        busy={busy === "extra"}
+        onConfirm={() => {
+          setExtraOpen(false);
+          void buyExtraTurn(visitId);
+        }}
+        onCancel={() => setExtraOpen(false)}
+      >
+        {t("salon.serving.extraTurnBody", {
+          price: formatYen(extraPrice, language),
+          cash: formatYen(activeRun?.cash ?? 0, language),
+          after: formatYen((activeRun?.cash ?? 0) - extraPrice, language),
+        })}
+      </ConfirmDialog>
+
       {/* 精密参照の Anlas 追加消費の確認(通常のプレイ画面と同じ) */}
       <AnlasConfirmDialog
         open={transformRequest.anlasConfirmPending !== null}
@@ -865,6 +971,22 @@ export default function SalonServing({
   );
 }
 
+/** お客様の言葉を待っている間の「入力中」の表示(止まって見えないように) */
+function SalonTyping({ name }: { name: string }) {
+  const { t } = useTranslation();
+  return (
+    <p
+      className="salon-typing"
+      role="status"
+      aria-label={t("salon.serving.typing", { name })}
+    >
+      <span />
+      <span />
+      <span />
+    </p>
+  );
+}
+
 /**
  * お客様の心境。emphasizeHints なら目印で囲まれたヒントの一文を強調し、
  * そうでなければ目印を取り除いて表示する。
@@ -873,13 +995,22 @@ function SalonFeelingText({
   text,
   emphasizeHints,
   className,
+  streaming = false,
 }: {
   text: string;
   emphasizeHints: boolean;
   className?: string;
+  /** 文字が流れている間は文末にキャレットを出す */
+  streaming?: boolean;
 }) {
+  const caret = streaming ? <span className="salon-caret" aria-hidden /> : null;
   if (!emphasizeHints) {
-    return <p className={className}>{stripHintMarkers(text)}</p>;
+    return (
+      <p className={className}>
+        {stripHintMarkers(text)}
+        {caret}
+      </p>
+    );
   }
   let offset = 0;
   const segments = splitHintMarkers(text).map((segment) => {
@@ -898,6 +1029,7 @@ function SalonFeelingText({
           <Fragment key={segment.key}>{segment.text}</Fragment>
         ),
       )}
+      {caret}
     </p>
   );
 }

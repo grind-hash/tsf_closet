@@ -115,12 +115,17 @@ def week_summary(
     payments: list[int],
     served: int,
     declined: int,
+    extra_costs: list[int] | None = None,
 ) -> dict[str, Any]:
-    """週を締めたときの収支の記録。会計の売上は会計時に現金へ入っている。"""
+    """週を締めたときの収支の記録。
+
+    会計の売上は会計時に現金へ入り、追加施術の代金は購入時に現金から引いている。
+    """
     cash_end = cash_before_close + SALON_WEEKLY_SALARY - SALON_WEEKLY_FIXED_COST
     return {
         "week": week,
         "revenue": sum(payments),
+        "extra_cost": sum(extra_costs or []),
         "salary": SALON_WEEKLY_SALARY,
         "fixed_cost": SALON_WEEKLY_FIXED_COST,
         "served": served,

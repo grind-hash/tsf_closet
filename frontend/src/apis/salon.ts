@@ -41,12 +41,16 @@ export interface SalonVisit {
   returning_look: boolean;
   /** 過激施術のお披露目で体験まで描けたときの満足度への加点(satisfaction に含む) */
   experience_bonus: number;
+  /** 資金で足した施術の代金(購入時に現金から引いている) */
+  extra_cost: number;
 }
 
 /** 締めた週の収支 */
 export interface SalonWeek {
   week: number;
   revenue: number;
+  /** 追加施術の代金の合計(古い週には無い) */
+  extra_cost?: number;
   salary: number;
   fixed_cost: number;
   served: number;
@@ -78,6 +82,9 @@ export interface SalonRun {
   base_price: number;
   turn_limit: number;
   question_limit: number;
+  /** 資金で足す施術1手の値段と、来店1回につき足せる手数 */
+  extra_turn_price: number;
+  extra_turns_max: number;
   visits: SalonVisit[];
   weeks: SalonWeek[];
   result: SalonResult | null;
@@ -90,6 +97,11 @@ export interface SalonVisitStart {
   request: SessionRequestView | null;
   run: SalonRun;
   cost_usd: number | null;
+}
+
+export interface SalonExtraTurn {
+  run: SalonRun;
+  request: SessionRequestView | null;
 }
 
 export interface SalonCheckout {
@@ -124,10 +136,13 @@ export async function fetchSalonRuns(): Promise<SalonRun[]> {
 export function createSalonRun(
   name: string,
   difficulty: SalonDifficulty,
+  sensitive: boolean,
 ): Promise<SalonRun> {
-  return requestJson<SalonRun>(BASE, jsonInit("POST", { name, difficulty }), {
-    fallbackMessage: "開店できませんでした",
-  });
+  return requestJson<SalonRun>(
+    BASE,
+    jsonInit("POST", { name, difficulty, sensitive }),
+    { fallbackMessage: "開店できませんでした" },
+  );
 }
 
 export function fetchSalonRun(runId: string): Promise<SalonRun> {
@@ -152,6 +167,18 @@ export async function deleteSalonRun(runId: string): Promise<void> {
   await requestJson<void>(`${BASE}/${runId}`, jsonInit("DELETE"), {
     fallbackMessage: "サロンを削除できませんでした",
   });
+}
+
+/** 資金を払って施術を1手足す(手数を使い切った接客中の来店だけ) */
+export function buySalonExtraTurn(
+  runId: string,
+  visitId: string,
+): Promise<SalonExtraTurn> {
+  return requestJson<SalonExtraTurn>(
+    `${BASE}/${runId}/visits/${visitId}/extra-turn`,
+    jsonInit("POST"),
+    { fallbackMessage: "追加の施術を始められませんでした" },
+  );
 }
 
 export function startSalonVisit(

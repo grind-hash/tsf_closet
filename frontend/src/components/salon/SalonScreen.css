@@ -1500,6 +1500,72 @@
   font-weight: 800;
 }
 
+/* お客様の言葉を待っている間の「入力中」(3つの点が順に明滅する) */
+.salon-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 1.9em;
+  margin: 0;
+}
+
+.salon-typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--salon-accent);
+  animation: salon-typing-dot 1.2s ease-in-out infinite;
+}
+
+.salon-typing span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.salon-typing span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes salon-typing-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* 文字が流れている間の文末のキャレット */
+.salon-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background-color: var(--salon-accent);
+  vertical-align: text-bottom;
+  animation: salon-caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes salon-caret-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .salon-typing span,
+  .salon-caret {
+    animation: none;
+  }
+
+  .salon-typing span {
+    opacity: 0.7;
+  }
+}
+
 .salon-qa {
   margin-top: 6px;
 }
@@ -1703,4 +1769,11 @@
   .salon-run-row {
     flex-wrap: wrap;
   }
+}
+
+/* 帳簿の売上の下に添える追加施術の代金 */
+.salon-ledger__sub {
+  display: block;
+  color: var(--salon-muted);
+  font-size: 0.72rem;
 }

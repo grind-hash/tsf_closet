@@ -1,6 +1,6 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { SalonDifficulty, SalonRun } from "../../apis/salon";
 import {
   SALON_DEFAULT_DIFFICULTY,
@@ -12,7 +12,7 @@ import {
 } from "../../constants/salon";
 import { useSalon } from "../../contexts/SalonContext";
 import { useSettings } from "../../contexts/SettingsContext";
-import { getSalonRunPath } from "../../routes";
+import { getSalonRunPath, ROUTES } from "../../routes";
 import { formatYen } from "../../utils/salonView";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
@@ -27,6 +27,10 @@ export default function SalonHub() {
   const [difficulty, setDifficulty] = useState<SalonDifficulty>(
     SALON_DEFAULT_DIFFICULTY,
   );
+  // 過激施術の初期値は、直近に遊んだサロン(一覧の先頭)の設定を引き継ぐ。
+  // 一度でも切り替えたら、一覧を読み直しても上書きしない
+  const [sensitive, setSensitive] = useState(false);
+  const sensitiveTouchedRef = useRef(false);
   const [deleteTarget, setDeleteTarget] = useState<SalonRun | null>(null);
   const nameId = useId();
   const difficultyLabelId = useId();
@@ -36,8 +40,13 @@ export default function SalonHub() {
     void loadRuns();
   }, [loadRuns]);
 
+  const latestSensitive = runs[0]?.sensitive ?? false;
+  useEffect(() => {
+    if (!sensitiveTouchedRef.current) setSensitive(latestSensitive);
+  }, [latestSensitive]);
+
   const handleOpen = async () => {
-    const created = await createRun(name.trim(), difficulty);
+    const created = await createRun(name.trim(), difficulty, sensitive);
     if (created) {
       setName("");
       navigate(getSalonRunPath(created.id));
@@ -113,6 +122,30 @@ export default function SalonHub() {
               })}
             </p>
           </div>
+          <label className="salon-toggle">
+            <span className="salon-toggle__info">
+              <strong>{t("salon.office.sensitive")}</strong>
+              <small>{t("salon.open.sensitiveHint")}</small>
+              {!settingsState.nsfwMode && (
+                <small className="salon-office__settings-note">
+                  {t("salon.office.sensitiveNsfwOff")}{" "}
+                  <Link to={ROUTES.SETTINGS}>
+                    {t("salon.office.sensitiveOpenSettings")}
+                  </Link>
+                </small>
+              )}
+            </span>
+            <input
+              type="checkbox"
+              className="salon-toggle__input"
+              checked={sensitive}
+              onChange={(event) => {
+                sensitiveTouchedRef.current = true;
+                setSensitive(event.target.checked);
+              }}
+            />
+            <span className="salon-toggle__switch" aria-hidden />
+          </label>
           <p className="salon-open__goal">{t("salon.open.goal")}</p>
           <button
             type="button"
