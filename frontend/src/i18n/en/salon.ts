@@ -222,6 +222,7 @@ export const salon = {
     payment: "Payment",
     reputation: "Reputation",
     fulfilled: "Wish granted",
+    seal: "Granted",
     notFulfilled: "Just short of the wish",
     notFulfilledAfterExperience:
       "Just short of the wish, but the experience was better than they expected",
@@ -244,11 +245,16 @@ export const salon = {
     closed: "This visit is already over",
   },
   bgm: {
-    settings: "BGM settings",
+    settings: "Sound settings",
     enable: "Play BGM",
     enableHint:
-      "Plays music that fits the serving and the owner's room. Shared with the TSF scenario and the BGM test",
+      "Plays music that fits the serving and the owner's room. Set separately from the TSF scenario",
     volume: "Volume",
+    bgmVolume: "BGM volume",
+    seEnable: "Play sound effects",
+    seEnableHint:
+      "Plays sound effects at checkout and in the opening and week-closing scenes. Turning it on plays one so you can check the volume",
+    seVolume: "Sound effect volume",
     autoplayBlocked:
       "The browser blocked autoplay. Click anywhere on the screen to start playback.",
   },

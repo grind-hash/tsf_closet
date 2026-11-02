@@ -89,6 +89,28 @@ def test_salon_tracks_are_not_offered_to_the_adventure_llm(
     ]
 
 
+def test_salon_sound_effects_are_not_offered_to_the_adventure_llm(
+    catalog_path: Path,
+) -> None:
+    write_catalog(
+        catalog_path,
+        tracks=[
+            {"key": "daily", "file": "daily.ogg", "description": "everyday scenes"},
+            {
+                "key": "salon_se_register",
+                "file": "register.ogg",
+                "description": "salon sound effect",
+                "scope": "salon_se",
+            },
+        ],
+    )
+
+    assert adventure_bgm.get_bgm_keys() == ("daily",)
+    assert "salon_se_register" not in adventure_bgm.get_bgm_prompt_guide()
+    catalog = adventure_bgm.get_bgm_catalog()
+    assert [track.scope for track in catalog.tracks] == ["adventure", "salon_se"]
+
+
 def test_unknown_scope_breaks_the_catalog_and_keeps_builtin(catalog_path: Path) -> None:
     write_catalog(
         catalog_path,
@@ -256,16 +278,30 @@ def test_bgm_endpoint_lists_only_tracks_with_audio_and_their_scope(
                 "description": "salon mode only",
                 "scope": "salon",
             },
+            {
+                "key": "salon_se_register",
+                "file": "register.ogg",
+                "description": "salon sound effect",
+                "scope": "salon_se",
+            },
+            {
+                "key": "salon_se_ledger",
+                "file": "ledger.ogg",
+                "description": "salon sound effect",
+                "scope": "salon_se",
+            },
         ],
     )
     (catalog_path.parent / "daily.ogg").write_bytes(b"ogg")
     (catalog_path.parent / "office.ogg").write_bytes(b"ogg")
+    (catalog_path.parent / "register.ogg").write_bytes(b"ogg")
 
     payload = asyncio.run(get_bgm_tracks())
 
-    # 音声ファイルの無い salon_reveal は返さない
+    # 音声ファイルの無い salon_reveal・salon_se_ledger は返さない
     assert [(track["key"], track["scope"]) for track in payload["tracks"]] == [
         ("daily", "adventure"),
         ("salon_office", "salon"),
+        ("salon_se_register", "salon_se"),
     ]
     assert payload["default_key"] == "daily"

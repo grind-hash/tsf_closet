@@ -6,7 +6,8 @@
 
 .main-layout--salon,
 .salon-page,
-.salon-serving {
+.salon-serving,
+.salon-payment-chip {
   --salon-bg: #0c0b0a;
   --salon-menu-bg: #0f0d0b;
   --salon-surface: #141210;
@@ -931,6 +932,17 @@
   box-shadow: 0 18px 40px rgb(0 0 0 / 60%);
 }
 
+/* BGM と効果音の欄。両方あるときは細い罫で分ける */
+.salon-bgm__section {
+  display: grid;
+  gap: 12px;
+}
+
+.salon-bgm__section + .salon-bgm__section {
+  padding-top: 12px;
+  border-top: 1px solid var(--salon-hairline);
+}
+
 .salon-bgm__volume {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 3.2em;
@@ -1662,6 +1674,119 @@
   font-weight: 700;
 }
 
+.salon-receipt-sheet {
+  display: grid;
+  gap: 8px;
+}
+
+/* 判定の一文と、願いを叶えたときに押す金の封蝋 */
+.salon-receipt__result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.salon-receipt__seal {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  color: #3b2a0c;
+  background: radial-gradient(
+    circle at 35% 30%,
+    #f6e2ae 0%,
+    var(--salon-accent) 52%,
+    #8a6a2c 100%
+  );
+  box-shadow:
+    inset 0 0 0 3px color-mix(in srgb, #8a6a2c 55%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, #f6e2ae 45%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.45);
+  font-family: var(--salon-display);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  transform: rotate(-12deg);
+}
+
+.salon-receipt__seal.is-long {
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+}
+
+.is-celebrating .salon-receipt__seal {
+  animation: salon-receipt-seal 0.5s 1.25s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+@keyframes salon-receipt-seal {
+  from {
+    opacity: 0;
+    transform: rotate(-12deg) scale(2.2);
+  }
+
+  60% {
+    opacity: 1;
+  }
+
+  to {
+    transform: rotate(-12deg) scale(1);
+  }
+}
+
+/* お支払いの額が HUD の現金へ飛んでいく飾り(body 直下に置く) */
+.salon-payment-chip {
+  position: fixed;
+  z-index: 100;
+  padding: 3px 10px;
+  border: 1px solid var(--salon-accent-line);
+  border-radius: 999px;
+  color: var(--salon-accent-strong);
+  background: var(--salon-surface);
+  box-shadow: 0 0 16px var(--salon-glow);
+  font-family: var(--salon-display);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* HUD の現金。数え上げている間だけ光らせる */
+.salon-hud__cash strong {
+  font-variant-numeric: tabular-nums;
+  transition:
+    color 0.3s,
+    text-shadow 0.3s;
+}
+
+.salon-hud__cash.is-counting strong {
+  color: var(--salon-accent-strong);
+  text-shadow: 0 0 10px var(--salon-glow);
+}
+
+.salon-hud__cash strong.is-negative {
+  color: var(--salon-danger);
+}
+
+/* 狭い画面では、施術の残り回数・質問と並ぶと HUD が3段になるので、会計の幕まで隠す */
+@media (max-width: 560px) {
+  .salon-hud__cash--deferred {
+    display: none;
+  }
+
+  /* 右寄せ(.salon-hud__title + *)を、隠した現金の次の表示へ移す */
+  .salon-hud__cash--deferred + * {
+    margin-left: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-celebrating .salon-receipt__seal {
+    animation: none;
+  }
+}
+
 .salon-receipt__verdict.is-fulfilled {
   color: var(--salon-success);
 }
@@ -1747,8 +1872,9 @@
 @media (max-width: 720px) {
   .salon-serving {
     --salon-window-height: min(60vh, 520px);
-    /* HUD を2段にする(1段目: 戻る・お客様、2段目: 残り・透過・BGM) */
-    --salon-hud-height: 96px;
+    /* HUD を2段にする(1段目: 戻る・お客様、2段目: 現金・残り・透過・BGM)。
+       2段目の表示の高さまで含めて、ステージを下げる */
+    --salon-hud-height: 114px;
   }
 
   .salon-hud {

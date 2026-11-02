@@ -31,6 +31,10 @@ import {
   startSalonVisit,
   updateSalonRunSettings,
 } from "../apis/salon";
+import {
+  type SalonSoundEffects,
+  useSalonSoundEffects,
+} from "../hooks/useSalonSoundEffects";
 import { useChat } from "./ChatContext";
 import { useGame } from "./GameContext";
 import { useNotification } from "./NotificationContext";
@@ -85,6 +89,8 @@ interface SalonContextValue {
   buyExtraTurn: (visitId: string) => Promise<boolean>;
   /** 会計する。ゲームのセッションを手放し、会計後の来店を返す */
   checkoutVisit: (visitId: string) => Promise<SalonVisit | null>;
+  /** 効果音。オーナー室・接客・カットシーンで共有する(♪ パネルで ON/OFF と音量) */
+  soundEffects: SalonSoundEffects;
 }
 
 const SalonContext = createContext<SalonContextValue | null>(null);
@@ -103,6 +109,9 @@ export function SalonProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState<SalonBusy>(null);
   const [error, setError] = useState<string | null>(null);
   const language = settingsState.language;
+  const soundEffects = useSalonSoundEffects(
+    settingsState.experimentalSalonEnabled,
+  );
 
   /** 操作を1つずつ実行し、失敗はメッセージにして null を返す */
   const run = useCallback(
@@ -290,6 +299,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       startVisit,
       buyExtraTurn,
       checkoutVisit,
+      soundEffects,
     }),
     [
       runs,
@@ -308,6 +318,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       startVisit,
       buyExtraTurn,
       checkoutVisit,
+      soundEffects,
     ],
   );
 

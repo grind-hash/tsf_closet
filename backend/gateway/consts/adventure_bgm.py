@@ -12,7 +12,8 @@ server restart is needed. A broken catalog never fails a turn: the last
 successfully parsed catalog (or a minimal built-in default) is kept.
 
 Each track has a scope. Only ``adventure`` tracks are offered to the
-Adventure LLM; ``salon`` tracks are chosen by the salon screens themselves.
+Adventure LLM; ``salon`` tracks are chosen by the salon screens themselves,
+and ``salon_se`` entries are the salon's one-shot sound effects.
 """
 
 from __future__ import annotations
@@ -41,8 +42,9 @@ class BgmTrack(BaseModel):
     # エラーでカタログ全体の破損扱いになり、BGM が組み込み既定の1曲へ劣化する。
     credit: str | None = Field(default=None, max_length=120)
     # どのモードの曲か。adventure だけを TSF シナリオの LLM に選曲候補として渡し、
-    # salon はサロン経営の画面が幕に合わせて自分で選ぶ。省略時は adventure
-    scope: Literal["adventure", "salon"] = "adventure"
+    # salon はサロン経営の画面が幕に合わせて自分で選ぶ。salon_se はサロンの効果音
+    # (ループしない短い音)。省略時は adventure
+    scope: Literal["adventure", "salon", "salon_se"] = "adventure"
 
     @field_validator("file")
     @classmethod

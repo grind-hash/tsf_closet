@@ -1,4 +1,11 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { SalonVisit } from "../../apis/salon";
@@ -11,8 +18,10 @@ import { useGame } from "../../contexts/GameContext";
 import { useSalon } from "../../contexts/SalonContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
+import { useCountUp } from "../../hooks/useCountUp";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { usePlayTurn } from "../../hooks/usePlayTurn";
+import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import {
   type TransformHandler,
   useTransformRequest,
@@ -20,8 +29,6 @@ import {
 import { getSalonRunPath } from "../../routes";
 import { splitHintMarkers, stripHintMarkers } from "../../utils/hintMarkers";
 import {
-  formatSignedNumber,
-  formatSignedYen,
   formatYen,
   initialSalonAct,
   isExperienceTurn,
@@ -33,6 +40,7 @@ import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import SalonBgmControl from "./SalonBgmControl";
 import SalonPortrait from "./SalonPortrait";
+import SalonReceipt, { RECEIPT_CASH_ARRIVAL_MS } from "./SalonReceipt";
 
 const ACTS: readonly SalonAct[] = ["counsel", "styling", "reveal", "checkout"];
 
@@ -79,6 +87,7 @@ export default function SalonServing({
     startVisit,
     buyExtraTurn,
     checkoutVisit,
+    soundEffects,
   } = useSalon();
   const { state: game, askRequestQuestion, setError: setGameError } = useGame();
   const { state: chat, setInputText } = useChat();
@@ -125,6 +134,11 @@ export default function SalonServing({
   const [experience, setExperience] = useState<ExperienceFrame | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState(false);
   const [checkedOut, setCheckedOut] = useState<SalonVisit | null>(null);
+  // この画面で会計したときだけ演出する(済んだ来店を開き直したときは立てない)
+  const [celebrate, setCelebrate] = useState(false);
+  const cashTileRef = useRef<HTMLDivElement>(null);
+  const reducedMotion = usePrefersReducedMotion();
+  const playSound = soundEffects.play;
   const [extraOpen, setExtraOpen] = useState(false);
   const startedRef = useRef<string | null>(null);
   // 体験の手番を送った時点の履歴の件数と、送信後に生成中になったか
@@ -249,6 +263,16 @@ export default function SalonServing({
   const visit = activeRun?.visits.find((item) => item.id === visitId) ?? null;
   const customerName = visit?.customer.name ?? "";
 
+  // 会計したら、支払いのチップが HUD の現金に届くところでレジの音を鳴らす
+  useEffect(() => {
+    if (!celebrate || !checkedOut || checkedOut.payment <= 0) return;
+    const timer = window.setTimeout(
+      () => playSound("register"),
+      reducedMotion ? 0 : RECEIPT_CASH_ARRIVAL_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [celebrate, checkedOut, reducedMotion, playSound]);
+
   if (blocked) {
     return (
       <MainLayout variant="salon">
@@ -353,10 +377,14 @@ export default function SalonServing({
   };
 
   const handleCheckout = async () => {
+    // 現金が増える前に立て、HUD の現金をチップが届くまで待たせる
+    setCelebrate(true);
     const done = await checkoutVisit(visitId);
     if (done) {
       setCheckedOut(done);
       setAct("checkout");
+    } else {
+      setCelebrate(false);
     }
   };
 
@@ -393,6 +421,16 @@ export default function SalonServing({
               </p>
             )}
           </div>
+          {activeRun?.id === runId && (
+            <SalonHudCash
+              key={activeRun.id}
+              cash={activeRun.cash}
+              language={language}
+              delayMs={celebrate ? RECEIPT_CASH_ARRIVAL_MS : 0}
+              deferred={Boolean(request)}
+              tileRef={cashTileRef}
+            />
+          )}
           {request && (
             <>
               <div className="salon-hud__tile">
@@ -812,58 +850,12 @@ export default function SalonServing({
 
             {act === "checkout" && checkedOut && (
               <>
-                <dl className="salon-receipt">
-                  <div>
-                    <dt>{t("salon.serving.satisfaction")}</dt>
-                    <dd className="salon-receipt__big">
-                      {checkedOut.satisfaction ?? 0}%
-                    </dd>
-                  </div>
-                  {checkedOut.extra_cost > 0 && (
-                    <div>
-                      <dt>{t("salon.serving.extraCost")}</dt>
-                      <dd>
-                        {formatSignedYen(-checkedOut.extra_cost, language)}
-                      </dd>
-                    </div>
-                  )}
-                  {checkedOut.experience_bonus > 0 && (
-                    <div>
-                      <dt>{t("salon.serving.experienceBonus")}</dt>
-                      <dd>+{checkedOut.experience_bonus}%</dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt>{t("salon.serving.payment")}</dt>
-                    <dd>{formatYen(checkedOut.payment, language)}</dd>
-                  </div>
-                  <div>
-                    <dt>{t("salon.serving.reputation")}</dt>
-                    <dd>{formatSignedNumber(checkedOut.reputation_delta)}</dd>
-                  </div>
-                </dl>
-                <p
-                  className={`salon-receipt__verdict${checkedOut.fulfilled ? " is-fulfilled" : ""}`}
-                >
-                  {t(
-                    checkedOut.fulfilled
-                      ? "salon.serving.fulfilled"
-                      : checkedOut.experience_bonus > 0
-                        ? "salon.serving.notFulfilledAfterExperience"
-                        : "salon.serving.notFulfilled",
-                  )}
-                </p>
-                {(checkedOut.kept_look || !checkedOut.fulfilled) && (
-                  <p className="salon-receipt__look">
-                    {t(
-                      checkedOut.kept_look
-                        ? "salon.serving.keptLook"
-                        : checkedOut.experience_bonus > 0
-                          ? "salon.serving.revertedAfterExperience"
-                          : "salon.serving.revertedLook",
-                    )}
-                  </p>
-                )}
+                <SalonReceipt
+                  visit={checkedOut}
+                  language={language}
+                  celebrate={celebrate}
+                  cashTarget={cashTileRef}
+                />
                 <button
                   type="button"
                   className="salon-button salon-button--primary"
@@ -972,6 +964,45 @@ export default function SalonServing({
 }
 
 /** お客様の言葉を待っている間の「入力中」の表示(止まって見えないように) */
+/**
+ * HUD の現金。値が変わったら数え上げる(会計ではチップが届くまで delayMs 待つ)。
+ * 別のサロンへ移ったときに数え上げないよう、呼び出し側でサロンごとに key を変える
+ */
+function SalonHudCash({
+  cash,
+  language,
+  delayMs,
+  deferred,
+  tileRef,
+}: {
+  cash: number;
+  language: string;
+  delayMs: number;
+  /** 施術の残り回数と並ぶ間。狭い画面では隠す */
+  deferred: boolean;
+  tileRef: RefObject<HTMLDivElement | null>;
+}) {
+  const { t } = useTranslation();
+  const shown = useCountUp(cash, { durationMs: 700, delayMs });
+  // 数え終えた値。待ち時間の間は光らせず、数字が動いている間だけ光らせる
+  const [settled, setSettled] = useState(cash);
+  useEffect(() => {
+    if (shown === cash) setSettled(cash);
+  }, [shown, cash]);
+  const counting = shown !== cash && shown !== settled;
+  return (
+    <div
+      ref={tileRef}
+      className={`salon-hud__tile salon-hud__cash${deferred ? " salon-hud__cash--deferred" : ""}${counting ? " is-counting" : ""}`}
+    >
+      <span>{t("salon.office.cash")}</span>
+      <strong className={shown < 0 ? "is-negative" : undefined}>
+        {formatYen(shown, language)}
+      </strong>
+    </div>
+  );
+}
+
 function SalonTyping({ name }: { name: string }) {
   const { t } = useTranslation();
   return (

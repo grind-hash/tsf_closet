@@ -10,7 +10,9 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { SalonWeek } from "../../apis/salon";
+import { useSalon } from "../../contexts/SalonContext";
 import { useCountUp } from "../../hooks/useCountUp";
+import type { SalonSoundName } from "../../hooks/useSalonSoundEffects";
 import {
   formatSignedNumber,
   formatSignedYen,
@@ -112,6 +114,23 @@ export default function SalonCutscene({
   const closedRef = useRef(false);
   const nextRef = useRef<HTMLButtonElement>(null);
   const isLast = mode === "short" || index >= stages.length - 1;
+
+  // 帳簿の幕では帳簿をめくる音、開店の幕ではドアベル。短い版は帳簿の音だけ
+  const { soundEffects } = useSalon();
+  const playSound = soundEffects.play;
+  const stageSound: SalonSoundName | null =
+    mode === "short" || stage === "funds" || stage === "ledger"
+      ? "ledger"
+      : stage === "finale" && !result
+        ? "doorbell"
+        : null;
+  // 開発時の StrictMode で effect が2回走っても、1幕につき1回だけ鳴らす
+  const soundedIndexRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!stageSound || soundedIndexRef.current === index) return;
+    soundedIndexRef.current = index;
+    playSound(stageSound);
+  }, [stageSound, index, playSound]);
 
   const eventsIndex = stages.indexOf("events");
   const sawAchievements =

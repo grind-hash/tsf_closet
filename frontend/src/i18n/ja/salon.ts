@@ -218,6 +218,7 @@ export const salon = {
     payment: "お支払い",
     reputation: "評判",
     fulfilled: "願いを叶えました",
+    seal: "成就",
     notFulfilled: "願いにはあと一歩でした",
     notFulfilledAfterExperience:
       "願いにはあと一歩でしたが、体験は思った以上だったようです",
@@ -239,11 +240,16 @@ export const salon = {
     closed: "この予約は接客を終えています",
   },
   bgm: {
-    settings: "BGM設定",
+    settings: "音の設定",
     enable: "BGMを流す",
     enableHint:
-      "接客とオーナー室で、場面に合わせた曲を流します。TSF シナリオ・BGMテストと共通の設定です",
+      "接客とオーナー室で、場面に合わせた曲を流します。TSF シナリオとは別の設定です",
     volume: "音量",
+    bgmVolume: "BGMの音量",
+    seEnable: "効果音を鳴らす",
+    seEnableHint:
+      "会計のレジや、開業・週の締めの演出で効果音を鳴らします。ON にすると1回鳴らして音量を確かめられます",
+    seVolume: "効果音の音量",
     autoplayBlocked:
       "ブラウザにより自動再生がブロックされています。画面のどこかをクリックすると再生が始まります。",
   },

@@ -5,17 +5,20 @@
  * 共有できるように、localStorage の読み書きをここへ集約する。
  * サロン経営の BGM は別に持つ。TSF シナリオで鳴らしていても、サロンを初めて
  * 開いたときに不意に鳴らさないため(初回はどちらもミュートから始める)。
+ * サロンの効果音(salon_se)も同じ形で別に持ち、初回はミュートにする。
  */
 
 export const BGM_PREFS_STORAGE_KEY = "adventure_bgm_prefs";
 export const SALON_BGM_PREFS_STORAGE_KEY = "salon_bgm_prefs";
+export const SALON_SE_PREFS_STORAGE_KEY = "salon_se_prefs";
 
-/** BGM の設定の置き場所。adventure は TSF シナリオと BGM テスト画面 */
-export type BgmPrefsScope = "adventure" | "salon";
+/** BGM の設定の置き場所。adventure は TSF シナリオと BGM テスト画面、salon_se はサロンの効果音 */
+export type BgmPrefsScope = "adventure" | "salon" | "salon_se";
 
 const STORAGE_KEYS: Record<BgmPrefsScope, string> = {
   adventure: BGM_PREFS_STORAGE_KEY,
   salon: SALON_BGM_PREFS_STORAGE_KEY,
+  salon_se: SALON_SE_PREFS_STORAGE_KEY,
 };
 
 export interface BgmPreferences {
