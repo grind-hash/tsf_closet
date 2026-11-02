@@ -13,6 +13,7 @@ import {
   salonCashSeries,
   salonCashTicks,
   salonReviews,
+  settleExperience,
   thisWeekVisits,
 } from "./salonView";
 
@@ -142,6 +143,58 @@ describe("experience turn", () => {
     expect(lastStyledHistory(history)?.id).toBe("styled");
     expect(lastStyledHistory(history.slice(0, 2))?.id).toBe("styled");
     expect(lastStyledHistory([])).toBeUndefined();
+  });
+
+  it("settles from the refetched history when it has arrived", () => {
+    const history = [
+      item("start"),
+      item("styled", "dress_up"),
+      { ...item("experience", "action"), feelingText: "saved" },
+    ];
+    expect(
+      settleExperience({
+        history,
+        baseLength: 2,
+        baseImage: "/img/styled.png",
+        currentImage: "/img/experience.png",
+        feelingText: "streamed",
+      }),
+    ).toEqual({
+      status: "done",
+      image: "/img/experience.png",
+      feeling: "saved",
+    });
+  });
+
+  // 実際の不具合: 履歴の取り直しより先に手番の終了が届き、生成済みなのに失敗と出ていた
+  it("settles from the received image before the history is refetched", () => {
+    const history = [item("start"), item("styled", "dress_up")];
+    expect(
+      settleExperience({
+        history,
+        baseLength: 2,
+        baseImage: "/img/styled.png",
+        currentImage: "/history/images/experience",
+        feelingText: "streamed",
+      }),
+    ).toEqual({
+      status: "done",
+      image: "/history/images/experience",
+      feeling: "streamed",
+    });
+  });
+
+  it("fails when no image arrived", () => {
+    const history = [item("start"), item("styled", "dress_up")];
+    expect(
+      settleExperience({
+        history,
+        baseLength: 2,
+        baseImage: "/img/styled.png",
+        currentImage: "/img/styled.png",
+        feelingText: "",
+      }).status,
+    ).toBe("failed");
   });
 });
 

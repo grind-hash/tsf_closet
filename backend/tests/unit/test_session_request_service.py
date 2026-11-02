@@ -30,7 +30,9 @@ from gateway.services.session_request_service import (
     RequestEvaluationOutput,
     SessionRequestError,
     compute_satisfaction,
+    crush_wording_fits,
     evaluation_record,
+    experience_feeling_context,
     feeling_context,
     grounded_met_ids,
     is_fulfilled,
@@ -214,6 +216,17 @@ def test_feeling_context_hints_unmet_preferences_without_naming_rule() -> None:
     assert "名指しせず" in text and "膝より長い丈" in text
     english = feeling_context(_REQUEST, None, "en")
     assert "never name them outright" in english
+
+
+def test_experience_feeling_context_frames_the_scene_as_the_salon_dream() -> None:
+    sensitive = {**_REQUEST, "sensitive": True}
+    ja = experience_feeling_context(sensitive, "ja")
+    assert "サロンが見せる夢" in ja
+    assert "舞踏会のお姫様になってみたい" in ja
+    assert "周囲の視線についての指示より、こちらを優先" in ja
+    assert "A dream the salon shows" in experience_feeling_context(sensitive, "en")
+    # 全年齢の依頼の行動の手番には添えない
+    assert experience_feeling_context(_REQUEST, "ja") == ""
 
 
 async def _seed_session(
@@ -891,6 +904,109 @@ async def test_create_request_sensitive_saves_the_experience(
     assert payload["motive"] in {"self", "crush"}
 
 
+@pytest.mark.parametrize(
+    ("wish", "word", "fits"),
+    [
+        ("僕を女の子にして、好きな彼に舐められたいんだ", "彼", True),
+        # 実際の生成: 相手は男性なのに「あの子」で、女の子に読めた
+        ("僕を女の子にして…あの子に舐められたいんだ", "彼", False),
+        ("好きな彼女のために女の子になりたい", "彼", False),
+        # 実際の生成: 相手は女性なのに「彼」と書いた
+        ("男らしい体にして、好きな彼とセックスしたい", "彼女", False),
+        ("男らしい体にして、好きな彼女を抱きたい", "彼女", True),
+        ("Make me a girl he would love, so he can lick me", "him", True),
+        ("Make me a girl she would love", "him", False),
+    ],
+)
+def test_crush_wording_fits_the_partner_sex(wish: str, word: str, fits: bool) -> None:
+    assert crush_wording_fits(wish, word) is fits
+
+
+def _crush_generation(monkeypatch) -> None:
+    # 意中の相手のための願いで、候補は「男性に舐められる」と百合の2つにする
+    desires = {item.id: item for item in SENSITIVE_DESIRES}
+    monkeypatch.setattr(request_module, "pick_sensitive_motive", lambda seed: "crush")
+    monkeypatch.setattr(
+        request_module,
+        "pick_sensitive_candidates",
+        lambda bodies, seed, *, motive: [
+            desires["cunnilingus"],
+            desires["yuri_fingering"],
+        ],
+    )
+
+
+_CRUSH_GENERATED = {
+    **_SENSITIVE_GENERATED,
+    "desire_id": "cunnilingus",
+    "wish": "僕を女の子にして…あの子に舐められたいんだ",
+    "experience": "夢の中の寝室で、ユウは顔の見えない彼に脚を開かれ、舌で愛撫される",
+}
+
+
+@pytest.mark.asyncio
+async def test_create_request_repairs_the_crush_wording(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    _crush_generation(monkeypatch)
+    repaired = {
+        **_CRUSH_GENERATED,
+        "wish": "僕を女の子にして…好きな彼に舐められたいんだ",
+    }
+    prompts = _fake_generation_with_prompts(
+        monkeypatch, [json.dumps(_CRUSH_GENERATED), json.dumps(repaired)]
+    )
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", sensitive=True
+    )
+
+    assert view["wish"] == repaired["wish"]
+    assert "wish and experience must refer to the loved person as 彼" in prompts[1][1]
+    candidates = json.loads(prompts[0][1])["desire_candidates"]
+    assert [item["partner_word"] for item in candidates] == ["彼", "彼女"]
+
+
+@pytest.mark.asyncio
+async def test_create_request_retries_as_self_when_only_the_wording_is_off(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    _crush_generation(monkeypatch)
+    # 実際の生成: 相手は女性なのに、修復しても願いと体験で「彼」と書き続けた。
+    # 相手の性別を取り違えたまま出さず、動機を自分の憧れにして作り直す(全年齢には落とさない)
+    wrong = {
+        **_CRUSH_GENERATED,
+        "desire_id": "yuri_fingering",
+        "wish": "可愛い女の子にして、好きな彼に指で愛されたい",
+        "experience": "夢の中の寝室で、ユウは顔の見えない彼に指で愛される",
+    }
+    self_generated = {
+        **_CRUSH_GENERATED,
+        "wish": "僕を女の子にして、男の人に舐められてみたいんだ",
+        "experience": "夢の中の寝室で、ユウは顔の見えない男性に舌で愛撫される",
+    }
+    prompts = _fake_generation_with_prompts(
+        monkeypatch,
+        [json.dumps(wrong), json.dumps(wrong), json.dumps(self_generated)],
+    )
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", sensitive=True
+    )
+
+    assert view["sensitive"] is True
+    assert view["sensitive_fallback"] is False
+    assert view["wish"] == self_generated["wish"]
+    assert len(prompts) == 3
+    retry_payload = json.loads(prompts[2][1])
+    assert retry_payload["motive"] == "self"
+    assert all(
+        "partner_word" not in item for item in retry_payload["desire_candidates"]
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_request_falls_back_to_all_ages_when_the_model_declines(
     isolated_db, monkeypatch
@@ -1069,6 +1185,29 @@ def test_generation_prompt_offers_candidates_and_follows_the_motive() -> None:
     assert "motive is crush" in crush_system
     assert "motive is self" in self_system
     assert "faceless adult" in crush_system
+    # 体験は、施術の直後にサロンが見せる夢の中の場面
+    assert "the salon lets the character dream" in self_system
+    assert "never the salon or anywhere with onlookers" in self_system
+    # 意中の相手は、テーマの相手の性別が分かる言葉で呼び、体験でも同じ人にする
+    assert "partner_word" in crush_system
+    assert "never as a stranger" in crush_system
+    assert "partner_word" not in self_system
+    words = {"man": "彼", "woman": "彼女"}
+    for item in payload["desire_candidates"]:
+        assert item.get("partner_word") == words.get(item["partner"])
+    _, self_user = build_request_generation_prompt(
+        profile, "1boy", "ja", sensitive=True, desires=candidates, motive="self"
+    )
+    assert all(
+        "partner_word" not in item
+        for item in json.loads(self_user)["desire_candidates"]
+    )
+    _, english_user = build_request_generation_prompt(
+        profile, "1boy", "en", sensitive=True, desires=candidates, motive="crush"
+    )
+    english_words = {"man": "him", "woman": "her"}
+    for item in json.loads(english_user)["desire_candidates"]:
+        assert item.get("partner_word") == english_words.get(item["partner"])
     # 全年齢の依頼には行為の候補を渡さない
     _, plain_user = build_request_generation_prompt(profile, "1boy", "ja")
     assert "desire_candidates" not in json.loads(plain_user)

@@ -20,7 +20,7 @@ export const salon = {
       hard: "Opening funds {{cash}}. A run of low-satisfaction visits leads to bankruptcy",
     },
     sensitiveHint:
-      "Customers arrive with adult wishes, and the reveal shows one picture of them living that wish. It starts as set in your most recent salon, and you can switch it in the owner's room after opening.",
+      "Customers arrive with adult wishes, and the reveal shows one picture of a brief dream where, in that look, the wish comes true. It starts as set in your most recent salon, and you can switch it in the owner's room after opening.",
     goal: "The season succeeds if your final cash is above the opening funds. As a guide, make every other customer's wish come true.",
     submit: "Open the salon",
   },
@@ -51,7 +51,7 @@ export const salon = {
     weeklyBalanceValue: "Day job +{{salary}} / Fixed costs −{{fixed}}",
     sensitive: "Explicit treatments (adult)",
     sensitiveHint:
-      "Customers arrive with adult wishes, and the reveal shows one picture of them living that wish. Takes effect from the next customer you serve.",
+      "Customers arrive with adult wishes, and the reveal shows one picture of a brief dream where, in that look, the wish comes true. Takes effect from the next customer you serve.",
     sensitiveNsfwOff: "No effect while NSFW mode is off.",
     sensitiveOpenSettings: "Open settings",
     cutscene: "Opening and week-closing scenes",
@@ -196,11 +196,11 @@ export const salon = {
       "Make the customer's image background transparent and place them in the salon",
     revealBefore: "On arrival",
     revealAfter: "After styling",
-    experience: "Living the wish",
-    experienceGenerating: "Drawing them living their wish…",
+    experience: "A dream in this look",
+    experienceGenerating: "Drawing the dream where their wish comes true…",
     experienceFailed:
-      "Could not draw the experience. Try again, or check out as is.",
-    experienceRetry: "Draw the experience again",
+      "Could not draw the dream. Try again, or check out as is.",
+    experienceRetry: "Draw the dream again",
     sensitiveFallback:
       "An adult request could not be written for this customer, so this visit uses an all-ages request.",
     typing: "{{name}} is speaking",
@@ -225,20 +225,21 @@ export const salon = {
     seal: "Granted",
     notFulfilled: "Just short of the wish",
     notFulfilledAfterExperience:
-      "Just short of the wish, but the experience was better than they expected",
-    experienceBonus: "Of which, living the wish",
+      "Just short of the wish, but the dream was better than they expected",
+    experienceBonus: "Of which, the dream in this look",
     returningLook:
       "Back in the look from the last visit. This time it is an additional request on top of it",
     keptLook: "They will stay in this look and come back next week wearing it",
     revertedLook: "They went home back in their original look",
     revertedAfterExperience:
-      "They went home in their original look, still glowing from the experience",
+      "They went home in their original look, still glowing from the dream",
     review: "Review",
     log: "Log",
     logTitle: "Visit log",
     logEmpty: "Nothing recorded yet",
     logQuestion: "Question",
     logInstruction: "Styling",
+    logExperience: "Dream",
     close: "Close",
     preparing: "Welcoming the customer…",
     notFound: "This booking was not found",

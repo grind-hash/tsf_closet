@@ -29,11 +29,13 @@ import {
 import { getSalonRunPath } from "../../routes";
 import { splitHintMarkers, stripHintMarkers } from "../../utils/hintMarkers";
 import {
+  type ExperienceFrame,
   formatYen,
   initialSalonAct,
   isExperienceTurn,
   lastStyledHistory,
   type SalonAct,
+  settleExperience,
 } from "../../utils/salonView";
 import MainLayout from "../layout/MainLayout";
 import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
@@ -52,16 +54,6 @@ interface RevealFrame {
   after: string | null;
   feeling: string;
   emphasizeHints: boolean;
-}
-
-/**
- * 成人向けの依頼で、お披露目に見せる体験の1枚(行動の手番)。
- * confirming は精密参照などの確認ダイアログの返事待ち。
- */
-interface ExperienceFrame {
-  status: "confirming" | "generating" | "done" | "failed";
-  image: string | null;
-  feeling: string;
 }
 
 /**
@@ -141,8 +133,9 @@ export default function SalonServing({
   const playSound = soundEffects.play;
   const [extraOpen, setExtraOpen] = useState(false);
   const startedRef = useRef<string | null>(null);
-  // 体験の手番を送った時点の履歴の件数と、送信後に生成中になったか
+  // 体験の手番を送った時点の履歴の件数・現在の画像と、送信後に生成中になったか
   const experienceBaseRef = useRef(0);
+  const experienceBaseImageRef = useRef<string | null>(null);
   const experienceSeenRef = useRef(false);
   const language = settingsState.language;
   // お客様の背景を透過してサロンの背景に立たせる。白い服が欠けるなど合わないときは切れる
@@ -198,7 +191,7 @@ export default function SalonServing({
   }, [activeRun, openRun, runId, startVisit, visitId]);
 
   // 体験の手番の終わりを見届ける。送信直後はまだ生成中になっていないことがあるので、
-  // 一度生成中になったのを見てから、履歴が増えたか(成功)どうかで決める
+  // 一度生成中になったのを見てから、画像が届いたか(成功)どうかで決める
   useEffect(() => {
     if (experience?.status !== "generating") return;
     if (game.isTransforming) {
@@ -207,20 +200,22 @@ export default function SalonServing({
     }
     if (!experienceSeenRef.current) return;
     experienceSeenRef.current = false;
-    const latestItem = game.history.at(-1);
-    if (
-      game.history.length > experienceBaseRef.current &&
-      isExperienceTurn(latestItem)
-    ) {
-      setExperience({
-        status: "done",
-        image: latestItem?.imageUrl ?? null,
-        feeling: latestItem?.feelingText ?? "",
-      });
-    } else {
-      setExperience({ status: "failed", image: null, feeling: "" });
-    }
-  }, [experience?.status, game.isTransforming, game.history]);
+    setExperience(
+      settleExperience({
+        history: game.history,
+        baseLength: experienceBaseRef.current,
+        baseImage: experienceBaseImageRef.current,
+        currentImage: game.currentImage,
+        feelingText: game.feelingText,
+      }),
+    );
+  }, [
+    experience?.status,
+    game.isTransforming,
+    game.history,
+    game.currentImage,
+    game.feelingText,
+  ]);
 
   // 確認ダイアログの返事: 確定なら生成中に、取り消しなら失敗(やり直せる)にする
   const anlasPending = transformRequest.anlasConfirmPending;
@@ -347,6 +342,7 @@ export default function SalonServing({
   /** 願いの姿でしたいことを、行動の手番として1回だけ描く */
   const startExperience = (direction: string) => {
     experienceBaseRef.current = game.history.length;
+    experienceBaseImageRef.current = game.currentImage;
     experienceSeenRef.current = false;
     setGameError(null);
     const sent = transformRequest.submitTransform(
@@ -904,7 +900,13 @@ export default function SalonServing({
               ))}
               {game.history.slice(1).map((item) => (
                 <li key={item.id}>
-                  <span>{t("salon.serving.logInstruction")}</span>
+                  <span>
+                    {t(
+                      isExperienceTurn(item)
+                        ? "salon.serving.logExperience"
+                        : "salon.serving.logInstruction",
+                    )}
+                  </span>
                   <p>{item.instruction}</p>
                   {item.feelingText && (
                     <SalonFeelingText

@@ -12,12 +12,19 @@ can reuse them for generated customers.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import random
 import re
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import (
+    BaseModel,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from ..consts.sensitive_desires import (
     SENSITIVE_CRUSH_MOTIVE_RATE,
@@ -51,14 +58,16 @@ from .characters import character_manager
 from .clothing_layers import split_worn_under_layers
 from .cost_tracker import begin_cost_tracking, record_cost
 from .custom_sessions import load_custom_session_metadata
-from .llm_json import StructuredOutputError, generate_validated
+from .llm_json import StructuredOutputError, generate_validated, validate_model_json
 from .llm_service import llm_service
 from .session import session_store
 from .session_request_prompts import (
+    build_experience_feeling_context,
     build_request_evaluation_prompt,
     build_request_feeling_context,
     build_request_generation_prompt,
     build_request_question_prompt,
+    crush_partner_words,
 )
 
 logger = logging.getLogger(__name__)
@@ -170,10 +179,33 @@ class GeneratedRequest(BaseModel):
         return kept
 
 
+# 意中の相手の呼び方ごとの (使うべき語, 使ってはいけない語)。「彼女」は「彼」を含むため、
+# 男性は「彼」の後に「女」が続かない形で数える。男性の話し手の「あの子」は女の子に読める
+_CRUSH_WORD_PATTERNS: dict[str, tuple[re.Pattern[str], re.Pattern[str] | None]] = {
+    "彼": (re.compile(r"彼(?!女)"), re.compile(r"彼女|あの子|好きな子")),
+    "彼女": (re.compile(r"彼女"), re.compile(r"彼(?!女)")),
+    "him": (re.compile(r"\b(?:he|him|his|man)\b", re.IGNORECASE), None),
+    "her": (re.compile(r"\b(?:she|her|hers|woman)\b", re.IGNORECASE), None),
+}
+
+
+def crush_wording_fits(wish: str, word: str) -> bool:
+    """意中の相手を、テーマの相手の性別が分かる呼び方(word)で呼んでいるか。"""
+    patterns = _CRUSH_WORD_PATTERNS.get(word)
+    if patterns is None:
+        return True
+    required, forbidden = patterns
+    return bool(required.search(wish)) and not (
+        forbidden is not None and forbidden.search(wish)
+    )
+
+
 class GeneratedSensitiveRequest(GeneratedRequest):
     """成人向けの依頼。願いの姿でしたいこと(experience)も要る。
 
     desire_id は候補から選んだテーマ(記録用。候補外でも依頼は受け付ける)。
+    検証の context に crush_partner_words({desire_id: 呼び方})があれば、願いと体験が
+    意中の相手をその呼び方で呼んでいるかを確かめる(違えば修復を頼む)。
     """
 
     experience: str
@@ -186,6 +218,21 @@ class GeneratedSensitiveRequest(GeneratedRequest):
         if not experience:
             raise ValueError("experience が空です")
         return experience
+
+    @model_validator(mode="after")
+    def check_crush_wording(self, info: ValidationInfo) -> GeneratedSensitiveRequest:
+        context = info.context if isinstance(info.context, dict) else {}
+        word = (context.get("crush_partner_words") or {}).get(self.desire_id)
+        if word and not (
+            crush_wording_fits(self.wish, word)
+            and crush_wording_fits(self.experience, word)
+        ):
+            raise ValueError(
+                f"wish and experience must refer to the loved person as {word}, which "
+                "shows their sex; never call them by a word for the other sex, and "
+                "never call a man あの子 or 好きな子"
+            )
+        return self
 
 
 class RequestEvaluationOutput(BaseModel):
@@ -708,6 +755,22 @@ def feeling_context(
     )
 
 
+def _parses_without_crush_check(raw: str) -> bool:
+    """意中の相手の呼び方を除けば、成人向けの依頼として読めるか。"""
+    try:
+        validate_model_json(GeneratedSensitiveRequest, raw)
+    except ValidationError:
+        return False
+    return True
+
+
+def experience_feeling_context(request: dict[str, Any], language: str) -> str:
+    """体験の場面(成人向けの依頼の行動の手番)の心境に添えるブロック。他の依頼では空。"""
+    if not request.get("sensitive"):
+        return ""
+    return build_experience_feeling_context(wish=request["wish"], language=language)
+
+
 async def _generate_text(
     system_prompt: str, user_prompt: str, *, novelai_model: str | None
 ) -> str:
@@ -842,7 +905,7 @@ class SessionRequestService:
             else []
         )
 
-        async def generate_request(adult: bool) -> GeneratedRequest:
+        async def generate_request(adult: bool, motive: str) -> GeneratedRequest:
             system_prompt, user_prompt = build_request_generation_prompt(
                 profile,
                 appearance,
@@ -857,21 +920,39 @@ class SessionRequestService:
                 generate=generate,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                context={
+                    "crush_partner_words": crush_partner_words(
+                        desires, motive, language
+                    )
+                }
+                if adult
+                else None,
             )
 
         fallback = False
         if sensitive:
             try:
-                generated = await generate_request(True)
+                generated = await generate_request(True, motive)
             except StructuredOutputError as error:
-                logger.warning(
-                    "Sensitive request generation failed; falling back to all-ages: %s",
-                    error,
-                )
-                fallback = True
-                generated = await generate_request(False)
+                generated = None
+                if motive == "crush" and _parses_without_crush_check(error.repaired):
+                    # 修復しても意中の相手の呼び方だけが合わない: 相手の性別を取り違えたまま
+                    # 出さない(男性の体に「彼」など)よう、動機を自分の憧れにして作り直す
+                    logger.warning(
+                        "Crush wording still off after repair; retrying as self: %s",
+                        error,
+                    )
+                    with contextlib.suppress(StructuredOutputError):
+                        generated = await generate_request(True, "self")
+                if generated is None:
+                    logger.warning(
+                        "Sensitive request generation failed; falling back to all-ages: %s",
+                        error,
+                    )
+                    fallback = True
+                    generated = await generate_request(False, motive)
         else:
-            generated = await generate_request(False)
+            generated = await generate_request(False, motive)
         experience = (
             generated.experience
             if isinstance(generated, GeneratedSensitiveRequest)

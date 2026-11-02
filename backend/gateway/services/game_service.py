@@ -156,6 +156,7 @@ from .reality_prompts import (
 from .self_mode_prompts import build_self_mode_feeling_prompt
 from .session import session_store
 from .session_request_service import (
+    experience_feeling_context,
     feeling_context,
     is_fulfilled,
     session_request_service,
@@ -2811,6 +2812,12 @@ class GameService:
             attributes=attributes,
             gender_discomfort=gender_discomfort,
         )
+        # サロンの過激施術: 接客画面が送る行動の手番は体験の場面だけ。
+        # サロンが仕上げの姿のまま見せる夢として書かせる
+        if not ctx.session.self_mode:
+            session_request = await session_store.get_session_request(ctx.session.id)
+            if session_request is not None:
+                act_user += experience_feeling_context(session_request, ctx.language)
 
         from .conversation import get_language_rules
 

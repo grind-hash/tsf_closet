@@ -70,6 +70,49 @@ export function lastStyledHistory(
   return undefined;
 }
 
+/**
+ * 成人向けの依頼で、お披露目に見せる体験の1枚(行動の手番)。
+ * confirming は精密参照などの確認ダイアログの返事待ち。
+ */
+export interface ExperienceFrame {
+  status: "confirming" | "generating" | "done" | "failed";
+  image: string | null;
+  feeling: string;
+}
+
+/**
+ * 体験の手番が終わったときの結果。履歴は画像の受信後に取り直すため、手番の終了時点では
+ * まだ増えていないことがある。そのときは受信済みの画像(現在の画像の差し替え)で成功とみなす。
+ */
+export function settleExperience({
+  history,
+  baseLength,
+  baseImage,
+  currentImage,
+  feelingText,
+}: {
+  history: readonly HistoryItem[];
+  /** 手番を送った時点の履歴の件数 */
+  baseLength: number;
+  /** 手番を送った時点の現在の画像 */
+  baseImage: string | null;
+  currentImage: string | null;
+  feelingText: string;
+}): ExperienceFrame {
+  const latest = history.at(-1);
+  if (history.length > baseLength && isExperienceTurn(latest)) {
+    return {
+      status: "done",
+      image: latest?.imageUrl ?? null,
+      feeling: latest?.feelingText ?? "",
+    };
+  }
+  if (currentImage && currentImage !== baseImage) {
+    return { status: "done", image: currentImage, feeling: feelingText };
+  }
+  return { status: "failed", image: null, feeling: "" };
+}
+
 export interface SalonCashPoint {
   /** 0 は開店時(開業資金) */
   week: number;
