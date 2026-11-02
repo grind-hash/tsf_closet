@@ -441,7 +441,7 @@ export default function WelcomeScreen({ onSessionStart }: WelcomeScreenProps) {
             data-removal-version="v0.12.0"
             title={t("chat.welcome.customImageDeprecated")}
           >
-            Deprecated
+            {t("chat.welcome.customImageRemovalChip")}
           </span>
         </h3>
         <p className="welcome-screen__deprecated-notice">

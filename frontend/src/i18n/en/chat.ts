@@ -126,8 +126,9 @@ export const chat = {
     selectCharacter: "Select Character",
     loading: "Loading...",
     customImageSection: "Or use your own image",
+    customImageRemovalChip: "To be removed in v0.12.0",
     customImageDeprecated:
-      "This entry will be removed in v0.12.0. Creating a character from an image and starting a play now live on the Characters screen.",
+      'The "Use your own image" section will be removed in v0.12.0. To create a character from an image and start playing, use the Characters screen. Character selection above and the play modes below (such as Self Mode) will stay.',
     customImageOpenCharacters: "Open Characters",
     selectImage: "📁 Select Image",
     createdCharacters: "Created Characters",
