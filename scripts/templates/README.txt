@@ -282,14 +282,14 @@
 
   サロン経営の効果音に、以下の素材を使用しています。
 
-  ■ OtoLogic
+  ■ OtoLogic様
     https://otologic.jp/
     ライセンス：CC BY 4.0
     https://creativecommons.org/licenses/by/4.0/
     使用素材：レジ ドロワー02、本03
     加工：OGG形式への変換
 
-  ■ ポケットサウンド
+  ■ ポケットサウンド様
     https://pocket-se.info/
     使用素材：ドアベル＃3「チリン」
     加工：OGG形式への変換

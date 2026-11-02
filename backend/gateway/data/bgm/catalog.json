@@ -98,21 +98,21 @@
       "key": "salon_se_register",
       "file": "se01_salon_register.ogg",
       "description": "salon sound effect: the cash register when a checkout is settled",
-      "credit": "OtoLogic『レジ ドロワー02』(CC BY 4.0) を OGG 形式に変換",
+      "credit": "OtoLogic『レジ ドロワー02』(CC BY 4.0) を OGG 形式に変換 - https://otologic.jp/",
       "scope": "salon_se"
     },
     {
       "key": "salon_se_ledger",
       "file": "se02_salon_ledger.ogg",
       "description": "salon sound effect: turning a ledger page in the opening and week-closing scenes",
-      "credit": "OtoLogic『本03』(CC BY 4.0) を OGG 形式に変換",
+      "credit": "OtoLogic『本03』(CC BY 4.0) を OGG 形式に変換 - https://otologic.jp/",
       "scope": "salon_se"
     },
     {
       "key": "salon_se_doorbell",
       "file": "se03_salon_doorbell.ogg",
       "description": "salon sound effect: the door bell when the salon opens for the week",
-      "credit": "ポケットサウンド『ドアベル＃3「チリン」』を OGG 形式に変換",
+      "credit": "ポケットサウンド『ドアベル＃3「チリン」』を OGG 形式に変換 - https://pocket-se.info/",
       "scope": "salon_se"
     }
   ]
