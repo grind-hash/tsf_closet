@@ -15,6 +15,8 @@ import {
 interface SalonCashChartProps {
   points: SalonCashPoint[];
   initialCash: number;
+  /** 成功の線。次の期では期首の現金。省略すると開業資金 */
+  goalCash?: number;
   totalWeeks: number;
   language: string;
 }
@@ -33,9 +35,11 @@ const NARROW_WIDTH = 480;
 export default function SalonCashChart({
   points,
   initialCash,
+  goalCash,
   totalWeeks,
   language,
 }: SalonCashChartProps) {
+  const goal = goalCash ?? initialCash;
   const { t } = useTranslation();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   // 文字が拡大縮小されないよう、viewBox を枠の実際の幅に合わせて描く
@@ -50,7 +54,11 @@ export default function SalonCashChart({
     observer.observe(frame);
     return () => observer.disconnect();
   }, []);
-  const ticks = salonCashTicks([...points, { week: 0, cash: initialCash }]);
+  const ticks = salonCashTicks([
+    ...points,
+    { week: 0, cash: initialCash },
+    { week: 0, cash: goal },
+  ]);
   const minTick = ticks[0];
   const maxTick = ticks[ticks.length - 1];
   const plotWidth = Math.max(1, width - PAD.left - PAD.right);
@@ -154,8 +162,8 @@ export default function SalonCashChart({
             className="salon-chart__goal"
             x1={PAD.left}
             x2={width - PAD.right}
-            y1={y(initialCash)}
-            y2={y(initialCash)}
+            y1={y(goal)}
+            y2={y(goal)}
           />
           {xTickWeeks.map((week) => (
             <text
@@ -223,9 +231,12 @@ export default function SalonCashChart({
       </div>
       <p className="salon-chart__legend">
         <span className="salon-chart__goal-key" aria-hidden />
-        {t("salon.office.chartGoal", {
-          cash: formatYen(initialCash, language),
-        })}
+        {t(
+          goalCash === undefined
+            ? "salon.office.chartGoal"
+            : "salon.office.chartGoalSeason",
+          { cash: formatYen(goal, language) },
+        )}
       </p>
     </figure>
   );

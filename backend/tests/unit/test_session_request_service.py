@@ -90,6 +90,7 @@ def test_evaluation_record_drops_unknown_ids_and_clears_hint_when_all_met() -> N
         "reflected_answers": [],
         "listening_bonus": 0,
         "hint": "丈",
+        "focus_preference_id": "p2",
     }
     assert not is_fulfilled(partial)
     complete = evaluation_record(
@@ -99,7 +100,72 @@ def test_evaluation_record_drops_unknown_ids_and_clears_hint_when_all_met() -> N
         look_is_tags=True,
     )
     assert complete["hint"] == ""
+    assert complete["focus_preference_id"] is None
     assert is_fulfilled(complete)
+
+
+def test_evaluation_record_hint_follows_the_python_focus_preference() -> None:
+    """ヒントは根拠の検証後に満たしていない先頭の好みを指す(LLM の思い込みで選ばない)。"""
+    output = RequestEvaluationOutput.model_validate(
+        {
+            "fit": "good",
+            # p1 を満たしたと言うが根拠が姿に無い → 検証で落ち、p1 が注目する好みになる
+            "met_preferences": [{"id": "p1", "evidence": "pastel"}],
+            "hints": [
+                {"id": "p2", "text": "裾がもう少し長いと落ち着きそう"},
+                {"id": "x", "text": "無関係"},
+            ],
+            "hint": "旧形式の1文",
+        }
+    )
+    record = evaluation_record(output, _PREFERENCES, look_text=_LOOK, look_is_tags=True)
+    assert record["met_preference_ids"] == []
+    assert record["focus_preference_id"] == "p1"
+    # p1 のヒントは書かれていない。未達が2つあるので旧形式の1文は使わず、分類から作る
+    assert record["hint"] == "「色合い」のあたりが、まだ少し気になっているようです"
+
+    written = RequestEvaluationOutput.model_validate(
+        {
+            "fit": "good",
+            "met_preferences": [{"id": "p1", "evidence": "pale pink dress"}],
+            "hints": [{"id": "p2", "text": "裾がもう少し長いと落ち着きそう"}],
+        }
+    )
+    record = evaluation_record(
+        written, _PREFERENCES, look_text=_LOOK, look_is_tags=True
+    )
+    assert record["focus_preference_id"] == "p2"
+    assert record["hint"] == "裾がもう少し長いと落ち着きそう"
+
+
+@pytest.mark.parametrize(
+    ("questions", "topic_id", "expected"),
+    [
+        ([], None, "p1"),
+        ([], "p2", "p2"),
+        ([], "p9", "p1"),
+        ([{"target_id": "p1"}], None, "p2"),
+        ([{"target_id": "p1"}, {"target_id": "p2"}], None, "p1"),
+        ([{}], None, "p1"),
+    ],
+)
+def test_question_target_picks_chosen_or_least_hinted_preference(
+    questions, topic_id, expected
+) -> None:
+    from gateway.services.session_request_service import question_target
+
+    assert question_target(_PREFERENCES, questions, topic_id)["id"] == expected
+    assert question_target([], questions, topic_id) is None
+
+
+@pytest.mark.parametrize(
+    ("current", "previous", "trend"),
+    [(70, 60, "up"), (50, 60, "down"), (60, 60, "same"), (60, None, None)],
+)
+def test_satisfaction_trend(current, previous, trend) -> None:
+    from gateway.services.session_request_service import satisfaction_trend
+
+    assert satisfaction_trend(current, previous) == trend
 
 
 @pytest.mark.parametrize(
@@ -213,9 +279,31 @@ def test_feeling_context_hints_unmet_preferences_without_naming_rule() -> None:
     text = feeling_context(_REQUEST, evaluation, "ja")
     assert "舞踏会のお姫様になってみたい" in text
     assert "満たされた好み: 淡いピンクのドレス" in text
-    assert "名指しせず" in text and "膝より長い丈" in text
+    assert "名指ししない" in text and "膝より長い丈" in text
+    # 評価が無ければ、まだの好み全部を名指しせずにほのめかす(以前の書き方)
     english = feeling_context(_REQUEST, None, "en")
     assert "never name them outright" in english
+
+
+def test_feeling_context_hints_only_the_focus_and_follows_the_trend() -> None:
+    request = {**_REQUEST, "emphasize_hints": True}
+    evaluation = {
+        "fit": "partial",
+        "satisfaction": 40,
+        "met_preference_ids": [],
+        "focus_preference_id": "p2",
+    }
+    text = feeling_context(request, evaluation, "ja", previous=60)
+    # まだの好みは2つとも挙げるが、ほのめかすのは画面のヒントと同じ1つだけ
+    assert "まだ満たされていない好み: 淡いピンクのドレス、膝より長い丈" in text
+    assert "ほかの好みはほのめかさない）: 膝より長い丈" in text
+    assert "前の姿のほうが好みに合っていて" in text
+    rising = feeling_context(
+        request, {**evaluation, "satisfaction": 70}, "en", previous=60
+    )
+    assert "do not hint at the others): 膝より長い丈" in rising
+    assert "the mood has lifted" in rising
+    assert "previous look" not in feeling_context(request, evaluation, "en")
 
 
 def test_experience_feeling_context_frames_the_scene_as_the_salon_dream() -> None:
@@ -530,8 +618,12 @@ def test_public_request_view_counts_failed_turns_and_questions() -> None:
             "question": "好きな色は？",
             "answer": "春の花みたいな色かな",
             "reflected": False,
+            "target_id": None,
         }
     ]
+    assert view["previous_satisfaction"] is None
+    assert view["focus_preference_id"] == "p2"
+    assert view["clue_level"] == "normal"
     assert view["questions_remaining"] == 1
     unlimited = public_request_view(_REQUEST, evaluations, can_regenerate=False)
     assert unlimited["turn_limit"] is None
@@ -667,21 +759,24 @@ async def test_ask_question_answers_in_character_up_to_the_limit(
     assert empty.value.code == "empty_question"
 
     view, _ = await session_request_service.ask_question(
-        "s1", "好きな色はある？", language="ja"
+        "s1", "好きな色はある？", language="ja", topic_id="p2"
     )
     assert view["questions"] == [
         {
             "question": "好きな色はある？",
             "answer": "春に咲く花みたいな、やわらかい色が好きなんだ",
             "reflected": False,
+            "target_id": "p2",
         }
     ]
     assert view["questions_remaining"] == 0
-    # 伏せた好みは手掛かりにするため答える側へ渡すが、画面へは本文を送らない
+    # 手掛かりの対象の好み1つだけを答える側へ渡し、画面へは本文を送らない
     payload = json.loads(prompts[0][1])
-    assert payload["hidden_preferences"][0]["text"] == "淡いピンクのドレス"
+    assert payload["target_preference"] == {"text": "膝より長い丈", "category": "丈"}
+    assert "hidden_preferences" not in payload
     assert payload["stylist_question"] == "好きな色はある？"
-    assert "without ever stating the preference itself" in prompts[0][0]
+    assert "let exactly one clue about target_preference slip" in prompts[0][0]
+    assert "Do this even when the question is about something else" in prompts[0][0]
     assert all(item["text"] is None for item in view["preferences"])
 
     with pytest.raises(SessionRequestError) as limit:
@@ -1257,7 +1352,8 @@ def test_evaluation_prompt_judges_only_the_look_for_sensitive_requests() -> None
     assert "never lower fit" not in plain_system
     # ヒントはまだ満たしていない好みについて、どちらへ変えるかを示す
     assert "never base it on counselling answers" in plain_system
-    assert "say which way to change it" in plain_system
+    assert "say which way to change the current look" in plain_system
+    assert '"hints":[{"id":"p2","text":"..."}]' in plain_system
 
 
 def test_experience_bonus_is_added_and_capped() -> None:

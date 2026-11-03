@@ -1,13 +1,18 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
-import type { SalonDifficulty, SalonRun } from "../../apis/salon";
+import type {
+  SalonDifficulty,
+  SalonRun,
+  SalonSeasonLength,
+} from "../../apis/salon";
 import {
   SALON_DEFAULT_DIFFICULTY,
+  SALON_DEFAULT_SEASON_LENGTH,
   SALON_DIFFICULTIES,
-  SALON_DIFFICULTY_INITIAL_CASH,
+  SALON_INITIAL_CASH,
   SALON_NAME_MAX_LENGTH,
-  SALON_TOTAL_WEEKS,
+  SALON_SEASON_LENGTHS,
   SALON_WEEKLY_NET_COST,
 } from "../../constants/salon";
 import { useSalon } from "../../contexts/SalonContext";
@@ -32,9 +37,15 @@ export default function SalonHub() {
   // 一度でも切り替えたら、一覧を読み直しても上書きしない
   const [sensitive, setSensitive] = useState(false);
   const sensitiveTouchedRef = useRef(false);
+  // 営業期間も、直近に遊んだサロンの長さを引き継ぐ
+  const [seasonLength, setSeasonLength] = useState<SalonSeasonLength>(
+    SALON_DEFAULT_SEASON_LENGTH,
+  );
+  const seasonTouchedRef = useRef(false);
   const [deleteTarget, setDeleteTarget] = useState<SalonRun | null>(null);
   const nameId = useId();
   const difficultyLabelId = useId();
+  const seasonLabelId = useId();
   const language = settingsState.language;
 
   useEffect(() => {
@@ -46,8 +57,20 @@ export default function SalonHub() {
     if (!sensitiveTouchedRef.current) setSensitive(latestSensitive);
   }, [latestSensitive]);
 
+  const latestSeasonLength = runs[0]?.season_length;
+  useEffect(() => {
+    if (!seasonTouchedRef.current && latestSeasonLength) {
+      setSeasonLength(latestSeasonLength);
+    }
+  }, [latestSeasonLength]);
+
   const handleOpen = async () => {
-    const created = await createRun(name.trim(), difficulty, sensitive);
+    const created = await createRun(
+      name.trim(),
+      difficulty,
+      sensitive,
+      seasonLength,
+    );
     if (created) {
       setName("");
       navigate(getSalonRunPath(created.id), {
@@ -70,7 +93,6 @@ export default function SalonHub() {
           <h1>{t("salon.title")}</h1>
           <p className="salon-page__lead">
             {t("salon.lead", {
-              weeks: SALON_TOTAL_WEEKS,
               net: formatYen(SALON_WEEKLY_NET_COST, language),
             })}
           </p>
@@ -119,10 +141,36 @@ export default function SalonHub() {
             <p className="salon-field__hint">
               {t(`salon.open.difficultyDesc.${difficulty}`, {
                 cash: formatYen(
-                  SALON_DIFFICULTY_INITIAL_CASH[difficulty],
+                  SALON_INITIAL_CASH[seasonLength][difficulty],
                   language,
                 ),
               })}
+            </p>
+          </div>
+          <div className="salon-field">
+            <span id={seasonLabelId}>{t("salon.open.seasonLabel")}</span>
+            <div
+              className="salon-segments"
+              role="group"
+              aria-labelledby={seasonLabelId}
+            >
+              {SALON_SEASON_LENGTHS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={seasonLength === value ? "is-active" : undefined}
+                  aria-pressed={seasonLength === value}
+                  onClick={() => {
+                    seasonTouchedRef.current = true;
+                    setSeasonLength(value);
+                  }}
+                >
+                  {t(`salon.open.season.${value}`)}
+                </button>
+              ))}
+            </div>
+            <p className="salon-field__hint">
+              {t(`salon.open.seasonDesc.${seasonLength}`)}
             </p>
           </div>
           <label className="salon-toggle">
@@ -179,6 +227,8 @@ export default function SalonHub() {
                   <div className="salon-run-row__main">
                     <strong>{run.name}</strong>
                     <span className="salon-run-row__meta">
+                      {(run.season ?? 1) > 1 &&
+                        `${t("salon.list.season", { season: run.season })} · `}
                       {run.status === "active"
                         ? t("salon.list.week", {
                             week: run.week,

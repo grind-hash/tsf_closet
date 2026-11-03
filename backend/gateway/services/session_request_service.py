@@ -34,6 +34,8 @@ from ..consts.sensitive_desires import (
 )
 from ..consts.session_request import (
     REQUEST_ANSWER_MAX,
+    REQUEST_CLUE_LEVEL_DEFAULT,
+    REQUEST_CLUE_LEVELS,
     REQUEST_EVALUATION_HINT_MAX,
     REQUEST_EXPERIENCE_BONUS,
     REQUEST_EXPERIENCE_MAX,
@@ -242,6 +244,9 @@ class RequestEvaluationOutput(BaseModel):
     met_preferences: list[dict[str, str]] = []
     # 汲んだカウンセリングの答え(1 始まりの番号)と、その根拠の語句 [{index, evidence}]
     reflected_answers: list[dict[str, Any]] = []
+    # 満たしていない好みごとのヒント [{id, text}]。どれを見せるかは Python が決める
+    hints: list[dict[str, str]] = []
+    # 旧形式(ヒント1文だけ)。どの好みのヒントか分からないので、未達が1つのときだけ使う
     hint: str = ""
 
     @field_validator("fit", mode="before")
@@ -281,6 +286,21 @@ class RequestEvaluationOutput(BaseModel):
                 {"index": index, "evidence": str(item.get("evidence") or "").strip()}
             )
         return reflected
+
+    @field_validator("hints", mode="before")
+    @classmethod
+    def coerce_hints(cls, value: Any) -> list[dict[str, str]]:
+        if not isinstance(value, list):
+            return []
+        hints: list[dict[str, str]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            preference_id = str(item.get("id") or "").strip()
+            text = _clip(item.get("text"), REQUEST_EVALUATION_HINT_MAX)
+            if preference_id and text:
+                hints.append({"id": preference_id, "text": text})
+        return hints
 
     @field_validator("hint", mode="before")
     @classmethod
@@ -572,17 +592,44 @@ def grounded_met_ids(
     return [item["id"] for item in preferences if item.get("id") in grounded]
 
 
-def _fallback_hint(
-    preferences: list[dict[str, Any]], met: list[str], language: str
-) -> str:
-    """LLM がヒントを書かなかったときに、満たしていない好みの分類から1文を作る。"""
-    unmet = next((item for item in preferences if item.get("id") not in met), None)
-    category = str((unmet or {}).get("hint") or "").strip()
+def _fallback_hint(preference: dict[str, Any], language: str) -> str:
+    """LLM がヒントを書かなかったときに、注目する好みの分類から1文を作る。"""
+    category = str(preference.get("hint") or "").strip()
     if not category:
         return ""
     if language == "ja":
         return f"「{category}」のあたりが、まだ少し気になっているようです"
     return f"Something about the {category} still seems to bother them"
+
+
+def focus_preference(
+    preferences: list[dict[str, Any]], met: list[str] | set[str]
+) -> dict[str, Any] | None:
+    """注目する好み: 満たしていない好みのうち先頭。ヒントと心境のほのめかしはこれだけを指す。
+
+    満たすまで同じ好みを指し続けるので、手番ごとにヒントの向きが変わらない。
+    """
+    return next(
+        (item for item in preferences if item.get("id") and item["id"] not in met),
+        None,
+    )
+
+
+def _focus_hint(
+    output: RequestEvaluationOutput,
+    focus: dict[str, Any],
+    unmet_count: int,
+    language: str,
+) -> str:
+    """注目する好みのヒント文。LLM が書いていなければ分類から作る。"""
+    written = next(
+        (item["text"] for item in output.hints if item["id"] == focus["id"]), ""
+    )
+    if written:
+        return written
+    if output.hint and unmet_count == 1:
+        return output.hint
+    return _fallback_hint(focus, language)
 
 
 def evaluation_record(
@@ -599,10 +646,10 @@ def evaluation_record(
     reflected = grounded_reflected_answers(
         output, questions or [], look_text, look_is_tags=look_is_tags
     )
-    all_met = len(met) == len(preferences)
-    hint = (
-        "" if all_met else (output.hint or _fallback_hint(preferences, met, language))
-    )
+    # ヒントは、根拠の検証を通した後の「満たしていない好み」から Python が1つ選ぶ
+    focus = focus_preference(preferences, met)
+    unmet_count = len(preferences) - len(met)
+    hint = "" if focus is None else _focus_hint(output, focus, unmet_count, language)
     return {
         "satisfaction": compute_satisfaction(
             output.fit, len(met), len(preferences), len(reflected)
@@ -612,6 +659,7 @@ def evaluation_record(
         "reflected_answers": reflected,
         "listening_bonus": listening_bonus(len(reflected)),
         "hint": hint,
+        "focus_preference_id": focus["id"] if focus else None,
     }
 
 
@@ -678,6 +726,53 @@ def normalize_question_limit(value: int | None) -> int:
     return max(0, min(REQUEST_QUESTION_LIMIT_MAX, int(value)))
 
 
+def normalize_clue_level(value: str | None) -> str:
+    level = str(value or "").strip()
+    return level if level in REQUEST_CLUE_LEVELS else REQUEST_CLUE_LEVEL_DEFAULT
+
+
+def question_target(
+    preferences: list[dict[str, Any]],
+    questions: list[dict[str, Any]],
+    topic_id: str | None = None,
+) -> dict[str, Any] | None:
+    """カウンセリングの答えに手掛かりを滲ませる好み。
+
+    プレイヤーが分類を選んで聞いたらその好み、自由な質問なら、これまでの答えで
+    手掛かりを出した回数が一番少ない好み(同数なら先頭)。どの質問でも1つは手掛かりが出る。
+    """
+    candidates = [item for item in preferences if item.get("id")]
+    if not candidates:
+        return None
+    if topic_id:
+        chosen = next((item for item in candidates if item["id"] == topic_id), None)
+        if chosen is not None:
+            return chosen
+    counts = {item["id"]: 0 for item in candidates}
+    for item in questions:
+        target = item.get("target_id")
+        if target in counts:
+            counts[target] += 1
+    return min(candidates, key=lambda item: counts[item["id"]])
+
+
+def previous_satisfaction(evaluations: list[dict[str, Any]]) -> int | None:
+    """直近の評価済み手番の満足度。まだ評価が無ければ None。"""
+    scored = scored_evaluations(evaluations)
+    return int(scored[-1].get("satisfaction") or 0) if scored else None
+
+
+def satisfaction_trend(current: int, previous: int | None) -> str | None:
+    """前の手番からの満足度の動き(up / down / same)。前の手番が無ければ None。"""
+    if previous is None:
+        return None
+    if current > previous:
+        return "up"
+    if current < previous:
+        return "down"
+    return "same"
+
+
 def is_fulfilled(evaluation: dict[str, Any] | None) -> bool:
     return bool(evaluation) and (
         int(evaluation.get("satisfaction") or 0) >= REQUEST_FULFILL_THRESHOLD
@@ -698,13 +793,27 @@ def public_request_view(
     latest = scored[-1] if scored else None
     current_met = set(latest.get("met_preference_ids", [])) if latest else set()
     reflected_answers = set(latest.get("reflected_answers", [])) if latest else set()
+    preferences = request.get("preferences", [])
+    # 注目する好みの記録が無い評価(以前の手番)は、満たしていない好みの先頭とみなす
+    focus_id = (
+        (
+            latest.get("focus_preference_id")
+            or (focus_preference(preferences, current_met) or {}).get("id")
+        )
+        if latest
+        else None
+    )
     return {
         "wish": request["wish"],
         "status": request.get("status") or "active",
         "satisfaction": int(latest.get("satisfaction") or 0) if latest else 0,
+        "previous_satisfaction": int(scored[-2].get("satisfaction") or 0)
+        if len(scored) >= 2
+        else None,
         "threshold": REQUEST_FULFILL_THRESHOLD,
         "fit": latest.get("fit") if latest else None,
         "hint": str(latest.get("hint") or "") if latest else "",
+        "focus_preference_id": focus_id,
         "preferences": [
             {
                 "id": item["id"],
@@ -712,7 +821,7 @@ def public_request_view(
                 "text": str(item.get("text") or "") if item["id"] in revealed else None,
                 "met": item["id"] in current_met,
             }
-            for item in request.get("preferences", [])
+            for item in preferences
             if item.get("id")
         ],
         "evaluated_turns": len(scored),
@@ -725,6 +834,7 @@ def public_request_view(
                 "question": str(item.get("question") or ""),
                 "answer": str(item.get("answer") or ""),
                 "reflected": index in reflected_answers,
+                "target_id": item.get("target_id"),
             }
             for index, item in enumerate(request.get("questions", []), start=1)
         ],
@@ -732,6 +842,7 @@ def public_request_view(
         "questions_remaining": questions_remaining(request),
         "can_regenerate": can_regenerate,
         "emphasize_hints": bool(request.get("emphasize_hints")),
+        "clue_level": normalize_clue_level(request.get("clue_level")),
         "sensitive": bool(request.get("sensitive")),
         "experience": str(request.get("experience") or "")
         if request.get("sensitive")
@@ -740,11 +851,25 @@ def public_request_view(
 
 
 def feeling_context(
-    request: dict[str, Any], evaluation: dict[str, Any] | None, language: str
+    request: dict[str, Any],
+    evaluation: dict[str, Any] | None,
+    language: str,
+    *,
+    previous: int | None = None,
 ) -> str:
-    """心境プロンプトに添える依頼ブロック。評価が無ければ願いだけを伝える。"""
+    """心境プロンプトに添える依頼ブロック。評価が無ければ願いだけを伝える。
+
+    ほのめかすのは評価が選んだ注目する好みだけにし、画面のヒントと同じ好みを指させる。
+    previous(前の手番の満足度)があれば、満足度の上下を反応の明暗に合わせさせる。
+    """
     preferences = request.get("preferences", [])
     met_ids = set(evaluation.get("met_preference_ids", [])) if evaluation else set()
+    focus = None
+    if evaluation:
+        focus_id = evaluation.get("focus_preference_id")
+        focus = next(
+            (item for item in preferences if item.get("id") == focus_id), None
+        ) or focus_preference(preferences, met_ids)
     return build_request_feeling_context(
         wish=request["wish"],
         met_texts=[item["text"] for item in preferences if item["id"] in met_ids],
@@ -753,6 +878,10 @@ def feeling_context(
         questions=list(request.get("questions", [])),
         language=language,
         emphasize_hints=bool(request.get("emphasize_hints")),
+        focus_text=str(focus.get("text") or "") if focus else None,
+        trend=satisfaction_trend(int(evaluation.get("satisfaction") or 0), previous)
+        if evaluation
+        else None,
     )
 
 
@@ -859,6 +988,7 @@ class SessionRequestService:
         turn_limit: int | None = None,
         question_limit: int | None = None,
         emphasize_hints: bool = False,
+        clue_level: str | None = None,
         previous_visit: dict[str, Any] | None = None,
         sensitive: bool = False,
     ) -> tuple[dict[str, Any], float]:
@@ -866,6 +996,7 @@ class SessionRequestService:
 
         作り直しは最初の着せ替えの前だけ許す。turn_limit が None なら施術の手数は上限なし。
         emphasize_hints なら、心境の中のヒントの一文に目印を付けさせる。
+        clue_level はカウンセリングの答えの手掛かりの強さ(None は既定の normal)。
         previous_visit({wish, review})があれば、今の姿を土台にした追加の要望にする。
         sensitive なら成人向けの依頼にする。モデルが応じず JSON にならなければ、同じ
         プロバイダーで全年齢の依頼を作り直し、公開ビューの sensitive_fallback を True にする。
@@ -975,6 +1106,7 @@ class SessionRequestService:
             turn_limit=normalize_turn_limit(turn_limit),
             question_limit=normalize_question_limit(question_limit),
             emphasize_hints=emphasize_hints,
+            clue_level=normalize_clue_level(clue_level),
             sensitive=experience is not None,
             experience=experience,
         )
@@ -983,11 +1115,17 @@ class SessionRequestService:
         return view, tracker.total_usd
 
     async def ask_question(
-        self, session_id: str, question: str, *, language: str
+        self,
+        session_id: str,
+        question: str,
+        *,
+        language: str,
+        topic_id: str | None = None,
     ) -> tuple[dict[str, Any], float]:
         """カウンセリングの質問に、本人の口調で答えさせて記録する。
 
-        伏せた好みは名指しせず、手掛かりとして答えに滲ませる。(公開ビュー, 料金 USD) を返す。
+        手掛かりを滲ませる好みは Python が1つ選ぶ(topic_id はプレイヤーが選んだ分類の好み)。
+        好みは名指しさせない。(公開ビュー, 料金 USD) を返す。
         """
         session = await session_store.get_session_by_id(session_id)
         if session is None:
@@ -1002,16 +1140,20 @@ class SessionRequestService:
             raise SessionRequestError(
                 "request_question_limit", "これ以上は質問できません"
             )
+        target = question_target(
+            request.get("preferences", []), request.get("questions", []), topic_id
+        )
         profile = await _request_profile(session)
         user_settings = await session_store.get_user_settings()
         tracker = begin_cost_tracking()
         system_prompt, user_prompt = build_request_question_prompt(
             profile=profile,
             wish=request["wish"],
-            preferences=request.get("preferences", []),
+            target=target,
             previous=request.get("questions", []),
             question=text,
             language=language,
+            clue_level=normalize_clue_level(request.get("clue_level")),
             sensitive=bool(request.get("sensitive")),
         )
         raw = await _generate_text(
@@ -1023,7 +1165,10 @@ class SessionRequestService:
         if not answer:
             raise SessionRequestError("answer_failed", "答えを受け取れませんでした")
         saved = await session_store.append_request_question(
-            session_id, question=text, answer=answer
+            session_id,
+            question=text,
+            answer=answer,
+            target_id=target.get("id") if target else None,
         )
         evaluations = await session_store.get_request_evaluations(session_id)
         view = public_request_view(

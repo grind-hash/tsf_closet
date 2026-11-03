@@ -490,7 +490,11 @@ interface GameContextType {
     limits: { turnLimit: number | null; questionLimit?: number },
   ) => Promise<void>;
   /** カウンセリングの質問をする。失敗したら投げる(入力欄の文字を残すため) */
-  askRequestQuestion: (question: string) => Promise<void>;
+  /** topicId は分類を選んで聞いた好みの id(省略は自由な質問) */
+  askRequestQuestion: (
+    question: string,
+    topicId?: string | null,
+  ) => Promise<void>;
   /** 手番の評価(SSE)で届いた依頼を反映する */
   applyRequestView: (request: SessionRequestView) => void;
   setConversationHistory: (history: ConversationMessage[]) => void;
@@ -1098,12 +1102,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
   );
 
   const askRequestQuestion = useCallback(
-    async (question: string) => {
+    async (question: string, topicId?: string | null) => {
       if (!state.sessionId) return;
       const data = await apiAskSessionRequestQuestion(
         state.sessionId,
         question,
         settingsState.language,
+        topicId,
       );
       if (data.cost_usd) addTotalCost(data.cost_usd);
       dispatch({ type: "SET_REQUEST", payload: data.request });

@@ -542,6 +542,7 @@ function ResultDetail({ scene, language }: { scene: Scene; language: string }) {
         ? t("salon.office.bankruptDetail", { cash: formatYen(cash, language) })
         : t("salon.office.resultDetail", {
             cash: formatYen(cash, language),
+            start: formatYen(scene.seasonStartCash, language),
             profit: formatSignedYen(profit ?? 0, language),
           })}
     </p>

@@ -26,8 +26,10 @@ import {
   type SalonCloseWeek,
   type SalonDifficulty,
   type SalonRun,
+  type SalonSeasonLength,
   type SalonVisit,
   type SalonVisitStart,
+  startNextSalonSeason,
   startSalonVisit,
   updateSalonRunSettings,
 } from "../apis/salon";
@@ -51,6 +53,7 @@ export type SalonBusy =
   | "checkout"
   | "settings"
   | "extra"
+  | "nextSeason"
   | null;
 
 interface SalonContextValue {
@@ -61,16 +64,24 @@ interface SalonContextValue {
   clearError: () => void;
   loadRuns: () => Promise<void>;
   openRun: (runId: string) => Promise<SalonRun | null>;
-  /** 開店する。sensitive は過激施術の初期値(開店後もオーナー室で切り替えられる) */
+  /**
+   * 開店する。sensitive は過激施術の初期値(開店後もオーナー室で切り替えられる)、
+   * seasonLength は 1 期の長さ
+   */
   createRun: (
     name: string,
     difficulty: SalonDifficulty,
     sensitive: boolean,
+    seasonLength: SalonSeasonLength,
   ) => Promise<SalonRun | null>;
   deleteRun: (runId: string) => Promise<void>;
   /** 開いているサロンの設定(過激施術)を変える */
   updateRunSettings: (settings: { sensitive: boolean }) => Promise<void>;
   declineVisit: (visitId: string) => Promise<void>;
+  /** 接客を始めてまだ施術していないお客様にお帰りいただく。成功したら true */
+  sendHomeVisit: (visitId: string) => Promise<boolean>;
+  /** 決算を終えたサロンで次の期を始める */
+  startNextSeason: () => Promise<SalonRun | null>;
   /**
    * 週を締める。announce が false なら解除された実績の通知を出さない
    * (週の締めのカットシーンで見せる。見せる前に閉じたら announceAchievements で補う)
@@ -146,9 +157,19 @@ export function SalonProvider({ children }: { children: ReactNode }) {
   );
 
   const createRun = useCallback(
-    (name: string, difficulty: SalonDifficulty, sensitive: boolean) =>
+    (
+      name: string,
+      difficulty: SalonDifficulty,
+      sensitive: boolean,
+      seasonLength: SalonSeasonLength,
+    ) =>
       run("create", async () => {
-        const created = await createSalonRun(name, difficulty, sensitive);
+        const created = await createSalonRun(
+          name,
+          difficulty,
+          sensitive,
+          seasonLength,
+        );
         setRuns((current) => [created, ...current]);
         setActiveRun(created);
         return created;
@@ -193,6 +214,35 @@ export function SalonProvider({ children }: { children: ReactNode }) {
     [activeRun, run],
   );
 
+  const sendHomeVisit = useCallback(
+    async (visitId: string) => {
+      if (!activeRun) return false;
+      const updated = await run("decline", () =>
+        declineSalonVisit(activeRun.id, visitId),
+      );
+      if (!updated) return false;
+      setActiveRun(updated);
+      // バックエンドもお帰りでセッションのアクティブを外す
+      clearSession();
+      clearMessages();
+      return true;
+    },
+    [activeRun, clearMessages, clearSession, run],
+  );
+
+  const startNextSeason = useCallback(async () => {
+    if (!activeRun) return null;
+    const updated = await run("nextSeason", () =>
+      startNextSalonSeason(activeRun.id),
+    );
+    if (!updated) return null;
+    setActiveRun(updated);
+    setRuns((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    return updated;
+  }, [activeRun, run]);
+
   const announceAchievements = useCallback(
     (achievements: SalonAchievementUnlocked[]) => {
       for (const item of achievements) {
@@ -215,13 +265,30 @@ export function SalonProvider({ children }: { children: ReactNode }) {
   const closeWeek = useCallback(
     async ({ announce = true }: { announce?: boolean } = {}) => {
       if (!activeRun) return null;
-      const result = await run("close", () => closeSalonWeek(activeRun.id));
+      const hadServing = activeRun.visits.some(
+        (item) => item.week === activeRun.week && item.status === "serving",
+      );
+      const result = await run("close", () =>
+        closeSalonWeek(activeRun.id, language),
+      );
       if (!result) return null;
       setActiveRun(result.run);
+      if (hadServing) {
+        // 接客中のお客様は締めで会計・お帰りになり、セッションも手放している
+        clearSession();
+        clearMessages();
+      }
       if (announce) announceAchievements(result.achievements);
       return result;
     },
-    [activeRun, run, announceAchievements],
+    [
+      activeRun,
+      run,
+      announceAchievements,
+      clearMessages,
+      clearSession,
+      language,
+    ],
   );
 
   const startVisit = useCallback(
@@ -294,6 +361,8 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       deleteRun,
       updateRunSettings,
       declineVisit,
+      sendHomeVisit,
+      startNextSeason,
       closeWeek,
       announceAchievements,
       startVisit,
@@ -313,6 +382,8 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       deleteRun,
       updateRunSettings,
       declineVisit,
+      sendHomeVisit,
+      startNextSeason,
       closeWeek,
       announceAchievements,
       startVisit,

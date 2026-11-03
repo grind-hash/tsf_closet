@@ -14,6 +14,7 @@ import {
   INSTRUCTION_MAX_LENGTH,
   REQUEST_QUESTION_MAX_LENGTH,
 } from "../../constants/playLimits";
+import { SALON_DECLINE_PENALTY } from "../../constants/salon";
 import { useChat } from "../../contexts/ChatContext";
 import { useGame } from "../../contexts/GameContext";
 import { useSalon } from "../../contexts/SalonContext";
@@ -38,6 +39,8 @@ import {
   isExperienceTurn,
   lastStyledHistory,
   type SalonAct,
+  type SalonPreferenceChip,
+  salonPreferenceChips,
   settleExperience,
 } from "../../utils/salonView";
 import { FavoritePromptInsertButton } from "../favoritePrompts/FavoritePromptButtons";
@@ -50,6 +53,10 @@ import SalonBgmControl from "./SalonBgmControl";
 import SalonGenerationSettings from "./SalonGenerationSettings";
 import SalonPortrait from "./SalonPortrait";
 import SalonReceipt, { RECEIPT_CASH_ARRIVAL_MS } from "./SalonReceipt";
+import {
+  SalonPreferenceChart,
+  SalonSatisfactionTile,
+} from "./SalonRequestChart";
 
 const ACTS: readonly SalonAct[] = ["counsel", "styling", "reveal", "checkout"];
 
@@ -78,7 +85,8 @@ interface RevealFrame {
 /**
  * 接客(/salon/:runId/visits/:visitId)。ADV 風のステージとメッセージ窓で、
  * カウンセリング → 施術 → お披露目 → 会計 の4幕を進める。手番は通常のプレイと
- * 同じ送信処理(usePlayTurn)で送り、満足度の数字は会計まで見せない。
+ * 同じ送信処理(usePlayTurn)で送る。施術ごとの満足度と増減は HUD に、伏せた好みの
+ * 分類(カルテ)と叶えたかどうかはメッセージ窓に出し、何を満たせばよいかを見せる。
  */
 export default function SalonServing({
   runId,
@@ -98,6 +106,7 @@ export default function SalonServing({
     startVisit,
     buyExtraTurn,
     checkoutVisit,
+    sendHomeVisit,
     soundEffects,
   } = useSalon();
   const { state: game, askRequestQuestion, setError: setGameError } = useGame();
@@ -150,6 +159,10 @@ export default function SalonServing({
   const [act, setAct] = useState<SalonAct | null>(null);
   const [blocked, setBlocked] = useState<"notFound" | "closed" | null>(null);
   const [question, setQuestion] = useState("");
+  // カルテの分類を押して書いた質問の対象(その好みの手掛かりを答えに出させる)
+  const [questionTopic, setQuestionTopic] = useState<string | null>(null);
+  const questionInputRef = useRef<HTMLTextAreaElement>(null);
+  const [sendHomeOpen, setSendHomeOpen] = useState(false);
   const [asking, setAsking] = useState(false);
   const [questionError, setQuestionError] = useState<string | null>(null);
   const [windowHidden, setWindowHidden] = useState(false);
@@ -343,6 +356,12 @@ export default function SalonServing({
     (visit?.extra_cost ?? 0) > 0 &&
     (game.isTransforming || turnsRemaining === 0);
   const emphasizeHints = Boolean(request?.emphasize_hints) && !extraTurnShown;
+  const chartChips = salonPreferenceChips(request, {
+    showFocus: !extraTurnShown,
+  });
+  // 施術を始める前(カウンセリング中や、施術の幕で1手もしていない間)はお帰りいただける
+  const canSendHome =
+    request !== null && turnsUsed === 0 && !game.isTransforming && !asking;
   const extraPrice = activeRun?.extra_turn_price ?? 0;
   const canBuyExtra =
     activeRun !== null &&
@@ -374,8 +393,9 @@ export default function SalonServing({
     setAsking(true);
     setQuestionError(null);
     try {
-      await askRequestQuestion(text);
+      await askRequestQuestion(text, questionTopic);
       setQuestion("");
+      setQuestionTopic(null);
     } catch (caught) {
       setQuestionError(
         caught instanceof Error ? caught.message : String(caught),
@@ -383,6 +403,19 @@ export default function SalonServing({
     } finally {
       setAsking(false);
     }
+  };
+
+  /** カルテの分類を押したら、その分類について伺う質問を書き込む */
+  const handleAskAbout = (chip: SalonPreferenceChip) => {
+    setQuestion(t("salon.serving.askAbout", { category: chip.category }));
+    setQuestionTopic(chip.id);
+    questionInputRef.current?.focus();
+  };
+
+  const handleSendHome = async () => {
+    const done = await sendHomeVisit(visitId);
+    setSendHomeOpen(false);
+    if (done) backToOffice();
   };
 
   const handleStyle = () => {
@@ -506,6 +539,7 @@ export default function SalonServing({
                   })}
                 </strong>
               </div>
+              <SalonSatisfactionTile request={request} />
             </>
           )}
           {settingsState.showCost && (
@@ -695,15 +729,22 @@ export default function SalonServing({
                     {t("salon.serving.waiting")}
                   </p>
                 )}
-                {!game.isTransforming &&
-                  turnsUsed > 0 &&
-                  request?.hint &&
-                  !extraTurnShown && (
-                    <p className="salon-window__hint">
-                      <span>{t("salon.serving.reaction")}</span>
-                      {request.hint}
-                    </p>
-                  )}
+                {chartChips.length > 0 && (
+                  <div className="salon-window__hint salon-window__hint--stack">
+                    <SalonPreferenceChart chips={chartChips} />
+                    {!game.isTransforming &&
+                      turnsUsed > 0 &&
+                      request?.hint &&
+                      !extraTurnShown && (
+                        <p>
+                          <span className="salon-window__hint-label">
+                            {t("salon.serving.reaction")}
+                          </span>
+                          {request.hint}
+                        </p>
+                      )}
+                  </div>
+                )}
               </>
             )}
             {act === "reveal" && reveal && (
@@ -761,15 +802,32 @@ export default function SalonServing({
 
             {act === "counsel" && request && (
               <>
+                {chartChips.length > 0 && (
+                  <div className="salon-field">
+                    <SalonPreferenceChart
+                      chips={chartChips}
+                      onAsk={handleAskAbout}
+                      selectedId={questionTopic}
+                      disabled={questionsRemaining === 0 || asking}
+                    />
+                    <p className="salon-field__hint">
+                      {t("salon.serving.chartHint")}
+                    </p>
+                  </div>
+                )}
                 <label className="salon-field">
                   <span>{t("salon.serving.questionLabel")}</span>
                   <textarea
+                    ref={questionInputRef}
                     value={question}
                     rows={2}
                     maxLength={REQUEST_QUESTION_MAX_LENGTH}
                     placeholder={t("salon.serving.questionPlaceholder")}
                     disabled={questionsRemaining === 0 || asking}
-                    onChange={(event) => setQuestion(event.target.value)}
+                    onChange={(event) => {
+                      setQuestion(event.target.value);
+                      if (!event.target.value.trim()) setQuestionTopic(null);
+                    }}
                   />
                 </label>
                 {asking ? (
@@ -799,6 +857,18 @@ export default function SalonServing({
                 >
                   {t("salon.serving.startStyling")}
                 </button>
+                {canSendHome && (
+                  <button
+                    type="button"
+                    className="salon-button salon-window__send-home"
+                    disabled={busy !== null}
+                    onClick={() => setSendHomeOpen(true)}
+                  >
+                    {t("salon.serving.sendHome", {
+                      penalty: SALON_DECLINE_PENALTY,
+                    })}
+                  </button>
+                )}
               </>
             )}
 
@@ -923,6 +993,18 @@ export default function SalonServing({
                 >
                   {t("salon.serving.toReveal")}
                 </button>
+                {canSendHome && (
+                  <button
+                    type="button"
+                    className="salon-button salon-window__send-home"
+                    disabled={busy !== null}
+                    onClick={() => setSendHomeOpen(true)}
+                  >
+                    {t("salon.serving.sendHome", {
+                      penalty: SALON_DECLINE_PENALTY,
+                    })}
+                  </button>
+                )}
               </>
             )}
 
@@ -1073,6 +1155,23 @@ export default function SalonServing({
           onClose={() => setRangeEditorOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={sendHomeOpen}
+        title={t("salon.serving.sendHomeTitle")}
+        confirmLabel={t("salon.serving.sendHome", {
+          penalty: SALON_DECLINE_PENALTY,
+        })}
+        cancelLabel={t("common.cancel")}
+        busy={busy === "decline"}
+        onConfirm={() => void handleSendHome()}
+        onCancel={() => setSendHomeOpen(false)}
+      >
+        {t("salon.serving.sendHomeBody", {
+          name: customerName,
+          penalty: SALON_DECLINE_PENALTY,
+        })}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={extraOpen}

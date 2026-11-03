@@ -104,6 +104,30 @@ describe("SalonReceipt", () => {
     expect(document.querySelector(".salon-payment-chip")).toBeNull();
   });
 
+  it("チップと指名料があれば、お支払いの内訳に行を足す", () => {
+    renderReceipt(
+      visit({ payment: 125_000, tip: 30_000, regular_fee: 20_000 }),
+      false,
+    );
+    expect(screen.getByText("評判のチップ")).toBeTruthy();
+    expect(screen.getByText("常連の指名料")).toBeTruthy();
+    expect(screen.getByText(formatYen(125_000, "ja"))).toBeTruthy();
+    expect(screen.queryByText("満点の仕上がり")).toBeNull();
+  });
+
+  it("満点の仕上がりは施術料を内訳に出し、上乗せが無い来店には内訳を出さない", () => {
+    renderReceipt(
+      visit({ satisfaction: 100, payment: 110_000, tip: 10_000 }),
+      false,
+    );
+    expect(screen.getByText("満点の仕上がり")).toBeTruthy();
+    expect(screen.getByText(formatYen(100_000, "ja"))).toBeTruthy();
+    cleanup();
+    renderReceipt(visit(), false);
+    expect(screen.queryByText("評判のチップ")).toBeNull();
+    expect(screen.queryByText("常連の指名料")).toBeNull();
+  });
+
   it("願いに届かなかったときは封蝋を押さない", () => {
     renderReceipt(
       visit({ fulfilled: false, satisfaction: 40, kept_look: false }),

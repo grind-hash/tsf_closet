@@ -163,6 +163,7 @@ from .session_request_service import (
     experience_image_context,
     feeling_context,
     is_fulfilled,
+    previous_satisfaction,
     session_request_service,
     turns_remaining,
 )
@@ -3836,6 +3837,18 @@ class GameService:
 
         評価は画像生成と並列のテキスト側で行う。失敗しても依頼の願いだけを添えて続ける。
         """
+        # 前の手番の満足度(この手番の評価はまだ履歴に無い)。反応の明暗を上下に合わせる
+        try:
+            previous = previous_satisfaction(
+                await session_store.get_request_evaluations(ctx.session.id)
+            )
+        except Exception as error:
+            logger.warning(
+                "Previous request evaluation lookup failed: %s: %s",
+                type(error).__name__,
+                error,
+            )
+            previous = None
         state.evaluation = await session_request_service.evaluate_turn(
             session_request,
             current_look=current_look,
@@ -3866,7 +3879,12 @@ class GameService:
             ctx,
             **feeling_kwargs,
             request_feeling=_RequestFeeling(
-                block=feeling_context(session_request, state.evaluation, ctx.language),
+                block=feeling_context(
+                    session_request,
+                    state.evaluation,
+                    ctx.language,
+                    previous=previous,
+                ),
                 tsf_attitude=str((profile or {}).get("tsf_attitude") or "").strip()
                 or str(getattr(ctx.character, "tsf_attitude", "") or "")
                 or str(ctx.custom_metadata.get("tsf_attitude") or ""),

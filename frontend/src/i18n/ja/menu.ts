@@ -15,7 +15,7 @@ export const menu = {
   characterChat: "キャラチャット",
   characterChatDesc: "シナリオを経由せずキャラクターと1対1で会話",
   salon: "サロン経営",
-  salonDesc: "お客様を着せ替えて、12週のサロン経営に挑む",
+  salonDesc: "お客様を着せ替えて、4週か12週のサロン経営に挑む",
   endings: "エンディング",
   endingsDesc: "達成したエンディングを確認",
   guide: "遊び方ガイド",

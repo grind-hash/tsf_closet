@@ -13,7 +13,9 @@ import {
   lastStyledHistory,
   salonCashSeries,
   salonCashTicks,
+  salonPreferenceChips,
   salonReviews,
+  salonSatisfactionDelta,
   settleExperience,
   thisWeekVisits,
 } from "./salonView";
@@ -52,6 +54,12 @@ function run(overrides: Partial<SalonRun>): SalonRun {
     reputation: 20,
     difficulty: "normal",
     initial_cash: 2_000_000,
+    season_length: "standard",
+    season_weeks: 12,
+    season: 1,
+    season_start_week: 1,
+    season_start_cash: 2_000_000,
+    seasons: [],
     sensitive: false,
     extra_turn_price: 50_000,
     extra_turns_max: 1,
@@ -119,6 +127,100 @@ describe("initialSalonAct", () => {
     expect(
       initialSalonAct({ turns_used: 1 } as unknown as SessionRequestView),
     ).toBe("styling");
+  });
+});
+
+function request(overrides: Partial<SessionRequestView>): SessionRequestView {
+  return {
+    wish: "ふんわりした姿に",
+    status: "active",
+    satisfaction: 0,
+    threshold: 70,
+    fit: null,
+    hint: "",
+    preferences: [
+      { id: "p1", hint: "色合い", text: null, met: false },
+      { id: "p2", hint: "丈", text: "膝より長い丈", met: true },
+      { id: "p3", hint: "", text: null, met: false },
+    ],
+    evaluated_turns: 0,
+    turn_limit: 3,
+    turns_used: 0,
+    turns_remaining: 3,
+    question_limit: 2,
+    questions: [],
+    questions_remaining: 2,
+    listening_bonus: 0,
+    can_regenerate: true,
+    ...overrides,
+  };
+}
+
+describe("salon request chart", () => {
+  it("カルテは分類と叶えた印を並べ、施術後だけ注目の印を付ける", () => {
+    const before = salonPreferenceChips(
+      request({
+        focus_preference_id: "p1",
+        questions: [
+          {
+            question: "色は？",
+            answer: "淡い色",
+            reflected: false,
+            target_id: "p1",
+          },
+        ],
+      }),
+      { showFocus: true },
+    );
+    expect(before.map((chip) => chip.category)).toEqual(["色合い", "丈", "？"]);
+    expect(before.map((chip) => chip.asked)).toEqual([true, false, false]);
+    // まだ施術していないので、ヒントが指す好みは無い
+    expect(before.some((chip) => chip.focus)).toBe(false);
+
+    const styled = request({ evaluated_turns: 1, focus_preference_id: "p1" });
+    expect(
+      salonPreferenceChips(styled, { showFocus: true }).map(
+        (chip) => chip.focus,
+      ),
+    ).toEqual([true, false, false]);
+    // 追加施術の手番ではヒントを見せない
+    expect(
+      salonPreferenceChips(styled, { showFocus: false }).some(
+        (chip) => chip.focus,
+      ),
+    ).toBe(false);
+    expect(salonPreferenceChips(null, { showFocus: true })).toEqual([]);
+  });
+
+  it("満足度の増減は2手目の施術から出す", () => {
+    expect(salonSatisfactionDelta(null)).toBeNull();
+    expect(
+      salonSatisfactionDelta(
+        request({
+          evaluated_turns: 1,
+          satisfaction: 40,
+          previous_satisfaction: null,
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      salonSatisfactionDelta(
+        request({
+          evaluated_turns: 2,
+          satisfaction: 52,
+          previous_satisfaction: 60,
+        }),
+      ),
+    ).toBe(-8);
+    expect(
+      salonSatisfactionDelta(
+        request({
+          evaluated_turns: 3,
+          satisfaction: 72,
+          previous_satisfaction: 60,
+        }),
+      ),
+    ).toBe(12);
   });
 });
 

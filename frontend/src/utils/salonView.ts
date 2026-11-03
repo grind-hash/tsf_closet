@@ -61,6 +61,60 @@ export function isAdultSalonTurn(
   return Boolean(request?.sensitive) && nsfwMode;
 }
 
+/** 接客画面のカルテに並べる、伏せた好み1件 */
+export interface SalonPreferenceChip {
+  id: string;
+  /** 好みの分類(色合い・丈など)。分類が無ければ「？」 */
+  category: string;
+  /** 一度満たした好みは本文も見える。まだなら null */
+  text: string | null;
+  /** 最新の手番で満たしている */
+  met: boolean;
+  /** ヒントと心境のほのめかしが今指している好み */
+  focus: boolean;
+  /** カウンセリングで、この好みの手掛かりを聞き出した */
+  asked: boolean;
+}
+
+/**
+ * カルテ(伏せた好みの分類の一覧)。showFocus が false なら注目の印を付けない
+ * (追加施術の手番ではヒントを見せないため)
+ */
+export function salonPreferenceChips(
+  request: SessionRequestView | null,
+  { showFocus }: { showFocus: boolean },
+): SalonPreferenceChip[] {
+  if (!request) return [];
+  const asked = new Set(
+    request.questions
+      .map((item) => item.target_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const evaluated = request.evaluated_turns > 0;
+  return request.preferences.map((item) => ({
+    id: item.id,
+    category: item.hint.trim() || "？",
+    text: item.text,
+    met: item.met,
+    focus:
+      showFocus &&
+      evaluated &&
+      !item.met &&
+      item.id === request.focus_preference_id,
+    asked: asked.has(item.id),
+  }));
+}
+
+/** 前の施術からの満足度の増減。施術が2手未満なら null */
+export function salonSatisfactionDelta(
+  request: SessionRequestView | null,
+): number | null {
+  if (!request || request.evaluated_turns < 2) return null;
+  const previous = request.previous_satisfaction;
+  if (previous === null || previous === undefined) return null;
+  return request.satisfaction - previous;
+}
+
 /** 接客画面を開いたときの幕。施術を始めていれば施術から再開する */
 export function initialSalonAct(request: SessionRequestView | null): SalonAct {
   return request && request.turns_used > 0 ? "styling" : "counsel";
@@ -187,6 +241,8 @@ export interface SalonWeekCutscene {
   /** 前回の姿のまま翌週に来るお客様 */
   regulars: string[];
   result: SalonResult | null;
+  /** 締めた週の期の期首の現金(決算の成功の線。1 期目は開業資金) */
+  seasonStartCash: number;
   achievements: SalonAchievementUnlocked[];
 }
 
@@ -231,6 +287,10 @@ export function buildWeekCutscene(
       .filter((visit) => visit.returning_look)
       .map((visit) => visit.customer.name),
     result: after.result,
+    seasonStartCash:
+      after.result?.start_cash ??
+      before.season_start_cash ??
+      before.initial_cash,
     achievements: closed.achievements,
   };
 }

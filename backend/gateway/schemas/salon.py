@@ -6,7 +6,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ..consts.salon import SALON_DEFAULT_DIFFICULTY, SALON_NAME_MAX
+from ..consts.salon import (
+    SALON_DEFAULT_DIFFICULTY,
+    SALON_DEFAULT_SEASON_LENGTH,
+    SALON_NAME_MAX,
+)
 from .session import SessionRequestResponse
 
 
@@ -18,6 +22,10 @@ class SalonCreateRequest(BaseModel):
     sensitive: bool = Field(
         False,
         description="過激施術(成人向けの依頼)。開店後もオーナー室で切り替えられる",
+    )
+    season_length: Literal["short", "standard"] = Field(
+        SALON_DEFAULT_SEASON_LENGTH,
+        description="1 期の長さ(short=4 週 / standard=12 週)。開業資金と開店時の評判も変わる",
     )
 
 
@@ -72,6 +80,10 @@ class SalonVisitResponse(BaseModel):
     extra_cost: int = Field(
         0, description="資金で足した施術の代金(購入時に現金から引いている)"
     )
+    tip: int = Field(0, description="評判に応じたチップ(payment に含む)")
+    regular_fee: int = Field(
+        0, description="姿を持ち越して続けて来た常連の指名料(payment に含む)"
+    )
 
 
 class SalonWeekResponse(BaseModel):
@@ -91,19 +103,32 @@ class SalonWeekResponse(BaseModel):
 class SalonResultResponse(BaseModel):
     outcome: str = Field(..., description="success / partial / bankrupt")
     cash: int
-    profit: int | None = None
+    profit: int | None = Field(None, description="期の黒字(期末 − 期首の現金)")
+    season: int = Field(1, description="何期目の決算か")
+    start_cash: int | None = Field(None, description="期首の現金(成功の線)")
 
 
 class SalonRunResponse(BaseModel):
     id: str
     name: str
-    status: str = Field(..., description="active / completed / bankrupt")
-    week: int
-    total_weeks: int
+    status: str = Field(
+        ...,
+        description="active / completed(期の決算済み。次の期へ進める) / bankrupt",
+    )
+    week: int = Field(..., description="開店からの通しの週")
+    total_weeks: int = Field(..., description="今の期の最終週(通しの週)")
     cash: int
     reputation: int
     difficulty: str = Field(..., description="経営の難易度 (easy / normal / hard)")
-    initial_cash: int = Field(..., description="開業資金。決算の成功の線")
+    initial_cash: int = Field(..., description="開業資金。1 期目の決算の成功の線")
+    season_length: str = Field(..., description="期の長さ (short / standard)")
+    season_weeks: int = Field(..., description="1 期の週数")
+    season: int = Field(1, description="今の期(1 から)")
+    season_start_week: int = Field(1, description="今の期の最初の週(通しの週)")
+    season_start_cash: int = Field(..., description="期首の現金。今の期の成功の線")
+    seasons: list[SalonResultResponse] = Field(
+        default_factory=list, description="決算を終えた期の結果(古い順)"
+    )
     sensitive: bool = Field(
         False, description="過激施術の設定。NSFW モードが OFF の間は効かない"
     )

@@ -1,7 +1,9 @@
 """Salon management mode (サロン経営モード).
 
-A salon run is one season: each week customers book, the player serves them,
-and closing the week pays the fixed costs. Serving a customer is an ordinary
+A salon run is a salon from opening to closing, played in seasons (4 or 12
+weeks): each week customers book, the player serves them, and closing the week
+pays the fixed costs. After a season's settlement the owner may go on to the next
+season with the same cash and reputation. Serving a customer is an ordinary
 game session with a request (the shared request foundation, with a 3-turn
 limit and 2 counselling questions); this module adds only the visit (booking,
 checkout, review) and the management (cash, reputation, weekly settlement).
@@ -21,16 +23,17 @@ from sqlalchemy import select
 
 from ..consts.salon import (
     SALON_BASE_PRICE,
+    SALON_CLUE_LEVELS,
     SALON_DEFAULT_DIFFICULTY,
+    SALON_DEFAULT_SEASON_LENGTH,
     SALON_DIFFICULTY_INITIAL_CASH,
     SALON_EXTRA_TURN_PRICE,
     SALON_EXTRA_TURNS_MAX,
     SALON_HINT_EMPHASIS_DIFFICULTIES,
-    SALON_INITIAL_REPUTATION,
     SALON_NAME_MAX,
     SALON_QUESTION_LIMIT,
     SALON_REVIEW_MAX,
-    SALON_TOTAL_WEEKS,
+    SALON_SEASON_LENGTHS,
     SALON_TURN_LIMIT,
     SALON_WEEKLY_FIXED_COST,
     SALON_WEEKLY_SALARY,
@@ -61,9 +64,13 @@ from .salon_rules import (
     clamp_reputation,
     declined_reputation_delta,
     keeps_look,
+    normalize_season_length,
     pick_customers,
+    season_initial_cash,
+    season_initial_reputation,
     season_result,
-    visit_payment,
+    season_weeks,
+    visit_bill,
     visit_reputation_delta,
     week_summary,
 )
@@ -116,9 +123,70 @@ def _load_state(run: SalonRun) -> dict[str, Any]:
 
 
 def _initial_cash(state: dict[str, Any]) -> int:
-    """開店時の開業資金。決算の成功の線になる。"""
+    """開店時の開業資金。1 期目の決算の成功の線になる。"""
     default = SALON_DIFFICULTY_INITIAL_CASH[SALON_DEFAULT_DIFFICULTY]
     return int(state.get("initial_cash", default))
+
+
+def _season_length(state: dict[str, Any]) -> str:
+    """期の長さ(short / standard)。以前のサロンは標準(12 週)。"""
+    return normalize_season_length(state.get("season_length"))
+
+
+def _season(state: dict[str, Any]) -> int:
+    """今の期(1 から)。"""
+    return max(1, int(state.get("season") or 1))
+
+
+def _season_start_week(state: dict[str, Any]) -> int:
+    return max(1, int(state.get("season_start_week") or 1))
+
+
+def _season_start_cash(state: dict[str, Any]) -> int:
+    """期首の現金。その期の決算の成功の線になる(1 期目は開業資金)。"""
+    return int(state.get("season_start_cash", _initial_cash(state)))
+
+
+def _seasons(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """決算を終えた期の結果。以前のサロンは result だけを持つので、それを 1 期目とみなす。"""
+    seasons = state.get("seasons")
+    if isinstance(seasons, list):
+        return [item for item in seasons if isinstance(item, dict)]
+    result = state.get("result")
+    if isinstance(result, dict):
+        return [{"season": 1, **result}]
+    return []
+
+
+def _regular_visits(visit: SalonVisit, visits: list[SalonVisit]) -> int:
+    """前回の姿のまま続けて来店した回数(初来店や、姿を持ち越していない来店は 0)。
+
+    1 週前に同じお客様が姿を持ち帰っていれば 1 回、その来店も持ち越しなら更に遡る。
+    """
+    if not visit.start_history_id:
+        return 0
+    key = (visit.customer_source, visit.customer_id)
+    count = 0
+    week = visit.week - 1
+    while week >= 1:
+        previous = next(
+            (
+                item
+                for item in visits
+                if item.week == week
+                and (item.customer_source, item.customer_id) == key
+                and item.status == "done"
+                and item.kept_history_id
+            ),
+            None,
+        )
+        if previous is None:
+            break
+        count += 1
+        if not previous.start_history_id:
+            break
+        week -= 1
+    return count
 
 
 def _serialize_visit(visit: SalonVisit, visits: list[SalonVisit]) -> dict[str, Any]:
@@ -155,6 +223,8 @@ def _serialize_visit(visit: SalonVisit, visits: list[SalonVisit]) -> dict[str, A
         "returning_look": visit.start_history_id is not None,
         "experience_bonus": int(visit.experience_bonus or 0),
         "extra_cost": int(visit.extra_cost or 0),
+        "tip": int(visit.tip or 0),
+        "regular_fee": int(visit.regular_fee or 0),
     }
 
 
@@ -171,6 +241,12 @@ def _serialize_run(run: SalonRun, visits: list[SalonVisit]) -> dict[str, Any]:
         "reputation": run.reputation,
         "difficulty": state.get("difficulty", SALON_DEFAULT_DIFFICULTY),
         "initial_cash": _initial_cash(state),
+        "season_length": _season_length(state),
+        "season_weeks": season_weeks(_season_length(state)),
+        "season": _season(state),
+        "season_start_week": _season_start_week(state),
+        "season_start_cash": _season_start_cash(state),
+        "seasons": _seasons(state),
         "sensitive": bool(state.get("sensitive", False)),
         "weekly_fixed_cost": SALON_WEEKLY_FIXED_COST,
         "weekly_salary": SALON_WEEKLY_SALARY,
@@ -247,7 +323,7 @@ class SalonService:
     @staticmethod
     def _require_active(run: SalonRun) -> None:
         if run.status != "active":
-            raise SalonError("salon_closed", "このサロンのシーズンは終わっています")
+            raise SalonError("salon_closed", "このサロンの期は終わっています")
 
     @staticmethod
     async def _book_week(
@@ -315,17 +391,22 @@ class SalonService:
         difficulty: str = SALON_DEFAULT_DIFFICULTY,
         *,
         sensitive: bool = False,
+        season_length: str = SALON_DEFAULT_SEASON_LENGTH,
     ) -> dict[str, Any]:
-        """開店する。開業資金は経営の難易度で決まる。1週目の予約も入れる。
+        """開店する。開業資金は期の長さと経営の難易度で決まる。1週目の予約も入れる。
 
         sensitive は過激施術の初期値(開店画面が直近のサロンの設定を引き継いで渡す)。
+        season_length は 1 期の長さ(short=4 週 / standard=12 週)。
         """
         clean_name = " ".join(str(name or "").split())[:SALON_NAME_MAX]
         if not clean_name:
             raise SalonError("empty_name", "サロンの名前を入力してください")
-        initial_cash = SALON_DIFFICULTY_INITIAL_CASH.get(difficulty)
-        if initial_cash is None:
+        if difficulty not in SALON_DIFFICULTY_INITIAL_CASH:
             raise SalonError("invalid_difficulty", "経営の難易度が正しくありません")
+        if season_length not in SALON_SEASON_LENGTHS:
+            raise SalonError("invalid_season_length", "営業期間が正しくありません")
+        initial_cash = season_initial_cash(season_length, difficulty)
+        weeks = season_weeks(season_length)
         now = datetime.now()
         run = SalonRun(
             id=str(uuid.uuid4()),
@@ -333,15 +414,20 @@ class SalonService:
             name=clean_name,
             status="active",
             week=1,
-            total_weeks=SALON_TOTAL_WEEKS,
+            total_weeks=weeks,
             cash=initial_cash,
-            reputation=SALON_INITIAL_REPUTATION,
+            reputation=season_initial_reputation(season_length),
             seed=random.randint(1, 2**31 - 1),
             state_json=json.dumps(
                 {
                     "difficulty": difficulty,
                     "initial_cash": initial_cash,
                     "sensitive": bool(sensitive),
+                    "season_length": season_length,
+                    "season": 1,
+                    "season_start_week": 1,
+                    "season_start_cash": initial_cash,
+                    "seasons": [],
                     "weeks": [],
                 }
             ),
@@ -468,6 +554,7 @@ class SalonService:
                 turn_limit=SALON_TURN_LIMIT,
                 question_limit=SALON_QUESTION_LIMIT,
                 emphasize_hints=difficulty in SALON_HINT_EMPHASIS_DIFFICULTIES,
+                clue_level=SALON_CLUE_LEVELS.get(difficulty),
                 previous_visit=previous_visit,
                 sensitive=adult,
             )
@@ -563,7 +650,6 @@ class SalonService:
                 await session_store.mark_session_request_fulfilled(
                     session_id, styled.id
                 )
-        payment = visit_payment(satisfaction, fulfilled)
         delta = visit_reputation_delta(satisfaction, fulfilled)
         # 願いを叶えたお客様は、最後の施術の姿のまま帰り、翌週もその姿で来る。
         # 体験の場面は持ち帰る姿にしない
@@ -591,16 +677,25 @@ class SalonService:
             visit = self._find_visit(visits, visit_id)
             if visit.status != "serving":
                 raise SalonError("not_serving", "接客中のお客様ではありません")
+            # チップは会計前の評判で決める(この来店で上がる分は含めない)
+            bill = visit_bill(
+                satisfaction,
+                fulfilled,
+                reputation=run.reputation,
+                regular_visits=_regular_visits(visit, visits),
+            )
             visit.status = "done"
             visit.satisfaction = satisfaction
             visit.fulfilled = fulfilled
-            visit.payment = payment
+            visit.payment = bill.total
+            visit.tip = bill.tip
+            visit.regular_fee = bill.regular_fee
             visit.reputation_delta = delta
             visit.review = review
             visit.kept_history_id = kept_history_id
             visit.experience_bonus = bonus
             visit.updated_at = datetime.now()
-            run.cash += payment
+            run.cash += bill.total
             run.reputation = clamp_reputation(run.reputation + delta)
             run.updated_at = datetime.now()
             await db.commit()
@@ -712,12 +807,23 @@ class SalonService:
         }
 
     async def decline_visit(self, run_id: str, visit_id: str) -> dict[str, Any]:
-        """予約を断る。評判が少し下がる。"""
+        """予約を断る。評判が少し下がる。
+
+        接客を始めていても、まだ施術していなければ(カウンセリングだけなら)お帰りいただける。
+        評判は予約を断るときと同じだけ下がる。
+        """
         async with async_session_factory() as db:
             run, visits = await self._load(db, run_id)
             self._require_active(run)
             visit = self._find_visit(visits, visit_id)
-            if visit.status != "booked":
+            session_id = visit.session_id if visit.status == "serving" else None
+            if visit.status == "serving":
+                if not await self._is_unstyled(session_id):
+                    raise SalonError(
+                        "already_styled",
+                        "施術を始めたお客様は、会計してお見送りしてください",
+                    )
+            elif visit.status != "booked":
                 raise SalonError("visit_closed", "この予約は断れません")
             delta = declined_reputation_delta()
             visit.status = "declined"
@@ -726,15 +832,52 @@ class SalonService:
             run.reputation = clamp_reputation(run.reputation + delta)
             run.updated_at = datetime.now()
             await db.commit()
-            return _serialize_run(run, visits)
+            serialized = _serialize_run(run, visits)
+        if session_id:
+            # お帰りいただいたお客様を、通常のプレイ画面で開いたままにしない
+            active = await session_store.get_active_session()
+            if active is not None and active.id == session_id:
+                await session_store.reset_session()
+        return serialized
 
-    async def close_week(self, run_id: str) -> dict[str, Any]:
+    @staticmethod
+    async def _is_unstyled(session_id: str | None) -> bool:
+        """接客中のお客様に、まだ施術していないか(依頼が無いときも施術前とみなす)。"""
+        if not session_id:
+            return True
+        request = await session_request_service.get_request_view(session_id)
+        return request is None or int(request.get("turns_used") or 0) == 0
+
+    async def _settle_serving(self, run_id: str, *, language: str) -> None:
+        """週を締める前に、接客中のお客様を片付ける。
+
+        施術前ならお帰りいただき(断った扱い)、施術していれば今の満足度で会計する。
+        """
+        async with async_session_factory() as db:
+            run, visits = await self._load(db, run_id)
+            serving = [
+                (item.id, item.session_id)
+                for item in visits
+                if item.week == run.week and item.status == "serving"
+            ]
+        for visit_id, session_id in serving:
+            if await self._is_unstyled(session_id):
+                await self.decline_visit(run_id, visit_id)
+            else:
+                await self.checkout_visit(run_id, visit_id, language=language)
+
+    async def close_week(self, run_id: str, *, language: str = "ja") -> dict[str, Any]:
         """週を締め、{run, achievements} を返す。
 
-        接客していない予約は断ったものとして扱い、固定費と本業の収入を反映する。
-        現金がマイナスなら倒産、最終週なら決算し、それ以外は翌週の予約を入れる。
-        決算したときは、サロン経営の実績を判定する。
+        接客中のお客様は、施術前ならお帰りいただき、施術していれば今の満足度で会計する
+        (口コミは language で書く)。接客していない予約は断ったものとして扱い、
+        固定費と本業の収入を反映する。現金がマイナスなら倒産、期の最終週なら決算し、
+        それ以外は翌週の予約を入れる。決算したときは、サロン経営の実績を判定する。
         """
+        async with async_session_factory() as db:
+            run, _ = await self._load(db, run_id)
+            self._require_active(run)
+        await self._settle_serving(run_id, language=language)
         async with async_session_factory() as db:
             run, visits = await self._load(db, run_id)
             self._require_active(run)
@@ -769,17 +912,28 @@ class SalonService:
             run.cash = summary["cash_end"]
             state = _load_state(run)
             state["weeks"] = [*state.get("weeks", []), summary]
+            season = _season(state)
+            start_cash = _season_start_cash(state)
+            settled = _seasons(state)
             if run.cash < 0:
                 run.status = "bankrupt"
-                state["result"] = {"outcome": "bankrupt", "cash": run.cash}
-            elif run.week >= run.total_weeks:
-                run.status = "completed"
-                initial_cash = _initial_cash(state)
                 state["result"] = {
-                    "outcome": season_result(run.cash, initial_cash),
+                    "outcome": "bankrupt",
                     "cash": run.cash,
-                    "profit": run.cash - initial_cash,
+                    "season": season,
                 }
+                state["seasons"] = [*settled, state["result"]]
+            elif run.week >= run.total_weeks:
+                # 期の決算。成功の線は期首の現金(1 期目は開業資金)
+                run.status = "completed"
+                state["result"] = {
+                    "outcome": season_result(run.cash, start_cash),
+                    "cash": run.cash,
+                    "profit": run.cash - start_cash,
+                    "season": season,
+                    "start_cash": start_cash,
+                }
+                state["seasons"] = [*settled, state["result"]]
             else:
                 run.week += 1
                 kept = [
@@ -797,6 +951,32 @@ class SalonService:
             _unlock_salon_achievements() if serialized["status"] == "completed" else []
         )
         return {"run": serialized, "achievements": achievements}
+
+    async def next_season(self, run_id: str) -> dict[str, Any]:
+        """決算を終えたサロンで、同じ長さの次の期を始める。現金と評判は持ち越す。
+
+        倒産したサロンは続けられない。期をまたいで姿は持ち越さない(最終週は持ち帰らない)。
+        """
+        async with async_session_factory() as db:
+            run, _ = await self._load(db, run_id)
+            if run.status != "completed":
+                raise SalonError(
+                    "season_not_settled", "決算を終えたサロンだけが次の期へ進めます"
+                )
+            state = _load_state(run)
+            state["seasons"] = _seasons(state)
+            state["season"] = _season(state) + 1
+            state["season_start_week"] = run.week + 1
+            state["season_start_cash"] = run.cash
+            state["result"] = None
+            run.status = "active"
+            run.week += 1
+            run.total_weeks += season_weeks(_season_length(state))
+            run.state_json = json.dumps(state, ensure_ascii=False)
+            run.updated_at = datetime.now()
+            await self._book_week(db, run)
+            await db.commit()
+        return await self.get_run(run_id)
 
 
 salon_service = SalonService()

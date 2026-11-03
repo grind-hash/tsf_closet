@@ -7,6 +7,7 @@ import pytest
 from gateway.consts.salon import (
     SALON_BASE_PRICE,
     SALON_BOOKINGS_MAX,
+    SALON_REGULAR_FEE_MAX,
     SALON_REPUTATION_MAX,
     SALON_WEEKLY_FIXED_COST,
     SALON_WEEKLY_SALARY,
@@ -17,8 +18,13 @@ from gateway.services.salon_rules import (
     clamp_reputation,
     declined_reputation_delta,
     keeps_look,
+    normalize_season_length,
     pick_customers,
+    season_initial_cash,
+    season_initial_reputation,
     season_result,
+    season_weeks,
+    visit_bill,
     visit_payment,
     visit_reputation_delta,
     week_summary,
@@ -69,7 +75,8 @@ def test_pick_customers_caps_at_pool_size_and_handles_empty() -> None:
 @pytest.mark.parametrize(
     ("satisfaction", "fulfilled", "rate"),
     [
-        (100, True, 1.5),
+        (100, True, 2.0),
+        (99, True, 1.5),
         (70, True, 1.5),
         (60, False, 1.0),
         (40, False, 1.0),
@@ -133,6 +140,106 @@ def test_season_result(cash, outcome) -> None:
     assert season_result(cash, 3_000_000) == outcome
 
 
+def test_visit_bill_adds_tip_and_regular_fee_only_when_fulfilled() -> None:
+    bill = visit_bill(80, True, reputation=60, regular_visits=2)
+    assert bill.course == 75_000
+    assert bill.tip == 30_000
+    assert bill.regular_fee == 20_000
+    assert bill.total == 125_000
+    # 指名料は上限で止まる
+    assert (
+        visit_bill(80, True, reputation=0, regular_visits=9).regular_fee
+        == SALON_REGULAR_FEE_MAX
+    )
+    unmet = visit_bill(60, False, reputation=100, regular_visits=3)
+    assert (unmet.course, unmet.tip, unmet.regular_fee) == (50_000, 0, 0)
+
+
+@pytest.mark.parametrize(
+    ("length", "weeks", "reputation", "bookings"),
+    [("short", 4, 45, 2), ("standard", 12, 20, 1), ("unknown", 12, 20, 1)],
+)
+def test_season_length_sets_weeks_and_opening_reputation(
+    length, weeks, reputation, bookings
+) -> None:
+    assert season_weeks(length) == weeks
+    assert season_initial_reputation(length) == reputation
+    assert bookings_count(season_initial_reputation(length)) == bookings
+    assert normalize_season_length(length) in {"short", "standard"}
+
+
+@pytest.mark.parametrize("length", ["short", "standard"])
+def test_initial_cash_keeps_the_difficulty_meaning_for_each_length(length) -> None:
+    """やさしいは接客しなくても倒産せず、ふつう・むずかしいは接客を怠ると倒産する。"""
+    weekly_loss = SALON_WEEKLY_FIXED_COST - SALON_WEEKLY_SALARY
+    season_loss = weekly_loss * season_weeks(length)
+    assert season_initial_cash(length, "easy") >= season_loss
+    assert season_initial_cash(length, "normal") < season_loss
+    assert season_initial_cash(length, "hard") < season_initial_cash(length, "normal")
+
+
+def _simulate(length: str, difficulty: str, satisfactions: list[int]) -> int | None:
+    """毎回 satisfactions を順に繰り返して接客したときの期の黒字。倒産したら None。
+
+    予約数・持ち越し・チップ・指名料・評判は本番と同じ純関数で回す(経済の回帰用)。
+    """
+    weeks = season_weeks(length)
+    cash = start = season_initial_cash(length, difficulty)
+    reputation = season_initial_reputation(length)
+    kept: dict[int, int] = {}
+    next_id = served = 0
+    for week in range(1, weeks + 1):
+        batch = list(kept.items())
+        kept = {}
+        for _ in range(max(0, bookings_count(reputation) - len(batch))):
+            next_id += 1
+            batch.append((next_id, 0))
+        for customer, streak in batch:
+            satisfaction = satisfactions[served % len(satisfactions)]
+            served += 1
+            fulfilled = satisfaction >= 70
+            cash += visit_bill(
+                satisfaction, fulfilled, reputation=reputation, regular_visits=streak
+            ).total
+            reputation = clamp_reputation(
+                reputation + visit_reputation_delta(satisfaction, fulfilled)
+            )
+            if keeps_look(fulfilled, week, weeks):
+                kept[customer] = streak + 1
+        cash += SALON_WEEKLY_SALARY - SALON_WEEKLY_FIXED_COST
+        if cash < 0:
+            return None
+    return cash - start
+
+
+@pytest.mark.parametrize(
+    ("length", "satisfactions", "low", "high"),
+    [
+        # 全員の願いを叶えると、12 週で 200 万円を超える(名店の上の実績に届く)
+        ("standard", [80], 2_000_000, 4_000_000),
+        # 満点・達成・未達が混ざる腕前: 100 万円台(200 万円には届かない)
+        ("standard", [100, 80, 80, 60, 50], 1_000_000, 2_000_000),
+        # 5 人に 2 人を叶える: 黒字だが 50 万円に届かない
+        ("standard", [80, 60, 50, 80, 45], 300_000, 500_000),
+        # 叶えられないと赤字
+        ("standard", [60], -2_000_000, -1),
+        ("short", [80], 500_000, 1_000_000),
+        ("short", [80, 60, 50, 80, 45], 1, 300_000),
+        ("short", [60], -1_000_000, -1),
+    ],
+)
+def test_season_economy_regression(length, satisfactions, low, high) -> None:
+    profit = _simulate(length, "normal", satisfactions)
+    assert profit is not None
+    assert low <= profit <= high
+
+
+@pytest.mark.parametrize("length", ["short", "standard"])
+def test_hard_goes_bankrupt_when_satisfaction_stays_around_fifty(length) -> None:
+    assert _simulate(length, "hard", [50]) is None
+    assert _simulate(length, "easy", [50]) is not None
+
+
 def test_salon_achievement_conditions() -> None:
     from gateway.services.achievements import (
         ACHIEVEMENTS,
@@ -150,3 +257,6 @@ def test_salon_achievement_conditions() -> None:
     stats.salon_best_profit = 300_000
     assert check_achievement(ACHIEVEMENTS["salon_profit_30"], stats)
     assert not check_achievement(ACHIEVEMENTS["salon_profit_50"], stats)
+    stats.salon_best_profit = 1_999_999
+    assert check_achievement(ACHIEVEMENTS["salon_profit_100"], stats)
+    assert not check_achievement(ACHIEVEMENTS["salon_profit_200"], stats)

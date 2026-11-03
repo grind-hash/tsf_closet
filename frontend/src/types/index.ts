@@ -618,11 +618,15 @@ export interface SessionRequestView {
   status: "active" | "fulfilled" | string;
   /** 最新の手番の満足度 (0-100) */
   satisfaction: number;
+  /** 1つ前の評価済み手番の満足度。無ければ null(増減の表示に使う) */
+  previous_satisfaction?: number | null;
   /** 依頼達成となる満足度 */
   threshold: number;
   fit: string | null;
   /** 最新の手番のヒント。好みを全部満たしていれば空 */
   hint: string;
+  /** ヒントと心境のほのめかしが指している(まだ満たしていない)好みの id */
+  focus_preference_id?: string | null;
   preferences: SessionRequestPreference[];
   evaluated_turns: number;
   /** 施術の手数の上限。null は上限なし */
@@ -641,6 +645,8 @@ export interface SessionRequestView {
   can_regenerate: boolean;
   /** 心境の中のヒントの一文が〔〕で囲まれているか(サロンのやさしい・ふつう) */
   emphasize_hints?: boolean;
+  /** カウンセリングの答えの手掛かりの強さ(サロンは難易度で決まる) */
+  clue_level?: "plain" | "normal" | "subtle" | string;
   /** 成人向けの依頼か(サロンの過激施術) */
   sensitive?: boolean;
   /** 成人向けの依頼で、願いの姿でしたいこと(お披露目の体験の場面の指示) */
@@ -655,4 +661,6 @@ export interface SessionRequestQuestion {
   answer: string;
   /** 最新の手番の姿がこの答えを汲んでいるか(加点の対象) */
   reflected: boolean;
+  /** 答えに手掛かりを滲ませた好みの id */
+  target_id?: string | null;
 }

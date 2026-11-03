@@ -10,6 +10,8 @@ import { API_BASE } from "../utils/api";
 import { jsonInit, requestJson } from "../utils/http";
 
 export type SalonDifficulty = "easy" | "normal" | "hard";
+/** 1 期の長さ(short=4 週 / standard=12 週) */
+export type SalonSeasonLength = "short" | "standard";
 export type SalonRunStatus = "active" | "completed" | "bankrupt";
 export type SalonVisitStatus = "booked" | "serving" | "done" | "declined";
 
@@ -43,6 +45,10 @@ export interface SalonVisit {
   experience_bonus: number;
   /** 資金で足した施術の代金(購入時に現金から引いている) */
   extra_cost: number;
+  /** 評判に応じたチップ(payment に含む。古い来店には無い) */
+  tip?: number;
+  /** 姿を持ち越して続けて来た常連の指名料(payment に含む。古い来店には無い) */
+  regular_fee?: number;
 }
 
 /** 締めた週の収支 */
@@ -62,19 +68,38 @@ export interface SalonWeek {
 export interface SalonResult {
   outcome: "success" | "partial" | "bankrupt";
   cash: number;
+  /** 期の黒字(期末 − 期首の現金) */
   profit?: number | null;
+  /** 何期目の決算か */
+  season?: number;
+  /** 期首の現金(成功の線) */
+  start_cash?: number | null;
 }
 
 export interface SalonRun {
   id: string;
   name: string;
+  /** completed は期の決算済み(次の期へ進める) */
   status: SalonRunStatus;
+  /** 開店からの通しの週 */
   week: number;
+  /** 今の期の最終週(通しの週) */
   total_weeks: number;
   cash: number;
   reputation: number;
   difficulty: SalonDifficulty;
   initial_cash: number;
+  season_length: SalonSeasonLength;
+  /** 1 期の週数 */
+  season_weeks: number;
+  /** 今の期(1 から) */
+  season: number;
+  /** 今の期の最初の週(通しの週) */
+  season_start_week: number;
+  /** 期首の現金。今の期の成功の線 */
+  season_start_cash: number;
+  /** 決算を終えた期の結果(古い順) */
+  seasons: SalonResult[];
   /** 過激施術(成人向けの依頼)。NSFW モードが OFF の間は効かない */
   sensitive: boolean;
   weekly_fixed_cost: number;
@@ -137,10 +162,16 @@ export function createSalonRun(
   name: string,
   difficulty: SalonDifficulty,
   sensitive: boolean,
+  seasonLength: SalonSeasonLength,
 ): Promise<SalonRun> {
   return requestJson<SalonRun>(
     BASE,
-    jsonInit("POST", { name, difficulty, sensitive }),
+    jsonInit("POST", {
+      name,
+      difficulty,
+      sensitive,
+      season_length: seasonLength,
+    }),
     { fallbackMessage: "開店できませんでした" },
   );
 }
@@ -205,6 +236,7 @@ export function checkoutSalonVisit(
   );
 }
 
+/** 予約か、接客を始めてまだ施術していないお客様にお帰りいただく */
 export function declineSalonVisit(
   runId: string,
   visitId: string,
@@ -216,10 +248,26 @@ export function declineSalonVisit(
   );
 }
 
-export function closeSalonWeek(runId: string): Promise<SalonCloseWeek> {
+/**
+ * 週を締める。接客中のお客様は、施術前ならお帰りいただき、施術していれば
+ * 今の満足度で会計する(口コミは language で書く)。
+ */
+export function closeSalonWeek(
+  runId: string,
+  language: string,
+): Promise<SalonCloseWeek> {
   return requestJson<SalonCloseWeek>(
     `${BASE}/${runId}/close-week`,
-    jsonInit("POST"),
+    jsonInit("POST", { language }),
     { fallbackMessage: "週を締められませんでした" },
+  );
+}
+
+/** 決算を終えたサロンで、現金と評判を持ち越して次の期を始める */
+export function startNextSalonSeason(runId: string): Promise<SalonRun> {
+  return requestJson<SalonRun>(
+    `${BASE}/${runId}/next-season`,
+    jsonInit("POST"),
+    { fallbackMessage: "次の期を始められませんでした" },
   );
 }
