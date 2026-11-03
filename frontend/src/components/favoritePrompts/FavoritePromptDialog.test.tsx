@@ -134,6 +134,12 @@ const fetchMock = vi.fn(
         })),
       });
     }
+    if (
+      url.startsWith("/api/favorite-prompts/categories/") &&
+      init?.method === "DELETE"
+    ) {
+      return jsonResponse(200, { success: true, deleted: true });
+    }
     if (url === "/api/favorite-prompts/import") {
       return jsonResponse(200, {
         ...importPreview,
@@ -191,6 +197,14 @@ async function openPicker() {
     screen.getByRole("button", { name: "お気に入りプロンプトを挿入" }),
   );
   await screen.findByRole("button", { name: "白ワンピース" });
+}
+
+async function openCategoryDeleteConfirm(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: `「${name}」を編集` }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "このカテゴリーを削除" }),
+  );
+  await screen.findByRole("checkbox");
 }
 
 function chooseImportFile(file: File) {
@@ -465,6 +479,52 @@ describe("FavoritePromptDialog", () => {
         { id: "p-2", category_id: "cat-1" },
       ],
     });
+  });
+
+  it("deletes a category but keeps its prompts as uncategorized by default", async () => {
+    renderHarness();
+    await openPicker();
+    await openCategoryDeleteConfirm("衣装");
+
+    expect(screen.getByText(/未分類に移ります/)).toBeTruthy();
+    const check = screen.getByRole("checkbox", {
+      name: "カテゴリーに含まれるお気に入りプロンプト（1 件）も削除する",
+    }) as HTMLInputElement;
+    expect(check.checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /^衣装/ })).toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: "白ワンピース" })).toBeTruthy();
+    expect(calledUrls()).toContain("/api/favorite-prompts/categories/cat-1");
+  });
+
+  it("deletes the prompts in a category together when the box is checked", async () => {
+    renderHarness();
+    await openPicker();
+    await openCategoryDeleteConfirm("衣装");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "カテゴリーに含まれるお気に入りプロンプト（1 件）も削除する",
+      }),
+    );
+    expect(screen.getByText(/1 件をまとめて削除しますか/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /^衣装/ })).toBeNull(),
+    );
+    expect(screen.queryByRole("button", { name: "白ワンピース" })).toBeNull();
+    expect(screen.getByRole("button", { name: "笑顔" })).toBeTruthy();
+    const call = fetchMock.mock.calls.find(([input]) =>
+      String(input).startsWith("/api/favorite-prompts/categories/"),
+    );
+    expect(String(call?.[0])).toBe(
+      "/api/favorite-prompts/categories/cat-1?delete_prompts=true",
+    );
+    expect(call?.[1]?.method).toBe("DELETE");
   });
 
   it("keeps a collapsed category closed after reopening the dialog", async () => {

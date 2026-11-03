@@ -30,9 +30,10 @@ export default function FavoritePromptCategoryForm({
   onChildOpenChange,
 }: FavoritePromptCategoryFormProps) {
   const { t } = useTranslation();
-  const { createCategory, updateCategory, deleteCategory } =
+  const { prompts, createCategory, updateCategory, deleteCategory } =
     useFavoritePrompts();
   const nameId = useId();
+  const deletePromptsId = useId();
   const colorLabelId = useId();
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -42,6 +43,11 @@ export default function FavoritePromptCategoryForm({
   );
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletePrompts, setDeletePrompts] = useState(false);
+
+  const promptCount = category
+    ? prompts.filter((p) => p.category_id === category.id).length
+    : 0;
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -67,7 +73,7 @@ export default function FavoritePromptCategoryForm({
   const handleDelete = async () => {
     if (!category) return;
     setBusy(true);
-    const deleted = await deleteCategory(category.id);
+    const deleted = await deleteCategory(category.id, { deletePrompts });
     setBusy(false);
     setConfirmDelete(false);
     if (deleted) onDone();
@@ -133,7 +139,10 @@ export default function FavoritePromptCategoryForm({
           <button
             type="button"
             className="favorite-prompts__delete"
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => {
+              setDeletePrompts(false);
+              setConfirmDelete(true);
+            }}
             aria-label={t("favoritePrompts.deleteCategory")}
             title={t("favoritePrompts.deleteCategory")}
             disabled={busy}
@@ -169,9 +178,30 @@ export default function FavoritePromptCategoryForm({
         onCancel={() => setConfirmDelete(false)}
         busy={busy}
       >
-        {t("favoritePrompts.deleteCategoryConfirm", {
-          name: category?.label ?? "",
-        })}
+        <p>
+          {deletePrompts
+            ? t("favoritePrompts.deleteCategoryWithPromptsConfirm", {
+                name: category?.label ?? "",
+                count: promptCount,
+              })
+            : t("favoritePrompts.deleteCategoryConfirm", {
+                name: category?.label ?? "",
+              })}
+        </p>
+        <label className="confirm-dialog__check" htmlFor={deletePromptsId}>
+          <input
+            type="checkbox"
+            id={deletePromptsId}
+            checked={deletePrompts}
+            onChange={(e) => setDeletePrompts(e.target.checked)}
+            disabled={busy}
+          />
+          <span>
+            {t("favoritePrompts.deleteCategoryPrompts", {
+              count: promptCount,
+            })}
+          </span>
+        </label>
       </ConfirmDialog>
     </form>
   );

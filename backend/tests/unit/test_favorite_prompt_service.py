@@ -116,6 +116,32 @@ async def test_delete_category_moves_prompts_to_uncategorized(db):
     assert prompts[0].category_id is None
 
 
+async def test_delete_category_with_prompts_removes_only_its_prompts(db):
+    category = await FavoritePromptService.create_category(db, label="衣装")
+    other = await FavoritePromptService.create_category(db, label="髪型")
+    await FavoritePromptService.create_prompt(
+        db, label="白ワンピース", content="white dress", category_id=category.id
+    )
+    kept_in_other = await FavoritePromptService.create_prompt(
+        db, label="ポニーテール", content="ponytail", category_id=other.id
+    )
+    kept_uncategorized = await FavoritePromptService.create_prompt(
+        db, label="笑顔", content="smile"
+    )
+    await db.commit()
+
+    assert await FavoritePromptService.delete_category(
+        db, category_id=category.id, delete_prompts=True
+    )
+    await db.commit()
+
+    categories, prompts = await FavoritePromptService.list_all(db)
+    assert [c.id for c in categories] == [other.id]
+    assert sorted(p.id for p in prompts) == sorted(
+        [kept_in_other.id, kept_uncategorized.id]
+    )
+
+
 async def test_delete_prompt(db):
     prompt = await FavoritePromptService.create_prompt(db, label="a", content="b")
     assert await FavoritePromptService.delete_prompt(db, prompt_id=prompt.id)

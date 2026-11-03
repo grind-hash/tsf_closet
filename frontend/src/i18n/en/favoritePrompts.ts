@@ -38,6 +38,10 @@ export const favoritePrompts = {
   deletePromptConfirm: 'Delete "{{name}}"?',
   deleteCategoryConfirm:
     'Delete category "{{name}}"? Its favorite prompts are kept and moved to Uncategorized.',
+  deleteCategoryWithPromptsConfirm:
+    'Delete category "{{name}}" together with its {{count}} favorite prompt(s)? Deleted prompts cannot be restored.',
+  deleteCategoryPrompts:
+    "Also delete the favorite prompts in this category ({{count}})",
   loadFailed: "Could not load favorite prompts",
   saveFailed: "Could not save",
   deleteFailed: "Could not delete",

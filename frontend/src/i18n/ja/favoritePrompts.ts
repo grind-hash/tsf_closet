@@ -38,6 +38,10 @@ export const favoritePrompts = {
   deletePromptConfirm: "「{{name}}」を削除しますか？",
   deleteCategoryConfirm:
     "カテゴリー「{{name}}」を削除しますか？中のお気に入りプロンプトは削除されず、未分類に移ります。",
+  deleteCategoryWithPromptsConfirm:
+    "カテゴリー「{{name}}」と、中のお気に入りプロンプト {{count}} 件をまとめて削除しますか？削除したプロンプトは元に戻せません。",
+  deleteCategoryPrompts:
+    "カテゴリーに含まれるお気に入りプロンプト（{{count}} 件）も削除する",
   loadFailed: "お気に入りプロンプトを読み込めませんでした",
   saveFailed: "保存できませんでした",
   deleteFailed: "削除できませんでした",

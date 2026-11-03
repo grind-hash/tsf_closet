@@ -279,11 +279,17 @@ async def update_favorite_prompt_category(
     "/categories/{category_id}",
     response_model=DeleteFavoritePromptResponse,
 )
-async def delete_favorite_prompt_category(category_id: str):
+async def delete_favorite_prompt_category(
+    category_id: str,
+    delete_prompts: bool = Query(
+        False, description="true なら中のプロンプトも削除する（既定は未分類へ移す）"
+    ),
+):
     async with async_session_factory() as db:
         deleted = await FavoritePromptService.delete_category(
             db,
             category_id=category_id,
+            delete_prompts=delete_prompts,
             user_id=DEFAULT_USER_ID,
         )
         await db.commit()

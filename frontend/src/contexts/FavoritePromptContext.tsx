@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import {
   createFavoritePrompt,
   createFavoritePromptCategory,
+  type DeleteFavoritePromptCategoryOptions,
   deleteFavoritePrompt,
   deleteFavoritePromptCategory,
   exportFavoritePrompts,
@@ -70,7 +71,7 @@ type FavoritePromptAction =
   | { type: "APPLY_ORDER"; placements: FavoritePromptPlacement[] }
   | { type: "REMOVE_PROMPT"; promptId: string }
   | { type: "UPSERT_CATEGORY"; category: FavoritePromptCategory }
-  | { type: "REMOVE_CATEGORY"; categoryId: string }
+  | { type: "REMOVE_CATEGORY"; categoryId: string; deletePrompts: boolean }
   | { type: "OPEN_PICKER"; openId: number }
   | { type: "OPEN_SAVE"; openId: number; content: string }
   | { type: "CLOSE" };
@@ -156,13 +157,17 @@ function favoritePromptReducer(
         categories: upsert(state.categories, action.category),
       };
     case "REMOVE_CATEGORY":
-      // バックエンドと同じく、中のプロンプトは未分類へ移す
+      // バックエンドと同じく、中のプロンプトは一緒に消すか未分類へ移す
       return {
         ...state,
         categories: state.categories.filter((c) => c.id !== action.categoryId),
-        prompts: state.prompts.map((p) =>
-          p.category_id === action.categoryId ? { ...p, category_id: null } : p,
-        ),
+        prompts: action.deletePrompts
+          ? state.prompts.filter((p) => p.category_id !== action.categoryId)
+          : state.prompts.map((p) =>
+              p.category_id === action.categoryId
+                ? { ...p, category_id: null }
+                : p,
+            ),
       };
     case "OPEN_PICKER":
       return { ...state, dialog: { kind: "picker", openId: action.openId } };
@@ -215,7 +220,11 @@ interface FavoritePromptContextValue {
     categoryId: string,
     changes: Partial<FavoritePromptCategoryInput>,
   ) => Promise<FavoritePromptCategory | null>;
-  deleteCategory: (categoryId: string) => Promise<boolean>;
+  /** options.deletePrompts が true なら中のプロンプトも削除する */
+  deleteCategory: (
+    categoryId: string,
+    options?: DeleteFavoritePromptCategoryOptions,
+  ) => Promise<boolean>;
   /** すべてをファイルとして保存する（CSV の見出しは表示言語に合わせる） */
   exportPrompts: (format: FavoritePromptFileFormat) => Promise<boolean>;
   /** 書き込まずに、追加・上書きされる内容を確認する */
@@ -402,10 +411,17 @@ export function FavoritePromptProvider({ children }: { children: ReactNode }) {
   );
 
   const deleteCategory = useCallback(
-    async (categoryId: string) => {
+    async (
+      categoryId: string,
+      options: DeleteFavoritePromptCategoryOptions = {},
+    ) => {
       try {
-        await deleteFavoritePromptCategory(categoryId);
-        dispatch({ type: "REMOVE_CATEGORY", categoryId });
+        await deleteFavoritePromptCategory(categoryId, options);
+        dispatch({
+          type: "REMOVE_CATEGORY",
+          categoryId,
+          deletePrompts: options.deletePrompts ?? false,
+        });
         return true;
       } catch (err) {
         reportError(t("favoritePrompts.deleteFailed"), err);
