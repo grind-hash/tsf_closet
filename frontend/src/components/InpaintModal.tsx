@@ -15,6 +15,14 @@ import { DEFAULT_INPAINT_SETTINGS } from "../types";
 import { API_BASE } from "../utils/api";
 import "./InpaintModal.css";
 
+/** 適用したマスクの補足情報 */
+export interface InpaintApplyDetail {
+  /** 選んだシステムマスク・プリセットマスクの名前。手描き・履歴マスクは null */
+  name: string | null;
+  /** 塗られた画素が1つも無い */
+  empty: boolean;
+}
+
 interface InpaintModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -22,6 +30,7 @@ interface InpaintModalProps {
     settings: InpaintSettings,
     maskDataUrl: string | null,
     selectedMaskId: string | null,
+    detail: InpaintApplyDetail,
   ) => void;
   currentImageUrl: string | null;
   initialSettings?: InpaintSettings;
@@ -151,7 +160,10 @@ export default function InpaintModal({
   const MASK_SAVE_HEIGHT = 152;
 
   // マスクを合成（プリセット + ストローク）→ 104x152pxでアルファチャンネル付きで返却
-  const mergeMask = useCallback(async (): Promise<string | null> => {
+  const mergeMask = useCallback(async (): Promise<{
+    dataUrl: string;
+    empty: boolean;
+  } | null> => {
     console.log("[InpaintModal] mergeMask called");
     console.log(
       "[InpaintModal] maskPresetUrl:",
@@ -248,7 +260,7 @@ export default function InpaintModal({
 
     const result = saveCanvas.toDataURL("image/png");
     console.log(`[InpaintModal] mergeMask result: ${result.length} chars`);
-    return result;
+    return { dataUrl: result, empty: alphaPixels === 0 };
   }, [maskPresetUrl, baseImageSize]);
 
   // クリア
@@ -264,10 +276,18 @@ export default function InpaintModal({
     const mergedMask = await mergeMask();
     console.log(
       "[InpaintModal] mergedMask:",
-      mergedMask ? `${mergedMask.length} chars` : "null",
+      mergedMask ? `${mergedMask.dataUrl.length} chars` : "null",
     );
     console.log("[InpaintModal] selectedMaskId:", selectedMaskId);
-    onApply({ ...settings, enabled: true }, mergedMask, selectedMaskId);
+    const named = [...maskList.system, ...maskList.presets].find(
+      (mask) => mask.id === selectedMaskId,
+    );
+    onApply(
+      { ...settings, enabled: true },
+      mergedMask?.dataUrl ?? null,
+      selectedMaskId,
+      { name: named?.name ?? null, empty: mergedMask?.empty ?? true },
+    );
   };
 
   // キャンセル
@@ -289,7 +309,7 @@ export default function InpaintModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mask_base64: mergedMask,
+          mask_base64: mergedMask.dataUrl,
           name: presetName.trim(),
         }),
       });

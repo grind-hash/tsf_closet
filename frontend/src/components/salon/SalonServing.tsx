@@ -41,6 +41,8 @@ import {
   settleExperience,
 } from "../../utils/salonView";
 import { FavoritePromptInsertButton } from "../favoritePrompts/FavoritePromptButtons";
+import ComparisonSliderModal from "../gallery/ComparisonSliderModal";
+import InpaintModal from "../InpaintModal";
 import MainLayout from "../layout/MainLayout";
 import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
@@ -52,6 +54,18 @@ import SalonReceipt, { RECEIPT_CASH_ARRIVAL_MS } from "./SalonReceipt";
 const ACTS: readonly SalonAct[] = ["counsel", "styling", "reveal", "checkout"];
 
 const SALON_TRANSPARENT_PORTRAIT_KEY = "salon_transparent_portrait";
+
+/**
+ * 施術する範囲(インペイントのマスク)。来店ごとに持ち、通常プレイのマスクとは
+ * 共有しない(別の画像のために描いたマスクがお客様にかからないように)
+ */
+interface StylingRange {
+  visitId: string;
+  maskDataUrl: string;
+  maskId: string | null;
+  /** システムマスク・プリセットマスクの名前。手描きは null */
+  name: string | null;
+}
 
 /** お披露目の時点の施術前後の画像。会計でゲームのセッションを手放した後も見せる */
 interface RevealFrame {
@@ -75,7 +89,7 @@ export default function SalonServing({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { state: settingsState } = useSettings();
+  const { state: settingsState, setInpaintSettings } = useSettings();
   const {
     activeRun,
     busy,
@@ -90,6 +104,13 @@ export default function SalonServing({
   const { state: chat, setInputText } = useChat();
   const playTurn = usePlayTurn();
   const adultTurn = isAdultSalonTurn(game.request, settingsState.nsfwMode);
+  const isNovelAI = settingsState.imageProvider === "novelai";
+  const [rangeState, setRangeState] = useState<StylingRange | null>(null);
+  const [rangeEditorOpen, setRangeEditorOpen] = useState(false);
+  // 別のお客様へ移ったら、前のお客様のために選んだ範囲は使わない
+  const range = rangeState?.visitId === visitId ? rangeState : null;
+  // マスクを使えるのは NovelAI だけ
+  const activeRange = isNovelAI ? range : null;
   const salonTurn = useCallback<TransformHandler>(
     (
       instruction,
@@ -106,6 +127,14 @@ export default function SalonServing({
         {
           ...options,
           nsfwMode: adultTurn,
+          // マスクは接客画面で選んだ範囲だけを送り、通常プレイのマスクは使わない。
+          // 体験の場面は構図が変わるため、範囲を選んでいても全体を描く
+          maskImage:
+            instructionType === "action" ? undefined : activeRange?.maskDataUrl,
+          maskId:
+            instructionType === "action"
+              ? undefined
+              : (activeRange?.maskId ?? undefined),
           // 体験の場面(行動の手番)は、主人公と相手役のタグを書き分けて描く。
           // 混ざると主人公の髪型などが相手役へ移り、主人公の性別が入れ替わって見える
           ...(instructionType === "action"
@@ -115,7 +144,7 @@ export default function SalonServing({
         instructionType,
         ...rest,
       ),
-    [playTurn, adultTurn],
+    [playTurn, adultTurn, activeRange],
   );
   const transformRequest = useTransformRequest(salonTurn);
   const [act, setAct] = useState<SalonAct | null>(null);
@@ -125,6 +154,7 @@ export default function SalonServing({
   const [questionError, setQuestionError] = useState<string | null>(null);
   const [windowHidden, setWindowHidden] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [reveal, setReveal] = useState<RevealFrame | null>(null);
   const [experience, setExperience] = useState<ExperienceFrame | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState(false);
@@ -329,6 +359,14 @@ export default function SalonServing({
     !game.isTransforming &&
     turnsRemaining !== 0 &&
     instruction.trim().length > 0;
+  // 施術の幕で1手以上施術したあとだけ見比べられる。比較の一覧は夢の場面と施術の
+  // 手番を見分けられないため、夢の場面を描いた後(お披露目以降・その後の再訪)は閉じる
+  const canCompare =
+    act === "styling" &&
+    !game.isTransforming &&
+    Boolean(game.sessionId) &&
+    game.history.length > 1 &&
+    !game.history.some(isExperienceTurn);
 
   const handleAsk = async () => {
     const text = question.trim();
@@ -574,6 +612,15 @@ export default function SalonServing({
             <button
               type="button"
               className="salon-window__log-button"
+              onClick={() => setCompareOpen(true)}
+              disabled={!canCompare}
+              title={t("salon.serving.compareHint")}
+            >
+              {t("salon.serving.compare")}
+            </button>
+            <button
+              type="button"
+              className="salon-window__log-button"
               onClick={() => setLogOpen(true)}
               disabled={!request}
             >
@@ -795,12 +842,46 @@ export default function SalonServing({
                         <label htmlFor={instructionId}>
                           {t("salon.serving.instructionLabel")}
                         </label>
-                        <FavoritePromptInsertButton
-                          onInsert={insertFavoritePrompt}
-                          className="salon-field__favorite"
-                          disabled={game.isTransforming}
-                        />
+                        <div className="salon-field__actions">
+                          <FavoritePromptInsertButton
+                            onInsert={insertFavoritePrompt}
+                            className="salon-field__favorite"
+                            disabled={game.isTransforming}
+                          />
+                          <button
+                            type="button"
+                            className="salon-field__range"
+                            disabled={game.isTransforming || !game.currentImage}
+                            onClick={() => setRangeEditorOpen(true)}
+                          >
+                            {t("salon.serving.rangeSelect")}
+                          </button>
+                        </div>
                       </div>
+                      {range && (
+                        <div className="salon-range-chip">
+                          <span>
+                            {t("salon.serving.rangeChip", {
+                              name:
+                                range.name ?? t("salon.serving.rangeHandDrawn"),
+                            })}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={t("salon.serving.rangeClear")}
+                            title={t("salon.serving.rangeClear")}
+                            disabled={game.isTransforming}
+                            onClick={() => setRangeState(null)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+                      {!isNovelAI && (
+                        <p className="salon-field__hint">
+                          {t("salon.serving.rangeNovelaiOnly")}
+                        </p>
+                      )}
                       <textarea
                         id={instructionId}
                         ref={instructionRef}
@@ -824,9 +905,12 @@ export default function SalonServing({
                         disabled={!canStyle}
                         onClick={handleStyle}
                       >
-                        {t("salon.serving.style", {
-                          count: turnsRemaining ?? 0,
-                        })}
+                        {t(
+                          activeRange
+                            ? "salon.serving.styleRange"
+                            : "salon.serving.style",
+                          { count: turnsRemaining ?? 0 },
+                        )}
                       </button>
                     )}
                   </>
@@ -960,6 +1044,35 @@ export default function SalonServing({
           </aside>
         )}
       </div>
+
+      <ComparisonSliderModal
+        isOpen={compareOpen}
+        sessionId={game.sessionId}
+        initialBasis="prev"
+        showPortrait={false}
+        onClose={() => setCompareOpen(false)}
+      />
+
+      {rangeEditorOpen && game.currentImage && (
+        <InpaintModal
+          isOpen
+          currentImageUrl={game.currentImage}
+          initialSettings={settingsState.inpaintSettings}
+          initialMaskDataUrl={range?.maskDataUrl ?? null}
+          initialMaskId={range?.maskId ?? null}
+          onApply={(settings, maskDataUrl, maskId, detail) => {
+            // 強さなどの値は ⚙ と同じく通常プレイと共通にする
+            setInpaintSettings(settings);
+            setRangeState(
+              maskDataUrl && !detail.empty
+                ? { visitId, maskDataUrl, maskId, name: detail.name }
+                : null,
+            );
+            setRangeEditorOpen(false);
+          }}
+          onClose={() => setRangeEditorOpen(false)}
+        />
+      )}
 
       <ConfirmDialog
         open={extraOpen}

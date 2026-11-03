@@ -14,12 +14,16 @@ import type { GalleryItem } from "../../types";
 import { API_BASE } from "../../utils/api";
 import "./ComparisonSliderModal.css";
 
-type BasisMode = "origin" | "prev";
+export type BasisMode = "origin" | "prev";
 
 interface ComparisonSliderModalProps {
   isOpen: boolean;
   sessionId: string | null;
   onClose: () => void;
+  /** 開いたときの比較の基準(既定は起点) */
+  initialBasis?: BasisMode;
+  /** 「現在の姿で立ち絵を生成」を出すか(既定は出す) */
+  showPortrait?: boolean;
 }
 
 const PLAY_INTERVAL_MS = 1600;
@@ -28,6 +32,8 @@ export default function ComparisonSliderModal({
   isOpen,
   sessionId,
   onClose,
+  initialBasis = "origin",
+  showPortrait = true,
 }: ComparisonSliderModalProps) {
   const { t, i18n } = useTranslation();
   const { state } = useSettings();
@@ -56,7 +62,7 @@ export default function ComparisonSliderModal({
     setError(null);
     setIsLoading(true);
     setSelectedTurnIndex(0);
-    setBasisMode("origin");
+    setBasisMode(initialBasis);
     setWipePosition(50);
     setIsPlaying(false);
     setPortraitImage(null);
@@ -84,7 +90,7 @@ export default function ComparisonSliderModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, sessionId, t]);
+  }, [isOpen, sessionId, initialBasis, t]);
 
   const origin = frames[0] ?? null;
   const turnFrames = useMemo(() => frames.slice(1), [frames]);
@@ -376,46 +382,48 @@ export default function ComparisonSliderModal({
                 )}
               </div>
 
-              <div className="comparison-slider-modal__portrait">
-                <button
-                  type="button"
-                  className="comparison-slider-modal__portrait-btn"
-                  onClick={handleGeneratePortrait}
-                  disabled={isPortraitLoading}
-                >
-                  {isPortraitLoading
-                    ? t("gallery.comparison.portraitGenerating")
-                    : t("gallery.comparison.portraitButton")}
-                </button>
-                <p className="comparison-slider-modal__portrait-hint">
-                  {t("gallery.comparison.portraitHint")}
-                </p>
-                {portraitError && (
-                  <p className="comparison-slider-modal__portrait-error">
-                    {portraitError}
+              {showPortrait && (
+                <div className="comparison-slider-modal__portrait">
+                  <button
+                    type="button"
+                    className="comparison-slider-modal__portrait-btn"
+                    onClick={handleGeneratePortrait}
+                    disabled={isPortraitLoading}
+                  >
+                    {isPortraitLoading
+                      ? t("gallery.comparison.portraitGenerating")
+                      : t("gallery.comparison.portraitButton")}
+                  </button>
+                  <p className="comparison-slider-modal__portrait-hint">
+                    {t("gallery.comparison.portraitHint")}
                   </p>
-                )}
-                {portraitImage && (
-                  <div className="comparison-slider-modal__portrait-result">
-                    <button
-                      type="button"
-                      className="comparison-slider-modal__portrait-toggle"
-                      onClick={() => setUsePortraitAsAfter((v) => !v)}
-                    >
-                      {usePortraitAsAfter
-                        ? t("gallery.comparison.portraitDisableInSlider")
-                        : t("gallery.comparison.portraitEnableInSlider")}
-                    </button>
-                    <a
-                      className="comparison-slider-modal__portrait-download"
-                      href={portraitImage}
-                      download={`standing-portrait-${sessionId ?? "session"}.png`}
-                    >
-                      {t("gallery.comparison.portraitDownload")}
-                    </a>
-                  </div>
-                )}
-              </div>
+                  {portraitError && (
+                    <p className="comparison-slider-modal__portrait-error">
+                      {portraitError}
+                    </p>
+                  )}
+                  {portraitImage && (
+                    <div className="comparison-slider-modal__portrait-result">
+                      <button
+                        type="button"
+                        className="comparison-slider-modal__portrait-toggle"
+                        onClick={() => setUsePortraitAsAfter((v) => !v)}
+                      >
+                        {usePortraitAsAfter
+                          ? t("gallery.comparison.portraitDisableInSlider")
+                          : t("gallery.comparison.portraitEnableInSlider")}
+                      </button>
+                      <a
+                        className="comparison-slider-modal__portrait-download"
+                        href={portraitImage}
+                        download={`standing-portrait-${sessionId ?? "session"}.png`}
+                      >
+                        {t("gallery.comparison.portraitDownload")}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}

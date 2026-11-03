@@ -186,6 +186,13 @@ export const salon = {
     instructionLabel: "Styling instruction",
     instructionPlaceholder: "e.g. Change into a pale blue one-piece dress",
     style: "Style ({{count}} turn(s) left)",
+    styleRange: "Style the selected area ({{count}} turn(s) left)",
+    rangeSelect: "Select area",
+    rangeChip: "Area: {{name}}",
+    rangeHandDrawn: "hand-drawn",
+    rangeClear: "Clear the area and style the whole look",
+    rangeNovelaiOnly:
+      "The area is only used when images are drawn with NovelAI. With the current settings, the whole image is redrawn.",
     styling: "Styling…",
     turnsUsed: "No styling turns left",
     toReveal: "Move on to the reveal",
@@ -235,6 +242,9 @@ export const salon = {
       "They went home in their original look, still glowing from the dream",
     review: "Review",
     log: "Log",
+    compare: "Compare",
+    compareHint:
+      "Compare each styled look with the one before it or with the look on arrival (after at least one styling turn, until the reveal)",
     logTitle: "Visit log",
     logEmpty: "Nothing recorded yet",
     logQuestion: "Question",

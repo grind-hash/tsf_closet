@@ -183,6 +183,13 @@ export const salon = {
     instructionLabel: "施術の指示",
     instructionPlaceholder: "例: 淡い水色のワンピースに着替えさせる",
     style: "施術する（残り {{count}} 手）",
+    styleRange: "選んだ範囲を施術する（残り {{count}} 手）",
+    rangeSelect: "範囲を選ぶ",
+    rangeChip: "範囲: {{name}}",
+    rangeHandDrawn: "手描き",
+    rangeClear: "範囲を解除して全体を施術する",
+    rangeNovelaiOnly:
+      "範囲は NovelAI で描くときだけ使われます。今の設定では全体を描き直します。",
     styling: "施術しています…",
     turnsUsed: "施術の手数を使い切りました",
     toReveal: "お披露目へ進む",
@@ -230,6 +237,9 @@ export const salon = {
     revertedAfterExperience: "夢の余韻を胸に、元の姿でお帰りになりました",
     review: "口コミ",
     log: "ログ",
+    compare: "見比べる",
+    compareHint:
+      "施術ごとの姿を、直前の姿やご来店時の姿と並べて見比べます（施術を1手以上したあと、お披露目の前まで）",
     logTitle: "接客の記録",
     logEmpty: "まだ記録がありません",
     logQuestion: "質問",

@@ -266,6 +266,97 @@
   cursor: not-allowed;
 }
 
+.salon-field__actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 施術する範囲を選ぶ（インペイントのマスク編集を開く） */
+.salon-field__range {
+  min-height: 1.75rem;
+  padding: 0 10px;
+  border: 1px solid var(--salon-border-strong);
+  border-radius: 2px;
+  color: var(--salon-text-2);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.salon-field__range:hover:not(:disabled),
+.salon-field__range:focus-visible {
+  color: var(--salon-accent-strong);
+  border-color: var(--salon-accent-line);
+}
+
+.salon-field__range:focus-visible {
+  outline: 2px solid var(--salon-accent);
+  outline-offset: 1px;
+}
+
+.salon-field__range:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 範囲を選んでいる間だけ出す。✕ で解除すると全体の施術に戻る */
+.salon-range-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--salon-accent-line);
+  border-radius: 999px;
+  color: var(--salon-accent-strong);
+  background: var(--salon-glow);
+  font-size: 0.8rem;
+}
+
+.salon-range-chip span {
+  overflow-wrap: anywhere;
+}
+
+.salon-range-chip button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: var(--salon-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.salon-range-chip button:hover:not(:disabled),
+.salon-range-chip button:focus-visible {
+  color: var(--salon-text);
+  background: var(--salon-surface-2);
+}
+
+.salon-range-chip button:focus-visible {
+  outline: 2px solid var(--salon-accent);
+  outline-offset: 1px;
+}
+
+.salon-range-chip button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .salon-field__hint {
   margin: 0;
   color: var(--salon-muted);
@@ -1528,6 +1619,11 @@
 .salon-window__hide-button:hover {
   border-color: var(--salon-accent);
   color: var(--salon-accent);
+}
+
+.salon-window__log-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .salon-window__text {
