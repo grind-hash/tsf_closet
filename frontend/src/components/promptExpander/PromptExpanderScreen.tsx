@@ -21,6 +21,7 @@ import { ROUTES } from "../../routes";
 import ApiKeyConsentModal from "../ApiKeyConsentModal";
 import { hasApiKeyConsent } from "../apiKeyConsentStorage";
 import MainLayout from "../layout/MainLayout";
+import { NovelaiAccountCheckOnOpen } from "../NovelaiAccountModals";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import PromptExpanderComposer from "./PromptExpanderComposer";
@@ -286,6 +287,11 @@ export default function PromptExpanderScreen() {
           </div>
         </div>
       )}
+
+      {/* 同意はこの画面のダイアログ(生成元によらず出す)で受け、済んでからプランを確かめる */}
+      <NovelaiAccountCheckOnOpen
+        ready={!showApiKeyConsent && !apiKeyConsentDeclined}
+      />
     </MainLayout>
   );
 }

@@ -3,6 +3,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -19,6 +20,7 @@ import { useSalon } from "../../contexts/SalonContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import { useCountUp } from "../../hooks/useCountUp";
+import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { usePlayTurn } from "../../hooks/usePlayTurn";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
@@ -32,15 +34,18 @@ import {
   type ExperienceFrame,
   formatYen,
   initialSalonAct,
+  isAdultSalonTurn,
   isExperienceTurn,
   lastStyledHistory,
   type SalonAct,
   settleExperience,
 } from "../../utils/salonView";
+import { FavoritePromptInsertButton } from "../favoritePrompts/FavoritePromptButtons";
 import MainLayout from "../layout/MainLayout";
 import AnlasConfirmDialog from "../ui/AnlasConfirmDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import SalonBgmControl from "./SalonBgmControl";
+import SalonGenerationSettings from "./SalonGenerationSettings";
 import SalonPortrait from "./SalonPortrait";
 import SalonReceipt, { RECEIPT_CASH_ARRIVAL_MS } from "./SalonReceipt";
 
@@ -84,9 +89,7 @@ export default function SalonServing({
   const { state: game, askRequestQuestion, setError: setGameError } = useGame();
   const { state: chat, setInputText } = useChat();
   const playTurn = usePlayTurn();
-  // 過激施術の依頼のときだけ成人向けで描く(過激施術 OFF の来店は全年齢)。
-  // 依頼は接客の開始時に NSFW モードも踏まえて決まるので、依頼の値に合わせる
-  const adultTurn = Boolean(game.request?.sensitive) && settingsState.nsfwMode;
+  const adultTurn = isAdultSalonTurn(game.request, settingsState.nsfwMode);
   const salonTurn = useCallback<TransformHandler>(
     (
       instruction,
@@ -137,6 +140,14 @@ export default function SalonServing({
   const experienceBaseRef = useRef(0);
   const experienceBaseImageRef = useRef<string | null>(null);
   const experienceSeenRef = useRef(false);
+  const instructionId = useId();
+  const instructionRef = useRef<HTMLTextAreaElement>(null);
+  const insertFavoritePrompt = useInsertAtCaret(
+    instructionRef,
+    chat.inputText,
+    setInputText,
+    " ",
+  );
   const language = settingsState.language;
   // お客様の背景を透過してサロンの背景に立たせる。白い服が欠けるなど合わないときは切れる
   const [transparentPortrait, setTransparentPortrait] =
@@ -147,6 +158,16 @@ export default function SalonServing({
         return value;
       },
     });
+  // 上端バーのパネル(♪ / ⚙)。重ならないよう同時には1つだけ開く
+  const [hudPanel, setHudPanel] = useState<"bgm" | "generation" | null>(null);
+  const setBgmOpen = useCallback(
+    (next: boolean) => setHudPanel(next ? "bgm" : null),
+    [],
+  );
+  const setGenerationOpen = useCallback(
+    (next: boolean) => setHudPanel(next ? "generation" : null),
+    [],
+  );
   // 幕に合わせた BGM。曲がまだ置かれていなければ鳴らさない(シナリオの曲へは倒さない)
   const bgm = useAdventureBgm(
     blocked
@@ -469,7 +490,15 @@ export default function SalonServing({
             />
             <span className="salon-toggle__switch" aria-hidden />
           </label>
-          <SalonBgmControl bgm={bgm} />
+          <SalonGenerationSettings
+            open={hudPanel === "generation"}
+            onOpenChange={setGenerationOpen}
+          />
+          <SalonBgmControl
+            bgm={bgm}
+            open={hudPanel === "bgm"}
+            onOpenChange={setBgmOpen}
+          />
         </header>
 
         <div className="salon-stage">
@@ -761,9 +790,20 @@ export default function SalonServing({
                   </>
                 ) : (
                   <>
-                    <label className="salon-field">
-                      <span>{t("salon.serving.instructionLabel")}</span>
+                    <div className="salon-field">
+                      <div className="salon-field__head">
+                        <label htmlFor={instructionId}>
+                          {t("salon.serving.instructionLabel")}
+                        </label>
+                        <FavoritePromptInsertButton
+                          onInsert={insertFavoritePrompt}
+                          className="salon-field__favorite"
+                          disabled={game.isTransforming}
+                        />
+                      </div>
                       <textarea
+                        id={instructionId}
+                        ref={instructionRef}
                         value={instruction}
                         rows={3}
                         maxLength={INSTRUCTION_MAX_LENGTH}
@@ -771,7 +811,7 @@ export default function SalonServing({
                         disabled={game.isTransforming}
                         onChange={(event) => setInputText(event.target.value)}
                       />
-                    </label>
+                    </div>
                     {game.isTransforming ? (
                       <p className="salon-progress" role="status">
                         <span className="salon-spinner" aria-hidden />

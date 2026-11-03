@@ -224,6 +224,48 @@
   outline: none;
 }
 
+/* ラベル行。欄に紐づく操作（お気に入りプロンプトの挿入）を右端に置く */
+.salon-field__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.salon-field__favorite {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--salon-muted);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.salon-field__favorite:hover:not(:disabled),
+.salon-field__favorite:focus-visible {
+  color: var(--salon-accent-strong);
+  border-color: var(--salon-accent-line);
+}
+
+.salon-field__favorite:focus-visible {
+  outline: 2px solid var(--salon-accent);
+  outline-offset: 1px;
+}
+
+.salon-field__favorite:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .salon-field__hint {
   margin: 0;
   color: var(--salon-muted);
@@ -967,6 +1009,26 @@
   color: var(--salon-muted);
   font-size: 0.75rem;
   line-height: 1.6;
+}
+
+/* ⚙ 生成の設定。欄は右パネルと共有(配色は main-layout--salon の変数で揃う) */
+.salon-generation__panel {
+  gap: 0;
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100vh - var(--salon-hud-height, 56px) - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.salon-generation__note {
+  margin: 0 0 0.75rem;
+  color: var(--salon-muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.salon-generation__note--warn {
+  color: var(--salon-danger-text);
 }
 
 /* トグルスイッチ(ON/OFF の設定) */

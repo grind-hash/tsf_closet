@@ -8,6 +8,7 @@ import {
   formatSignedYen,
   formatYen,
   initialSalonAct,
+  isAdultSalonTurn,
   isExperienceTurn,
   lastStyledHistory,
   salonCashSeries,
@@ -118,6 +119,18 @@ describe("initialSalonAct", () => {
     expect(
       initialSalonAct({ turns_used: 1 } as unknown as SessionRequestView),
     ).toBe("styling");
+  });
+});
+
+describe("isAdultSalonTurn", () => {
+  const sensitive = { sensitive: true } as unknown as SessionRequestView;
+  const allAges = { sensitive: false } as unknown as SessionRequestView;
+
+  it("draws adult only for an explicit request while NSFW mode is on", () => {
+    expect(isAdultSalonTurn(sensitive, true)).toBe(true);
+    expect(isAdultSalonTurn(sensitive, false)).toBe(false);
+    expect(isAdultSalonTurn(allAges, true)).toBe(false);
+    expect(isAdultSalonTurn(null, true)).toBe(false);
   });
 });
 

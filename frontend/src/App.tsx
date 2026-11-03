@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useLocation } from "react-router-dom";
-import { fetchAnlasBalance } from "./apis/anlas";
 import { shouldShowCost } from "./apis/system";
-import ApiKeyConsentModal from "./components/ApiKeyConsentModal";
 import AchievementsScreen from "./components/achievements/AchievementsScreen";
 import AdventureScreen from "./components/adventure/AdventureScreen";
-import { hasApiKeyConsent } from "./components/apiKeyConsentStorage";
 import BgmTestScreen from "./components/bgm/BgmTestScreen";
 import CharacterChatScreen from "./components/characterChat/CharacterChatScreen";
 import CharactersScreen from "./components/characters/CharactersScreen";
@@ -17,7 +14,9 @@ import GamePlayScreen from "./components/GamePlayScreen";
 // 007-chat-interactive-ux: ルートベースの画面コンポーネント
 import GalleryScreen from "./components/gallery/GalleryScreen";
 import GuideScreen from "./components/guide/GuideScreen";
-import NovelAIWarningModal from "./components/NovelAIWarningModal";
+import NovelaiAccountModals, {
+  NovelaiAccountCheckOnOpen,
+} from "./components/NovelaiAccountModals";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import PromptExpanderScreen from "./components/promptExpander/PromptExpanderScreen";
 import SessionListModal from "./components/SessionListModal";
@@ -28,17 +27,12 @@ import { CharacterChatProvider } from "./contexts/CharacterChatContext";
 import { PromptExpanderProvider } from "./contexts/PromptExpanderContext";
 import { SalonProvider } from "./contexts/SalonContext";
 import { useSettings } from "./contexts/SettingsContext";
+import { useNovelaiAccountCheck } from "./hooks/useNovelaiAccountCheck";
 import { usePlayTurn } from "./hooks/usePlayTurn";
 import { getGameSessionPath } from "./routes";
 // MainLayout は各画面コンポーネント内で使用
-import type { NovelAISubscriptionResponse } from "./types";
 import { API_BASE } from "./utils/api";
-import {
-  readStorage,
-  readStorageFlag,
-  writeStorage,
-  writeStorageFlag,
-} from "./utils/storage";
+import { readStorage, writeStorage } from "./utils/storage";
 import "./App.css";
 
 // 007-chat-interactive-ux: Context hooks
@@ -47,8 +41,6 @@ import { SESSION_STORAGE_KEY, useGame } from "./contexts/GameContext";
 // /health の結果は同一タブ内で再取得しない（sessionStorage キャッシュ）
 const IMAGE_PROVIDER_CACHE_KEY = "image_provider";
 const SHOW_COST_CACHE_KEY = "show_cost";
-// NovelAI Opus 未契約警告を「続行」で閉じた記録（localStorage）
-const NOVELAI_OPUS_CONFIRMED_KEY = "novelai_opus_confirmed";
 
 function App() {
   return (
@@ -69,7 +61,9 @@ function AppRoutes() {
   const location = useLocation();
   const { state: settingsState } = useSettings();
 
-  // ルートに基づいて専用画面を表示（各画面は内部でMainLayoutを持つ）
+  // ルートに基づいて専用画面を表示（各画面は内部でMainLayoutを持つ）。
+  // NovelAI で生成する画面には NovelaiAccountCheckOnOpen を添え、直接開いたときも
+  // 通常プレイと同じく同意とプランを確かめる(Prompt Expander は自前の同意ダイアログの後に画面内で行う)
   if (
     location.pathname === "/gallery" ||
     location.pathname.startsWith("/gallery/")
@@ -103,6 +97,7 @@ function AppRoutes() {
     return (
       <AdventureProvider>
         <AdventureScreen />
+        <NovelaiAccountCheckOnOpen />
       </AdventureProvider>
     );
   }
@@ -118,6 +113,7 @@ function AppRoutes() {
     return (
       <CharacterChatProvider>
         <CharacterChatScreen />
+        <NovelaiAccountCheckOnOpen />
       </CharacterChatProvider>
     );
   }
@@ -126,7 +122,12 @@ function AppRoutes() {
     location.pathname === "/characters" ||
     location.pathname.startsWith("/characters/")
   ) {
-    return <CharactersScreen />;
+    return (
+      <>
+        <CharactersScreen />
+        <NovelaiAccountCheckOnOpen />
+      </>
+    );
   }
   // サロン経営（実験機能）。/salon・/salon/:runId・/salon/:runId/visits/:visitId
   if (
@@ -139,6 +140,7 @@ function AppRoutes() {
     return (
       <SalonProvider>
         <SalonScreen />
+        <NovelaiAccountCheckOnOpen />
       </SalonProvider>
     );
   }
@@ -161,12 +163,7 @@ function AppRoutes() {
 function AppMain() {
   // 旧UIで使用していた変数（新UIへの移行後、削除予定）
   const location = useLocation();
-  const {
-    state: settingsState,
-    resetTotalCost,
-    setAnlasBalance,
-    setNovelaiTier,
-  } = useSettings();
+  const { state: settingsState, resetTotalCost } = useSettings();
   const {
     state: gameState,
     loadCharacters,
@@ -185,12 +182,8 @@ function AppMain() {
   const [showSessionList, setShowSessionList] = useState(false);
   const [providerLoading, setProviderLoading] = useState(true);
 
-  // NovelAIサブスクリプション警告関連
-  const [showNovelaiWarning, setShowNovelaiWarning] = useState(false);
-  const [novelaiCheckLoading, setNovelaiCheckLoading] = useState(false);
-  // NovelAI APIキー同意モーダル関連
-  const [showApiKeyConsent, setShowApiKeyConsent] = useState(false);
-  const [apiKeyConsentDeclined, setApiKeyConsentDeclined] = useState(false);
+  // NovelAI の同意・Anlas 残高・プランの確認（サロン経営の画面と共有）
+  const novelaiAccount = useNovelaiAccountCheck();
 
   const replacePathWithSessionId = useCallback((sessionId: string | null) => {
     if (!sessionId) {
@@ -305,90 +298,13 @@ function AppMain() {
         }
       }
 
-      // NovelAIプロバイダーの場合、まず同意をチェック
+      // NovelAIプロバイダーの場合、同意を確かめてから Anlas 残高とプランを取得
       if (detectedProvider === "novelai") {
-        // 同意済みでなければ同意モーダルを表示
-        if (!hasApiKeyConsent()) {
-          setShowApiKeyConsent(true);
-          return; // 同意を待ってから続行
-        }
-
-        // 同意済み: Anlas残高を取得
-        fetchAnlasBalance().then((balance) => {
-          if (balance) {
-            setAnlasBalance(balance);
-          }
-        });
-
-        // 同意済みの場合はサブスクリプションをチェック
-        // localStorageで既に確認済みかチェック
-        if (readStorageFlag("local", NOVELAI_OPUS_CONFIRMED_KEY)) {
-          return;
-        }
-
-        // チェック開始時にローディング表示
-        setNovelaiCheckLoading(true);
-
-        try {
-          const subRes = await fetch("/novelai/subscription");
-          if (subRes.ok) {
-            const subData: NovelAISubscriptionResponse = await subRes.json();
-            setNovelaiTier(subData.tier);
-
-            // tier !== 3 (非Opus) の場合、警告を表示
-            if (subData.tier !== 3) {
-              setShowNovelaiWarning(true);
-            }
-          }
-        } catch (e) {
-          console.warn("Failed to check NovelAI subscription:", e);
-        } finally {
-          setNovelaiCheckLoading(false);
-        }
+        await novelaiAccount.startCheck();
       }
       // selfhost/openrouterの場合はNovelAIチェック不要
     };
     init();
-  }, []);
-
-  // NovelAI APIキー同意後のサブスクリプションチェック + Anlas取得
-  const handleApiKeyConsent = useCallback(async () => {
-    setShowApiKeyConsent(false);
-
-    // 同意後、Anlas残高を取得
-    fetchAnlasBalance().then((balance) => {
-      if (balance) {
-        setAnlasBalance(balance);
-      }
-    });
-
-    // 同意後、サブスクリプションをチェック
-    if (readStorageFlag("local", NOVELAI_OPUS_CONFIRMED_KEY)) {
-      return;
-    }
-
-    setNovelaiCheckLoading(true);
-    try {
-      const subRes = await fetch("/novelai/subscription");
-      if (subRes.ok) {
-        const subData: NovelAISubscriptionResponse = await subRes.json();
-        setNovelaiTier(subData.tier);
-
-        if (subData.tier !== 3) {
-          setShowNovelaiWarning(true);
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to check NovelAI subscription:", e);
-    } finally {
-      setNovelaiCheckLoading(false);
-    }
-  }, [setAnlasBalance, setNovelaiTier]);
-
-  // NovelAI APIキー同意を拒否
-  const handleApiKeyConsentDecline = useCallback(() => {
-    setShowApiKeyConsent(false);
-    setApiKeyConsentDeclined(true);
   }, []);
 
   // 変身実行（送信内容の組み立ては usePlayTurn と共有）
@@ -428,15 +344,6 @@ function AppMain() {
           <div className="backdrop-content">
             <div className="spinner"></div>
             <p>{t("appLoading.initializing")}</p>
-          </div>
-        </div>
-      )}
-
-      {novelaiCheckLoading && (
-        <div className="backdrop">
-          <div className="backdrop-content">
-            <div className="spinner"></div>
-            <p>{t("appLoading.checkingNovelai")}</p>
           </div>
         </div>
       )}
@@ -502,49 +409,7 @@ function AppMain() {
         </div>
       )}
 
-      {/* NovelAI非Opusプラン警告モーダル */}
-      {showNovelaiWarning && settingsState.novelaiTier !== null && (
-        <NovelAIWarningModal
-          tier={settingsState.novelaiTier}
-          onContinue={() => {
-            // 続行を選択: localStorageに保存して警告を閉じる
-            writeStorageFlag("local", NOVELAI_OPUS_CONFIRMED_KEY, true);
-            setShowNovelaiWarning(false);
-          }}
-          onCancel={() => {
-            // キャンセル: 警告を閉じるのみ（次回起動時に再表示）
-            setShowNovelaiWarning(false);
-          }}
-        />
-      )}
-
-      {/* NovelAI APIキー利用同意モーダル */}
-      {showApiKeyConsent && (
-        <ApiKeyConsentModal
-          onConsent={handleApiKeyConsent}
-          onDecline={handleApiKeyConsentDecline}
-        />
-      )}
-
-      {/* APIキー同意拒否時のメッセージ */}
-      {apiKeyConsentDeclined && (
-        <div className="backdrop">
-          <div className="backdrop-content">
-            <div className="consent-declined-message">
-              <span className="consent-declined-icon">🔒</span>
-              <h3>{t("consentDeclined.title")}</h3>
-              <p>{t("consentDeclined.message")}</p>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => window.location.reload()}
-              >
-                {t("consentDeclined.reload")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <NovelaiAccountModals check={novelaiAccount} />
     </div>
   );
 }

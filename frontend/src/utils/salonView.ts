@@ -50,6 +50,17 @@ export function salonReviews(run: SalonRun): SalonVisit[] {
 
 export type SalonAct = "counsel" | "styling" | "reveal" | "checkout";
 
+/**
+ * 接客の手番を成人向けで描くか。過激施術の依頼のときだけで、過激施術 OFF の来店は全年齢。
+ * 依頼は接客の開始時に NSFW モードも踏まえて決まるので、依頼の値に合わせる
+ */
+export function isAdultSalonTurn(
+  request: SessionRequestView | null,
+  nsfwMode: boolean,
+): boolean {
+  return Boolean(request?.sensitive) && nsfwMode;
+}
+
 /** 接客画面を開いたときの幕。施術を始めていれば施術から再開する */
 export function initialSalonAct(request: SessionRequestView | null): SalonAct {
   return request && request.turns_used > 0 ? "styling" : "counsel";

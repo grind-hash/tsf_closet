@@ -259,4 +259,17 @@ export const salon = {
     autoplayBlocked:
       "The browser blocked autoplay. Click anywhere on the screen to start playback.",
   },
+  generation: {
+    settings: "Generation settings",
+    sharedNote:
+      "These are the same settings as the right panel in normal play. Changes here also apply to normal play, starting with the next styling.",
+    otherProviderNote:
+      "The image settings have no effect because the image provider is not NovelAI. You can change the provider on the Settings screen.",
+    modelSfwInUse:
+      'This customer is drawn as all-ages, so the "{{label}}" model is used.',
+    modelNsfwInUse:
+      'This customer is drawn with explicit treatments, so the "{{label}}" model is used.',
+    textModelHint:
+      "In the salon, it writes the feelings, answers to questions, reviews, and requests.",
+  },
 };

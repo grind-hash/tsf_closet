@@ -72,7 +72,7 @@ export const guide = {
   salon: {
     title: "Salon Management",
     desc: "Run a salon for 12 weeks, making your customers' wishes come true with a change of look. Serving works like request mode: ask counselling questions to draw out clues to tastes the customer keeps unsaid, then finish the look in 3 styling turns. The satisfaction at checkout decides sales and reputation, and higher reputation brings more bookings.",
-    note: "The difficulty you choose when opening sets the opening funds. Cover the weekly fixed costs with your sales and end the season with more cash than you started with. Each styling turn generates an image, and the questions and reviews use text generation. Opening a salon and closing a week play a short scene; choose Full, Short or Off in the owner's office.",
+    note: "The difficulty you choose when opening sets the opening funds. Cover the weekly fixed costs with your sales and end the season with more cash than you started with. Each styling turn generates an image, and the questions and reviews use text generation. Opening a salon and closing a week play a short scene; choose Full, Short or Off in the owner's office. The ⚙ on the serving screen changes the direct prompt, negative prompt, i2i strength, and the image and text models (shared with the right panel in normal play).",
     open: "Open Salon Management",
   },
   voice: {

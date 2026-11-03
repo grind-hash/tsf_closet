@@ -254,4 +254,17 @@ export const salon = {
     autoplayBlocked:
       "ブラウザにより自動再生がブロックされています。画面のどこかをクリックすると再生が始まります。",
   },
+  generation: {
+    settings: "生成の設定",
+    sharedNote:
+      "通常プレイの右パネルと同じ設定です。ここで変えると通常プレイにも反映されます。次の施術から効きます。",
+    otherProviderNote:
+      "画像の生成元が NovelAI ではないため、画像の設定は効きません。生成元は設定画面で変えられます。",
+    modelSfwInUse:
+      "このお客様は全年齢で描くため、「{{label}}」のモデルを使います。",
+    modelNsfwInUse:
+      "このお客様は過激施術で描くため、「{{label}}」のモデルを使います。",
+    textModelHint:
+      "サロンでは、心境・質問への答え・口コミ・依頼の文章に使われます。",
+  },
 };
