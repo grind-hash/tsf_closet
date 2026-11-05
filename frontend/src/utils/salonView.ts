@@ -50,6 +50,71 @@ export function salonReviews(run: SalonRun): SalonVisit[] {
 
 export type SalonAct = "counsel" | "styling" | "reveal" | "checkout";
 
+/**
+ * 接客の手番を成人向けで描くか。過激施術の依頼のときだけで、過激施術 OFF の来店は全年齢。
+ * 依頼は接客の開始時に NSFW モードも踏まえて決まるので、依頼の値に合わせる
+ */
+export function isAdultSalonTurn(
+  request: SessionRequestView | null,
+  nsfwMode: boolean,
+): boolean {
+  return Boolean(request?.sensitive) && nsfwMode;
+}
+
+/** 接客画面のカルテに並べる、伏せた好み1件 */
+export interface SalonPreferenceChip {
+  id: string;
+  /** 好みの分類(色合い・丈など)。分類が無ければ「？」 */
+  category: string;
+  /** 一度満たした好みは本文も見える。まだなら null */
+  text: string | null;
+  /** 最新の手番で満たしている */
+  met: boolean;
+  /** ヒントと心境のほのめかしが今指している好み */
+  focus: boolean;
+  /** カウンセリングで、この好みの手掛かりを聞き出した */
+  asked: boolean;
+}
+
+/**
+ * カルテ(伏せた好みの分類の一覧)。showFocus が false なら注目の印を付けない
+ * (追加施術の手番ではヒントを見せないため)
+ */
+export function salonPreferenceChips(
+  request: SessionRequestView | null,
+  { showFocus }: { showFocus: boolean },
+): SalonPreferenceChip[] {
+  if (!request) return [];
+  const asked = new Set(
+    request.questions
+      .map((item) => item.target_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const evaluated = request.evaluated_turns > 0;
+  return request.preferences.map((item) => ({
+    id: item.id,
+    category: item.hint.trim() || "？",
+    text: item.text,
+    met: item.met,
+    focus:
+      showFocus &&
+      evaluated &&
+      !item.met &&
+      item.id === request.focus_preference_id,
+    asked: asked.has(item.id),
+  }));
+}
+
+/** 前の施術からの満足度の増減。施術が2手未満なら null */
+export function salonSatisfactionDelta(
+  request: SessionRequestView | null,
+): number | null {
+  if (!request || request.evaluated_turns < 2) return null;
+  const previous = request.previous_satisfaction;
+  if (previous === null || previous === undefined) return null;
+  return request.satisfaction - previous;
+}
+
 /** 接客画面を開いたときの幕。施術を始めていれば施術から再開する */
 export function initialSalonAct(request: SessionRequestView | null): SalonAct {
   return request && request.turns_used > 0 ? "styling" : "counsel";
@@ -68,6 +133,49 @@ export function lastStyledHistory(
     if (!isExperienceTurn(history[index])) return history[index];
   }
   return undefined;
+}
+
+/**
+ * 成人向けの依頼で、お披露目に見せる体験の1枚(行動の手番)。
+ * confirming は精密参照などの確認ダイアログの返事待ち。
+ */
+export interface ExperienceFrame {
+  status: "confirming" | "generating" | "done" | "failed";
+  image: string | null;
+  feeling: string;
+}
+
+/**
+ * 体験の手番が終わったときの結果。履歴は画像の受信後に取り直すため、手番の終了時点では
+ * まだ増えていないことがある。そのときは受信済みの画像(現在の画像の差し替え)で成功とみなす。
+ */
+export function settleExperience({
+  history,
+  baseLength,
+  baseImage,
+  currentImage,
+  feelingText,
+}: {
+  history: readonly HistoryItem[];
+  /** 手番を送った時点の履歴の件数 */
+  baseLength: number;
+  /** 手番を送った時点の現在の画像 */
+  baseImage: string | null;
+  currentImage: string | null;
+  feelingText: string;
+}): ExperienceFrame {
+  const latest = history.at(-1);
+  if (history.length > baseLength && isExperienceTurn(latest)) {
+    return {
+      status: "done",
+      image: latest?.imageUrl ?? null,
+      feeling: latest?.feelingText ?? "",
+    };
+  }
+  if (currentImage && currentImage !== baseImage) {
+    return { status: "done", image: currentImage, feeling: feelingText };
+  }
+  return { status: "failed", image: null, feeling: "" };
 }
 
 export interface SalonCashPoint {
@@ -133,6 +241,8 @@ export interface SalonWeekCutscene {
   /** 前回の姿のまま翌週に来るお客様 */
   regulars: string[];
   result: SalonResult | null;
+  /** 締めた週の期の期首の現金(決算の成功の線。1 期目は開業資金) */
+  seasonStartCash: number;
   achievements: SalonAchievementUnlocked[];
 }
 
@@ -177,6 +287,10 @@ export function buildWeekCutscene(
       .filter((visit) => visit.returning_look)
       .map((visit) => visit.customer.name),
     result: after.result,
+    seasonStartCash:
+      after.result?.start_cash ??
+      before.season_start_cash ??
+      before.initial_cash,
     achievements: closed.achievements,
   };
 }

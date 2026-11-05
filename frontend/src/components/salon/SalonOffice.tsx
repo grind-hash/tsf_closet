@@ -123,7 +123,8 @@ export default function SalonOffice({ runId }: { runId: string }) {
 
   const visits = thisWeekVisits(run);
   const pending = visits.filter((visit) => visit.status === "booked");
-  const serving = visits.some((visit) => visit.status === "serving");
+  const serving = visits.find((visit) => visit.status === "serving") ?? null;
+  const season = run.season ?? 1;
   const reviews = salonReviews(run);
   const isActive = run.status === "active";
   const isFinalWeek = run.week >= run.total_weeks;
@@ -195,6 +196,15 @@ export default function SalonOffice({ runId }: { runId: string }) {
                 {t("salon.office.weekOf", { total: run.total_weeks })}
               </small>
             </strong>
+            {season > 1 && (
+              <span className="salon-tile__note">
+                {t("salon.office.seasonOf", {
+                  season,
+                  start: run.season_start_week,
+                  end: run.total_weeks,
+                })}
+              </span>
+            )}
           </div>
           <div className="salon-tile">
             <span>{t("salon.office.cash")}</span>
@@ -310,7 +320,7 @@ export default function SalonOffice({ runId }: { runId: string }) {
               <button
                 type="button"
                 className="salon-button salon-button--primary"
-                disabled={serving || busy !== null}
+                disabled={busy !== null}
                 onClick={() => setCloseOpen(true)}
               >
                 {busy === "close" && (
@@ -324,7 +334,10 @@ export default function SalonOffice({ runId }: { runId: string }) {
               </button>
               <p className="salon-section__hint">
                 {serving
-                  ? t("salon.office.closeWeekServing")
+                  ? t("salon.office.closeWeekServing", {
+                      name: serving.customer.name,
+                      penalty: SALON_DECLINE_PENALTY,
+                    })
                   : t("salon.office.closeWeekHint", {
                       salary: formatYen(run.weekly_salary, language),
                       fixed: formatYen(run.weekly_fixed_cost, language),
@@ -343,6 +356,7 @@ export default function SalonOffice({ runId }: { runId: string }) {
               <SalonCashChart
                 points={salonCashSeries(run)}
                 initialCash={run.initial_cash}
+                goalCash={season > 1 ? run.season_start_cash : undefined}
                 totalWeeks={run.total_weeks}
                 language={language}
               />
@@ -472,6 +486,14 @@ export default function SalonOffice({ runId }: { runId: string }) {
             fixed: formatYen(run.weekly_fixed_cost, language),
           })}
         </p>
+        {serving && (
+          <p>
+            {t("salon.office.closeWeekServing", {
+              name: serving.customer.name,
+              penalty: SALON_DECLINE_PENALTY,
+            })}
+          </p>
+        )}
         {pending.length > 0 && (
           <p>
             {t("salon.office.closeWeekPending", {
@@ -596,10 +618,19 @@ function SalonResultBanner({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { busy, startNextSeason } = useSalon();
   if (!run.result) return null;
   const { outcome, cash, profit } = run.result;
+  const season = run.result.season ?? run.season ?? 1;
+  const startCash = run.result.start_cash ?? run.initial_cash;
+  const canContinue = run.status === "completed";
   return (
     <section className={`salon-result salon-result--${outcome}`}>
+      {(run.seasons?.length ?? 0) > 1 && (
+        <p className="salon-eyebrow">
+          {t("salon.office.resultSeason", { season })}
+        </p>
+      )}
       <h2>{t(`salon.office.result.${outcome}`)}</h2>
       <p>
         {outcome === "bankrupt"
@@ -608,10 +639,32 @@ function SalonResultBanner({
             })
           : t("salon.office.resultDetail", {
               cash: formatYen(cash, language),
+              start: formatYen(startCash, language),
               profit: formatSignedYen(profit ?? 0, language),
             })}
       </p>
+      {canContinue && (
+        <p className="salon-result__hint">
+          {t("salon.office.nextSeasonHint", {
+            season: season + 1,
+            weeks: run.season_weeks,
+          })}
+        </p>
+      )}
       <div className="salon-result__actions">
+        {canContinue && (
+          <button
+            type="button"
+            className="salon-button salon-button--primary"
+            disabled={busy !== null}
+            onClick={() => void startNextSeason()}
+          >
+            {busy === "nextSeason" && (
+              <span className="salon-spinner" aria-hidden />
+            )}
+            {t("salon.office.nextSeason")}
+          </button>
+        )}
         <button
           type="button"
           className="salon-button"

@@ -159,6 +159,24 @@ async def fetch_latest_character_states(
     return result.scalar_one_or_none()
 
 
+async def latest_history_has_character_states(
+    db: AsyncSession, session_id: str
+) -> bool:
+    """Whether the newest history of a session stored per-character tags.
+
+    Turns drawn without the character panel (one person) store NULL, so their
+    look lives only in ``after_description``.
+    """
+    stmt = (
+        select(History.character_states_json)
+        .where(History.session_id == session_id)
+        .order_by(History.created_at.desc(), History.id.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none() is not None
+
+
 async def delete_session_character(db: AsyncSession, character_id: str) -> int:
     """Delete one SessionCharacter; returns number of rows removed."""
     stmt = sa_delete(SessionCharacter).where(SessionCharacter.id == character_id)

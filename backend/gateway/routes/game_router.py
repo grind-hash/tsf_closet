@@ -679,7 +679,10 @@ async def ask_session_request_question(
     language = normalize_language(request.language or user_settings.get("language"))
     try:
         view, cost_usd = await session_request_service.ask_question(
-            session_id, request.question, language=language
+            session_id,
+            request.question,
+            language=language,
+            topic_id=request.topic_id,
         )
     except SessionRequestError as error:
         raise HTTPException(

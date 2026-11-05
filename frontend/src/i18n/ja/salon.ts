@@ -1,7 +1,7 @@
 export const salon = {
   eyebrow: "SALON",
   title: "サロン経営",
-  lead: "お客様の願いを着せ替えで叶えて、{{weeks}}週のあいだサロンを切り盛りします。毎週、本業の収入より固定費（固定資産税・維持費）のほうが多く、現金が {{net}} ずつ減っていきます。接客の売上で埋め合わせましょう。",
+  lead: "お客様の願いを着せ替えで叶えて、サロンを切り盛りします（1期は4週か12週）。毎週、本業の収入より固定費（固定資産税・維持費）のほうが多く、現金が {{net}} ずつ減っていきます。接客の売上で埋め合わせましょう。",
   loading: "読み込んでいます…",
   open: {
     heading: "新しく開店する",
@@ -18,15 +18,27 @@ export const salon = {
       normal: "開業資金 {{cash}}。接客を怠ると倒産します",
       hard: "開業資金 {{cash}}。満足度の低い接客が続くと倒産します",
     },
+    seasonLabel: "営業期間（1期）",
+    season: {
+      short: "4週・短め",
+      standard: "12週・じっくり",
+    },
+    seasonDesc: {
+      short:
+        "初週から2名ご来店。1期で十数名をお迎えする、短い経営です。開業資金も4週に合わせて少なめです",
+      standard:
+        "初週は1名から。評判を上げてお客様を増やしていく、じっくりした経営です",
+    },
     sensitiveHint:
-      "成人向けの願いを持つお客様が来店し、お披露目でその姿での体験を1枚見せます。初期値は直近に遊んだサロンの設定で、開店後もオーナー室で切り替えられます。",
-    goal: "期末の現金が開業資金を上回れば成功です。目安は、2回に1回お客様の願いを叶えることです。",
+      "成人向けの願いを持つお客様が来店し、お披露目で、その姿で願いが叶うひとときの夢を1枚見せます。初期値は直近に遊んだサロンの設定で、開店後もオーナー室で切り替えられます。",
+    goal: "期末の現金が開業資金を上回れば成功です。目安は、2回に1回お客様の願いを叶えることです。願いを叶えると、評判に応じたチップや常連の指名料も入ります。決算のあとは、次の期へ続けられます。",
     submit: "開店する",
   },
   list: {
     heading: "あなたのサロン",
     empty: "まだサロンがありません",
     week: "第{{week}}週 / {{total}}週",
+    season: "第{{season}}期",
     status: {
       active: "営業中",
       completed: "決算済み",
@@ -44,13 +56,14 @@ export const salon = {
     back: "サロン一覧へ",
     weekLabel: "営業週",
     weekOf: "/ {{total}}週",
+    seasonOf: "第{{season}}期（第{{start}}〜{{end}}週）",
     cash: "現金",
     reputation: "評判",
     weeklyBalance: "毎週の収支",
     weeklyBalanceValue: "本業 +{{salary}} / 固定費 −{{fixed}}",
     sensitive: "過激施術（成人向け）",
     sensitiveHint:
-      "成人向けの願いを持つお客様が来店し、お披露目でその姿での体験を1枚見せます。次に始める接客から効きます。",
+      "成人向けの願いを持つお客様が来店し、お披露目で、その姿で願いが叶うひとときの夢を1枚見せます。次に始める接客から効きます。",
     sensitiveNsfwOff: "NSFW モードが OFF のため効きません。",
     sensitiveOpenSettings: "設定を開く",
     cutscene: "開業・週の締めの演出",
@@ -65,7 +78,7 @@ export const salon = {
     },
     bookings: "今週の予約",
     bookingsHint:
-      "評判が25上がるごとに、翌週の予約が1件増えます（最大4件）。願いを叶えたお客様は、施術した姿のまま翌週も来店します。接客は施術3手・質問2回です。",
+      "評判が25上がるごとに、翌週の予約が1件増えます（最大4件）。願いを叶えると、評判に応じたチップが入ります。願いを叶えたお客様は施術した姿のまま翌週も来店し、続けて叶えると指名料も付きます。接客は施術3手・質問2回です。",
     bookingsEmpty: "今週の予約はありません",
     visitFirst: "初来店",
     visitNumber: "{{count}}回目の来店",
@@ -89,7 +102,8 @@ export const salon = {
     closeWeekFinal: "週を締めて決算する",
     closeWeekHint:
       "本業の収入 {{salary}} を受け取り、固定費 {{fixed}} を払います",
-    closeWeekServing: "接客中のお客様の会計を済ませてから締めてください",
+    closeWeekServing:
+      "接客中の{{name}}さんは、施術前ならお帰りいただき（評判 −{{penalty}}）、施術していれば今の満足度で会計します",
     closeWeekTitle: "第{{week}}週を締めますか？",
     closeWeekPending:
       "接客していない予約が {{count}} 件あります。断った扱いになり、評判が {{penalty}} 下がります。",
@@ -111,6 +125,8 @@ export const salon = {
     chartWeek: "第{{week}}週",
     chartGoal:
       "横の細い線は開業資金（{{cash}}）です。この線より上で決算すると成功です",
+    chartGoalSeason:
+      "横の細い線は今の期の期首の現金（{{cash}}）です。この線より上で決算すると成功です",
     chartDescription:
       "開業資金 {{start}} から、第{{week}}週の締めで {{cash}} になりました",
     reviews: "口コミ",
@@ -124,7 +140,11 @@ export const salon = {
       partial: "倒産せずに決算しました",
       bankrupt: "倒産しました",
     },
-    resultDetail: "期末の現金 {{cash}}（開業資金との差 {{profit}}）",
+    resultDetail: "期末の現金 {{cash}}（期首は {{start}}、差 {{profit}}）",
+    resultSeason: "第{{season}}期の決算",
+    nextSeason: "次の期も営業する",
+    nextSeasonHint:
+      "現金と評判を持ち越して、同じ長さ（{{weeks}}週）の第{{season}}期を始めます。成功の線は、その期の期首の現金です。",
     bankruptDetail: "週の締めで現金が尽きました（{{cash}}）",
     achievements: "実績を見る",
     newSalon: "新しく開店する",
@@ -138,6 +158,7 @@ export const salon = {
     weeklySalary: "毎週の本業の収入",
     weeklyFixedCost: "毎週の固定費",
     goal: "{{weeks}}週後の現金が開業資金を上回れば成功です",
+    resultSeason: "第{{season}}期の決算",
     week: "第{{week}}週",
     closed: "閉店",
     opened: "開店",
@@ -179,10 +200,34 @@ export const salon = {
     ask: "質問する（残り {{count}} 回）",
     asking: "お客様が考えています…",
     questionsUsed: "質問はもう使い切りました",
+    chart: "カルテ",
+    chartHint:
+      "お客様が口にしていない好みの分類です。分類を押すと、それについて伺う質問を書き込みます。",
+    chartFocus: "いま気にしている",
+    chartMet: "叶えた",
+    chartPending: "まだ",
+    chartAsked: "伺った",
+    askAbout: "{{category}}について、お好みを伺ってもいいですか？",
+    satisfactionMeter: "満足度 {{satisfaction}}% · 達成は {{threshold}}%",
+    satisfactionUp: "▲{{delta}}",
+    satisfactionDown: "▼{{delta}}",
+    satisfactionSame: "±0",
+    satisfactionBefore: "施術後にわかります",
+    sendHome: "お帰りいただく（評判 −{{penalty}}）",
+    sendHomeTitle: "お帰りいただきますか？",
+    sendHomeBody:
+      "まだ施術していない{{name}}さんに、お帰りいただきます。予約を断ったときと同じく、評判が {{penalty}} 下がります。",
     startStyling: "施術を始める",
     instructionLabel: "施術の指示",
     instructionPlaceholder: "例: 淡い水色のワンピースに着替えさせる",
     style: "施術する（残り {{count}} 手）",
+    styleRange: "選んだ範囲を施術する（残り {{count}} 手）",
+    rangeSelect: "範囲を選ぶ",
+    rangeChip: "範囲: {{name}}",
+    rangeHandDrawn: "手描き",
+    rangeClear: "範囲を解除して全体を施術する",
+    rangeNovelaiOnly:
+      "範囲は NovelAI で描くときだけ使われます。今の設定では全体を描き直します。",
     styling: "施術しています…",
     turnsUsed: "施術の手数を使い切りました",
     toReveal: "お披露目へ進む",
@@ -192,11 +237,11 @@ export const salon = {
     transparentHint: "お客様の背景を透過して、サロンの背景に重ねます",
     revealBefore: "ご来店時",
     revealAfter: "施術後",
-    experience: "その姿での体験",
-    experienceGenerating: "願いの姿での体験を描いています…",
+    experience: "その姿で見る夢",
+    experienceGenerating: "その姿で願いが叶う夢を描いています…",
     experienceFailed:
-      "体験の場面を描けませんでした。やり直すか、このまま会計できます。",
-    experienceRetry: "体験をもう一度描く",
+      "夢の場面を描けませんでした。やり直すか、このまま会計できます。",
+    experienceRetry: "夢をもう一度描く",
     sensitiveFallback:
       "このお客様の成人向けの依頼を作れなかったため、今回は全年齢の依頼になりました。",
     typing: "{{name}}さんが話しています",
@@ -221,19 +266,26 @@ export const salon = {
     seal: "成就",
     notFulfilled: "願いにはあと一歩でした",
     notFulfilledAfterExperience:
-      "願いにはあと一歩でしたが、体験は思った以上だったようです",
-    experienceBonus: "うち、その姿での体験",
+      "願いにはあと一歩でしたが、夢は思った以上だったようです",
+    experienceBonus: "うち、その姿で見た夢",
+    coursePerfect: "満点の仕上がり",
+    tip: "評判のチップ",
+    regularFee: "常連の指名料",
     returningLook:
       "前回の施術の姿のまま、ご来店です。今回はこの姿からの追加のご要望です",
     keptLook: "この姿のまま過ごすそうです。来週も、この姿でご来店になります",
     revertedLook: "元の姿に戻って、お帰りになりました",
-    revertedAfterExperience: "体験の余韻を胸に、元の姿でお帰りになりました",
+    revertedAfterExperience: "夢の余韻を胸に、元の姿でお帰りになりました",
     review: "口コミ",
     log: "ログ",
+    compare: "見比べる",
+    compareHint:
+      "施術ごとの姿を、直前の姿やご来店時の姿と並べて見比べます（施術を1手以上したあと、お披露目の前まで）",
     logTitle: "接客の記録",
     logEmpty: "まだ記録がありません",
     logQuestion: "質問",
     logInstruction: "施術",
+    logExperience: "夢",
     close: "閉じる",
     preparing: "お客様をお迎えしています…",
     notFound: "この予約は見つかりません",
@@ -252,5 +304,18 @@ export const salon = {
     seVolume: "効果音の音量",
     autoplayBlocked:
       "ブラウザにより自動再生がブロックされています。画面のどこかをクリックすると再生が始まります。",
+  },
+  generation: {
+    settings: "生成の設定",
+    sharedNote:
+      "通常プレイの右パネルと同じ設定です。ここで変えると通常プレイにも反映されます。次の施術から効きます。",
+    otherProviderNote:
+      "画像の生成元が NovelAI ではないため、画像の設定は効きません。生成元は設定画面で変えられます。",
+    modelSfwInUse:
+      "このお客様は全年齢で描くため、「{{label}}」のモデルを使います。",
+    modelNsfwInUse:
+      "このお客様は過激施術で描くため、「{{label}}」のモデルを使います。",
+    textModelHint:
+      "サロンでは、心境・質問への答え・口コミ・依頼の文章に使われます。",
   },
 };

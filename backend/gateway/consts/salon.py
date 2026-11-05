@@ -11,35 +11,66 @@ from __future__ import annotations
 SALON_NAME_MAX: int = 40
 SALON_REVIEW_MAX: int = 160
 
-# 1 シーズンの週数。最終週を締めた時点で決算する
-SALON_TOTAL_WEEKS: int = 12
+# 1 期の長さ。開店時に選び、期の最終週を締めた時点で決算する。決算のあとは同じ長さの
+# 次の期へ進める(現金と評判を持ち越す)。短い期は初週から来店が多く、開業資金も小さい
+SALON_SEASON_LENGTHS: dict[str, int] = {"short": 4, "standard": 12}
+SALON_DEFAULT_SEASON_LENGTH: str = "standard"
+# 標準の期の週数(以前の固定値。互換のため残す)
+SALON_TOTAL_WEEKS: int = SALON_SEASON_LENGTHS["standard"]
 
 # 毎週の固定費(固定資産税・光熱費・維持費)・本業の収入(小説の年収 500 万円)。
 # 毎週の赤字は 20 万円で、1 シーズンで 240 万円
 SALON_WEEKLY_FIXED_COST: int = 300_000
 SALON_WEEKLY_SALARY: int = 100_000
 
-# 経営の難易度ごとの開業資金。成功の線(開業資金を上回る)は難易度によらず同じで、
-# 開業資金は倒産の線だけを動かす
-SALON_DIFFICULTY_INITIAL_CASH: dict[str, int] = {
-    "easy": 3_000_000,  # 接客しなくても倒産しない
-    "normal": 2_000_000,  # 接客を怠ると倒産する
-    "hard": 1_500_000,  # 満足度 50 前後が続いても倒産する
+# 経営の難易度ごとの開業資金(期の長さごと)。成功の線(期首の現金を上回る)は難易度によらず
+# 同じで、開業資金は倒産の線だけを動かす。短い期も同じ考え方にそろえる(4 週の赤字は 80 万円)
+SALON_INITIAL_CASH: dict[str, dict[str, int]] = {
+    "standard": {
+        "easy": 3_000_000,  # 接客しなくても倒産しない
+        "normal": 2_000_000,  # 接客を怠ると倒産する
+        "hard": 1_500_000,  # 満足度 50 前後が続いても倒産する
+    },
+    "short": {
+        "easy": 1_000_000,
+        "normal": 600_000,
+        "hard": 300_000,
+    },
 }
+# 標準の期の開業資金(以前の名前。互換のため残す)
+SALON_DIFFICULTY_INITIAL_CASH: dict[str, int] = SALON_INITIAL_CASH["standard"]
 SALON_DEFAULT_DIFFICULTY: str = "normal"
 # 施術中の心境で、まだ叶っていない好みをほのめかす一文を強調する難易度。
 # むずかしいでは強調せず、文中に紛れたヒントを読み取らせる
 SALON_HINT_EMPHASIS_DIFFICULTIES: frozenset[str] = frozenset({"easy", "normal"})
+# カウンセリングの答えの手掛かりの強さ(依頼の土台の REQUEST_CLUE_LEVELS)
+SALON_CLUE_LEVELS: dict[str, str] = {
+    "easy": "plain",
+    "normal": "normal",
+    "hard": "subtle",
+}
 
 # 基本コースの料金と、満足度による係数
 SALON_BASE_PRICE: int = 50_000
 SALON_PRICE_RATE_LOW: float = 0.5  # 満足度が SALON_LOW_SATISFACTION 未満
 SALON_PRICE_RATE_NORMAL: float = 1.0
-SALON_PRICE_RATE_FULFILLED: float = 1.5  # 依頼達成(チップ込み)
+SALON_PRICE_RATE_FULFILLED: float = 1.5  # 依頼達成
+SALON_PRICE_RATE_PERFECT: float = (
+    2.0  # 満足度 SALON_PERFECT_SATISFACTION(満点の仕上がり)
+)
+SALON_PERFECT_SATISFACTION: int = 100
 SALON_LOW_SATISFACTION: int = 40
 
-# 評判(0〜100)。依頼達成の線は依頼の土台(REQUEST_FULFILL_THRESHOLD)に従う
-SALON_INITIAL_REPUTATION: int = 20
+# 依頼を達成したお客様の上乗せ。評判が高いほどチップが増え、姿を持ち越して続けて来る
+# 常連ほど指名料が増える。評判が予約数だけでなく、1 人あたりの売上にも効くようにする
+SALON_TIP_PER_REPUTATION: int = 500  # 会計前の評判 1 点あたり(評判 80 で 4 万円)
+SALON_REGULAR_FEE_PER_VISIT: int = 10_000  # 続けて来た回数 1 回あたり
+SALON_REGULAR_FEE_MAX: int = 30_000
+
+# 評判(0〜100)。依頼達成の線は依頼の土台(REQUEST_FULFILL_THRESHOLD)に従う。
+# 開店時の評判は期の長さで変える(短い期は初週から 2 名)
+SALON_INITIAL_REPUTATION_BY_LENGTH: dict[str, int] = {"standard": 20, "short": 45}
+SALON_INITIAL_REPUTATION: int = SALON_INITIAL_REPUTATION_BY_LENGTH["standard"]
 SALON_REPUTATION_MIN: int = 0
 SALON_REPUTATION_MAX: int = 100
 SALON_REPUTATION_FULFILLED: int = 8

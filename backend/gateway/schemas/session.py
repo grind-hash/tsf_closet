@@ -110,6 +110,7 @@ class RequestQuestionResponse(BaseModel):
     question: str
     answer: str
     reflected: bool = Field(False, description="最新の手番の姿がこの答えを汲んでいるか")
+    target_id: str | None = Field(None, description="答えに手掛かりを滲ませた好みの id")
 
 
 class SessionRequestResponse(BaseModel):
@@ -118,9 +119,15 @@ class SessionRequestResponse(BaseModel):
     wish: str
     status: str = Field("active", description="active / fulfilled")
     satisfaction: int = Field(0, description="最新の手番の満足度 (0-100)")
+    previous_satisfaction: int | None = Field(
+        None, description="1つ前の評価済み手番の満足度。無ければ null"
+    )
     threshold: int = Field(..., description="依頼達成となる満足度")
     fit: str | None = Field(None, description="願いへの近さ (none〜perfect)")
     hint: str = Field("", description="最新の手番のヒント")
+    focus_preference_id: str | None = Field(
+        None, description="ヒントが指している(まだ満たしていない)好みの id"
+    )
     preferences: list[RequestPreferenceResponse] = Field(default_factory=list)
     evaluated_turns: int = 0
     turn_limit: int | None = Field(
@@ -138,6 +145,10 @@ class SessionRequestResponse(BaseModel):
     emphasize_hints: bool = Field(
         False,
         description="心境の中のヒントの一文が〔〕で囲まれているか(強調表示する)",
+    )
+    clue_level: str = Field(
+        "normal",
+        description="カウンセリングの答えの手掛かりの強さ (plain / normal / subtle)",
     )
     sensitive: bool = Field(False, description="成人向けの依頼か(サロンの過激施術)")
     experience: str = Field(
@@ -172,6 +183,11 @@ class SessionRequestQuestionRequest(BaseModel):
 
     question: str = Field(..., min_length=1, max_length=REQUEST_QUESTION_MAX)
     language: str | None = Field(None, description="答えの言語。未指定はユーザー設定")
+    topic_id: str | None = Field(
+        None,
+        max_length=16,
+        description="プレイヤーが分類を選んで聞いた好みの id。未指定は自由な質問",
+    )
 
 
 class SessionRequestCreateResponse(BaseModel):

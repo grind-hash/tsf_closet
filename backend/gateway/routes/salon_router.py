@@ -52,13 +52,18 @@ async def list_salon_runs() -> SalonRunListResponse:
     "/runs",
     response_model=SalonRunResponse,
     summary="開店",
-    description="サロンを開き、1週目の予約を入れる。開業資金は経営の難易度で決まる",
+    description=(
+        "サロンを開き、1週目の予約を入れる。開業資金は期の長さと経営の難易度で決まる"
+    ),
     responses=_ERROR_RESPONSES,
 )
 async def create_salon_run(request: SalonCreateRequest) -> SalonRunResponse:
     try:
         run = await salon_service.create_run(
-            request.name, request.difficulty, sensitive=request.sensitive
+            request.name,
+            request.difficulty,
+            sensitive=request.sensitive,
+            season_length=request.season_length,
         )
     except SalonError as error:
         raise _http_error(error) from error
@@ -164,6 +169,7 @@ async def buy_salon_extra_turn(run_id: str, visit_id: str) -> SalonExtraTurnResp
     "/runs/{run_id}/visits/{visit_id}/decline",
     response_model=SalonRunResponse,
     summary="予約を断る",
+    description="予約か、接客を始めてまだ施術していないお客様にお帰りいただく",
     responses=_ERROR_RESPONSES,
 )
 async def decline_salon_visit(run_id: str, visit_id: str) -> SalonRunResponse:
@@ -179,14 +185,34 @@ async def decline_salon_visit(run_id: str, visit_id: str) -> SalonRunResponse:
     response_model=SalonCloseWeekResponse,
     summary="週を締める",
     description=(
+        "接客中のお客様は、施術前ならお帰りいただき、施術していれば今の満足度で会計する。"
         "固定費と本業の収入を反映し、翌週の予約を入れる。"
-        "最終週なら決算し、解除したサロン経営の実績を返す"
+        "期の最終週なら決算し、解除したサロン経営の実績を返す"
     ),
     responses=_ERROR_RESPONSES,
 )
-async def close_salon_week(run_id: str) -> SalonCloseWeekResponse:
+async def close_salon_week(
+    run_id: str, request: SalonLanguageRequest | None = None
+) -> SalonCloseWeekResponse:
     try:
-        result = await salon_service.close_week(run_id)
+        result = await salon_service.close_week(
+            run_id, language=await _language(request or SalonLanguageRequest())
+        )
     except SalonError as error:
         raise _http_error(error) from error
     return SalonCloseWeekResponse(**result)
+
+
+@router.post(
+    "/runs/{run_id}/next-season",
+    response_model=SalonRunResponse,
+    summary="次の期へ進む",
+    description="決算を終えたサロンで、現金と評判を持ち越して同じ長さの次の期を始める",
+    responses=_ERROR_RESPONSES,
+)
+async def start_next_salon_season(run_id: str) -> SalonRunResponse:
+    try:
+        run = await salon_service.next_season(run_id)
+    except SalonError as error:
+        raise _http_error(error) from error
+    return SalonRunResponse(**run)

@@ -622,6 +622,10 @@ class SessionRequest(Base):
     emphasize_hints: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="0"
     )
+    # カウンセリングの答えに滲ませる手掛かりの強さ(plain / normal / subtle)
+    clue_level: Mapped[str] = mapped_column(
+        String, nullable=False, default="normal", server_default="normal"
+    )
     # 成人向けの依頼か(サロンの過激施術)。生成が通らず全年齢に切り戻したときは False
     sensitive: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="0"
@@ -642,9 +646,10 @@ class SessionRequest(Base):
 
 
 class SalonRun(Base):
-    """サロン経営モードの1シーズン(開店から決算まで)。
+    """サロン経営モードの1軒(開店から閉店まで)。決算のあと次の期へ続けられる。
 
-    数値(現金・評判・週)は Python が決める。週ごとの収支の記録と決算は state_json に置く。
+    数値(現金・評判・週)は Python が決める。週ごとの収支の記録と期ごとの決算は state_json に置く。
+    total_weeks は今の期の最終週(期を重ねると増える)。
     """
 
     __tablename__ = "salon_runs"
@@ -716,6 +721,13 @@ class SalonVisit(Base):
     )
     # 資金で足した施術の代金(購入時に現金から引いている)。足した手数は代金 ÷ 単価
     extra_cost: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # 会計の上乗せ(payment に含む)。評判に応じたチップと、姿を持ち越して続けて来た常連の指名料
+    tip: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    regular_fee: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
     created_at: Mapped[datetime] = mapped_column(

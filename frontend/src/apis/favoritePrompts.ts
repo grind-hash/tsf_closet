@@ -150,12 +150,19 @@ export function updateFavoritePromptCategory(
   );
 }
 
-/** カテゴリーを削除する。中のプロンプトはバックエンドで未分類へ移る */
+export interface DeleteFavoritePromptCategoryOptions {
+  /** true なら中のプロンプトも削除する（既定は未分類へ移す） */
+  deletePrompts?: boolean;
+}
+
+/** カテゴリーを削除する。中のプロンプトは既定で未分類へ移り、deletePrompts 指定時は一緒に消える */
 export async function deleteFavoritePromptCategory(
   categoryId: string,
+  options: DeleteFavoritePromptCategoryOptions = {},
 ): Promise<void> {
+  const query = options.deletePrompts ? "?delete_prompts=true" : "";
   await requestJson<unknown>(
-    `${BASE}/categories/${encodeURIComponent(categoryId)}`,
+    `${BASE}/categories/${encodeURIComponent(categoryId)}${query}`,
     { method: "DELETE" },
     { fallbackMessage: "カテゴリーの削除に失敗しました" },
   );

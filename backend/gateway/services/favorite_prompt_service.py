@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..databases.models import FavoritePrompt, FavoritePromptCategory
@@ -358,21 +358,27 @@ class FavoritePromptService:
         db: AsyncSession,
         *,
         category_id: str,
+        delete_prompts: bool = False,
         user_id: str = DEFAULT_USER_ID,
     ) -> bool:
-        """カテゴリーを削除する。中のプロンプトは消さずに未分類へ移す。"""
+        """カテゴリーを削除する。
+
+        delete_prompts が False なら中のプロンプトは未分類へ移し、True なら一緒に削除する。
+        """
         try:
             category = await _get_category(db, category_id, user_id)
         except FavoritePromptServiceError:
             return False
-        await db.execute(
-            update(FavoritePrompt)
-            .where(
-                FavoritePrompt.user_id == user_id,
-                FavoritePrompt.category_id == category.id,
-            )
-            .values(category_id=None)
+        in_category = (
+            FavoritePrompt.user_id == user_id,
+            FavoritePrompt.category_id == category.id,
         )
+        if delete_prompts:
+            await db.execute(delete(FavoritePrompt).where(*in_category))
+        else:
+            await db.execute(
+                update(FavoritePrompt).where(*in_category).values(category_id=None)
+            )
         await db.delete(category)
         await db.flush()
         return True

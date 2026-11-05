@@ -125,8 +125,9 @@ export const chat = {
     selectCharacter: "キャラクターを選択",
     loading: "読み込み中...",
     customImageSection: "または自分の画像を使用",
+    customImageRemovalChip: "v0.12.0 で削除予定",
     customImageDeprecated:
-      "この入口は v0.12.0 で削除予定です。画像からのキャラクター作成とプレイ開始は「キャラクター」画面へ移りました。",
+      "「自分の画像を使用」欄は v0.12.0 で削除予定です。画像からキャラクターを作ってプレイを始めるときは、「キャラクター」画面を使ってください。上のキャラクター選択と、下のプレイモード（自分自身モードなど）は今後も使えます。",
     customImageOpenCharacters: "キャラクター画面を開く",
     selectImage: "📁 画像を選択",
     createdCharacters: "作成したキャラクター",

@@ -407,14 +407,22 @@ export async function createSessionRequest(
   );
 }
 
-/** 依頼モード: カウンセリングの質問に、依頼主本人が答える */
+/**
+ * 依頼モード: カウンセリングの質問に、依頼主本人が答える。
+ * topicId は分類を選んで聞いたときの好みの id(答えにその好みの手掛かりが出る)。
+ */
 export async function askSessionRequestQuestion(
   sessionId: string,
   question: string,
   language: string,
+  topicId?: string | null,
 ): Promise<CreateSessionRequestResponse> {
   return requestJson<CreateSessionRequestResponse>(
     `${API_BASE}/game/sessions/${sessionId}/request/questions`,
-    jsonInit("POST", { question, language }),
+    jsonInit("POST", {
+      question,
+      language,
+      ...(topicId ? { topic_id: topicId } : {}),
+    }),
   );
 }

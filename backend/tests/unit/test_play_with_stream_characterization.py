@@ -1264,3 +1264,28 @@ async def test_request_turn_limit_leaves_action_turns_alone(monkeypatch) -> None
 
     assert "error" not in _types(events)
     assert store.calls_of("add_history")[0]["instruction_type"] == "action"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("sensitive", "framed"), [(True, True), (False, False)])
+async def test_salon_experience_action_turn_is_framed_as_the_salon_dream(
+    monkeypatch, sensitive: bool, framed: bool
+) -> None:
+    # 過激施術の体験の場面(行動の手番)は、サロンが仕上げの姿のまま見せる夢として書かせる
+    store = FakeSessionStore(
+        session_request={**_SESSION_REQUEST, "sensitive": sensitive},
+        latest_history=SimpleNamespace(
+            after_description="current look", feeling_text="", instruction="x"
+        ),
+    )
+    harness = _build(monkeypatch, store=store)
+
+    await _run(harness, instruction="夢の中の寝室で", instruction_type="action")
+
+    user_prompt = harness.feeling_calls[0]["user_prompt"]
+    assert ("【サロンが見せる夢】" in user_prompt) is framed
+    assert ("舞踏会のお姫様になってみたい" in user_prompt) is framed
+    # 画像の指示では、行為に合わせて裸にせず仕上げた服を残させる
+    assert (
+        "keeps the outfit of their current look" in repr(harness.text_calls)
+    ) is framed

@@ -48,5 +48,11 @@ REQUEST_ANSWER_MAX: int = 200
 REQUEST_HINT_MARK_OPEN: str = "〔"
 REQUEST_HINT_MARK_CLOSE: str = "〕"
 
+# カウンセリングの答えに滲ませる手掛かりの強さ。plain は分類と向きまで言ってよい、
+# normal は遠回しでも向きは取り違えない、subtle は気持ちや思い出に紛れさせる。
+# サロンは難易度から決め(やさしい・ふつう・むずかしい)、通常の依頼モードは normal
+REQUEST_CLUE_LEVELS: tuple[str, ...] = ("plain", "normal", "subtle")
+REQUEST_CLUE_LEVEL_DEFAULT: str = "normal"
+
 # 評価に失敗した手番も手数として数えるため、履歴へこの印を残す(満足度には使わない)
 REQUEST_EVALUATION_FAILED: dict[str, bool] = {"failed": True}

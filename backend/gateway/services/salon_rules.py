@@ -16,17 +16,27 @@ from ..consts.salon import (
     SALON_BASE_PRICE,
     SALON_BOOKINGS_MAX,
     SALON_BOOKINGS_REPUTATION_STEP,
+    SALON_DEFAULT_DIFFICULTY,
+    SALON_DEFAULT_SEASON_LENGTH,
     SALON_GOOD_SATISFACTION,
+    SALON_INITIAL_CASH,
+    SALON_INITIAL_REPUTATION_BY_LENGTH,
     SALON_LOW_SATISFACTION,
+    SALON_PERFECT_SATISFACTION,
     SALON_PRICE_RATE_FULFILLED,
     SALON_PRICE_RATE_LOW,
     SALON_PRICE_RATE_NORMAL,
+    SALON_PRICE_RATE_PERFECT,
+    SALON_REGULAR_FEE_MAX,
+    SALON_REGULAR_FEE_PER_VISIT,
     SALON_REPUTATION_DECLINED,
     SALON_REPUTATION_FULFILLED,
     SALON_REPUTATION_GOOD,
     SALON_REPUTATION_MAX,
     SALON_REPUTATION_MIN,
     SALON_REPUTATION_POOR,
+    SALON_SEASON_LENGTHS,
+    SALON_TIP_PER_REPUTATION,
     SALON_WEEKLY_FIXED_COST,
     SALON_WEEKLY_SALARY,
 )
@@ -81,15 +91,78 @@ def keeps_look(fulfilled: bool, week: int, total_weeks: int) -> bool:
     return fulfilled and week < total_weeks
 
 
+def normalize_season_length(value: str | None) -> str:
+    length = str(value or "").strip()
+    return length if length in SALON_SEASON_LENGTHS else SALON_DEFAULT_SEASON_LENGTH
+
+
+def season_weeks(length: str | None) -> int:
+    """1 期の週数。"""
+    return SALON_SEASON_LENGTHS[normalize_season_length(length)]
+
+
+def season_initial_cash(length: str | None, difficulty: str | None) -> int:
+    """開業資金。期の長さと難易度で決まる。"""
+    table = SALON_INITIAL_CASH[normalize_season_length(length)]
+    return table.get(str(difficulty or ""), table[SALON_DEFAULT_DIFFICULTY])
+
+
+def season_initial_reputation(length: str | None) -> int:
+    """開店時の評判。短い期は初週から予約が多い。"""
+    return SALON_INITIAL_REPUTATION_BY_LENGTH[normalize_season_length(length)]
+
+
+@dataclass(frozen=True)
+class VisitBill:
+    """会計の内訳。course は施術料(満足度で決まる)、tip と regular_fee は達成時の上乗せ。"""
+
+    course: int
+    tip: int = 0
+    regular_fee: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.course + self.tip + self.regular_fee
+
+
 def visit_payment(satisfaction: int, fulfilled: bool) -> int:
-    """会計の支払額。依頼達成はチップ込みの割増、満足度が低いと半額。"""
-    if fulfilled:
+    """施術料。満点の仕上がりは倍、依頼達成は割増、満足度が低いと半額。"""
+    if fulfilled and satisfaction >= SALON_PERFECT_SATISFACTION:
+        rate = SALON_PRICE_RATE_PERFECT
+    elif fulfilled:
         rate = SALON_PRICE_RATE_FULFILLED
     elif satisfaction < SALON_LOW_SATISFACTION:
         rate = SALON_PRICE_RATE_LOW
     else:
         rate = SALON_PRICE_RATE_NORMAL
     return int(round(SALON_BASE_PRICE * rate))
+
+
+def reputation_tip(reputation: int, fulfilled: bool) -> int:
+    """依頼を叶えたお客様のチップ。会計前のサロンの評判に比例する。"""
+    if not fulfilled:
+        return 0
+    return max(0, int(reputation)) * SALON_TIP_PER_REPUTATION
+
+
+def regular_fee(regular_visits: int, fulfilled: bool) -> int:
+    """常連の指名料。regular_visits は、前回の姿のまま続けて来店した回数(初来店は 0)。"""
+    if not fulfilled:
+        return 0
+    return min(
+        SALON_REGULAR_FEE_MAX, max(0, int(regular_visits)) * SALON_REGULAR_FEE_PER_VISIT
+    )
+
+
+def visit_bill(
+    satisfaction: int, fulfilled: bool, *, reputation: int, regular_visits: int
+) -> VisitBill:
+    """会計の内訳。評判は会計前の値(この来店の評判の変化は含めない)。"""
+    return VisitBill(
+        course=visit_payment(satisfaction, fulfilled),
+        tip=reputation_tip(reputation, fulfilled),
+        regular_fee=regular_fee(regular_visits, fulfilled),
+    )
 
 
 def visit_reputation_delta(satisfaction: int, fulfilled: bool) -> int:
@@ -135,9 +208,9 @@ def week_summary(
     }
 
 
-def season_result(cash: int, initial_cash: int) -> str:
-    """決算。開業資金を上回れば成功、0 以上なら部分的な成功。"""
-    if cash > initial_cash:
+def season_result(cash: int, start_cash: int) -> str:
+    """決算。期首の現金(1 期目は開業資金)を上回れば成功、0 以上なら部分的な成功。"""
+    if cash > start_cash:
         return "success"
     if cash >= 0:
         return "partial"

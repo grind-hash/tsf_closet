@@ -30,7 +30,9 @@ from gateway.services.session_request_service import (
     RequestEvaluationOutput,
     SessionRequestError,
     compute_satisfaction,
+    crush_wording_fits,
     evaluation_record,
+    experience_feeling_context,
     feeling_context,
     grounded_met_ids,
     is_fulfilled,
@@ -88,6 +90,7 @@ def test_evaluation_record_drops_unknown_ids_and_clears_hint_when_all_met() -> N
         "reflected_answers": [],
         "listening_bonus": 0,
         "hint": "丈",
+        "focus_preference_id": "p2",
     }
     assert not is_fulfilled(partial)
     complete = evaluation_record(
@@ -97,7 +100,72 @@ def test_evaluation_record_drops_unknown_ids_and_clears_hint_when_all_met() -> N
         look_is_tags=True,
     )
     assert complete["hint"] == ""
+    assert complete["focus_preference_id"] is None
     assert is_fulfilled(complete)
+
+
+def test_evaluation_record_hint_follows_the_python_focus_preference() -> None:
+    """ヒントは根拠の検証後に満たしていない先頭の好みを指す(LLM の思い込みで選ばない)。"""
+    output = RequestEvaluationOutput.model_validate(
+        {
+            "fit": "good",
+            # p1 を満たしたと言うが根拠が姿に無い → 検証で落ち、p1 が注目する好みになる
+            "met_preferences": [{"id": "p1", "evidence": "pastel"}],
+            "hints": [
+                {"id": "p2", "text": "裾がもう少し長いと落ち着きそう"},
+                {"id": "x", "text": "無関係"},
+            ],
+            "hint": "旧形式の1文",
+        }
+    )
+    record = evaluation_record(output, _PREFERENCES, look_text=_LOOK, look_is_tags=True)
+    assert record["met_preference_ids"] == []
+    assert record["focus_preference_id"] == "p1"
+    # p1 のヒントは書かれていない。未達が2つあるので旧形式の1文は使わず、分類から作る
+    assert record["hint"] == "「色合い」のあたりが、まだ少し気になっているようです"
+
+    written = RequestEvaluationOutput.model_validate(
+        {
+            "fit": "good",
+            "met_preferences": [{"id": "p1", "evidence": "pale pink dress"}],
+            "hints": [{"id": "p2", "text": "裾がもう少し長いと落ち着きそう"}],
+        }
+    )
+    record = evaluation_record(
+        written, _PREFERENCES, look_text=_LOOK, look_is_tags=True
+    )
+    assert record["focus_preference_id"] == "p2"
+    assert record["hint"] == "裾がもう少し長いと落ち着きそう"
+
+
+@pytest.mark.parametrize(
+    ("questions", "topic_id", "expected"),
+    [
+        ([], None, "p1"),
+        ([], "p2", "p2"),
+        ([], "p9", "p1"),
+        ([{"target_id": "p1"}], None, "p2"),
+        ([{"target_id": "p1"}, {"target_id": "p2"}], None, "p1"),
+        ([{}], None, "p1"),
+    ],
+)
+def test_question_target_picks_chosen_or_least_hinted_preference(
+    questions, topic_id, expected
+) -> None:
+    from gateway.services.session_request_service import question_target
+
+    assert question_target(_PREFERENCES, questions, topic_id)["id"] == expected
+    assert question_target([], questions, topic_id) is None
+
+
+@pytest.mark.parametrize(
+    ("current", "previous", "trend"),
+    [(70, 60, "up"), (50, 60, "down"), (60, 60, "same"), (60, None, None)],
+)
+def test_satisfaction_trend(current, previous, trend) -> None:
+    from gateway.services.session_request_service import satisfaction_trend
+
+    assert satisfaction_trend(current, previous) == trend
 
 
 @pytest.mark.parametrize(
@@ -211,9 +279,42 @@ def test_feeling_context_hints_unmet_preferences_without_naming_rule() -> None:
     text = feeling_context(_REQUEST, evaluation, "ja")
     assert "舞踏会のお姫様になってみたい" in text
     assert "満たされた好み: 淡いピンクのドレス" in text
-    assert "名指しせず" in text and "膝より長い丈" in text
+    assert "名指ししない" in text and "膝より長い丈" in text
+    # 評価が無ければ、まだの好み全部を名指しせずにほのめかす(以前の書き方)
     english = feeling_context(_REQUEST, None, "en")
     assert "never name them outright" in english
+
+
+def test_feeling_context_hints_only_the_focus_and_follows_the_trend() -> None:
+    request = {**_REQUEST, "emphasize_hints": True}
+    evaluation = {
+        "fit": "partial",
+        "satisfaction": 40,
+        "met_preference_ids": [],
+        "focus_preference_id": "p2",
+    }
+    text = feeling_context(request, evaluation, "ja", previous=60)
+    # まだの好みは2つとも挙げるが、ほのめかすのは画面のヒントと同じ1つだけ
+    assert "まだ満たされていない好み: 淡いピンクのドレス、膝より長い丈" in text
+    assert "ほかの好みはほのめかさない）: 膝より長い丈" in text
+    assert "前の姿のほうが好みに合っていて" in text
+    rising = feeling_context(
+        request, {**evaluation, "satisfaction": 70}, "en", previous=60
+    )
+    assert "do not hint at the others): 膝より長い丈" in rising
+    assert "the mood has lifted" in rising
+    assert "previous look" not in feeling_context(request, evaluation, "en")
+
+
+def test_experience_feeling_context_frames_the_scene_as_the_salon_dream() -> None:
+    sensitive = {**_REQUEST, "sensitive": True}
+    ja = experience_feeling_context(sensitive, "ja")
+    assert "サロンが見せる夢" in ja
+    assert "舞踏会のお姫様になってみたい" in ja
+    assert "周囲の視線についての指示より、こちらを優先" in ja
+    assert "A dream the salon shows" in experience_feeling_context(sensitive, "en")
+    # 全年齢の依頼の行動の手番には添えない
+    assert experience_feeling_context(_REQUEST, "ja") == ""
 
 
 async def _seed_session(
@@ -517,8 +618,12 @@ def test_public_request_view_counts_failed_turns_and_questions() -> None:
             "question": "好きな色は？",
             "answer": "春の花みたいな色かな",
             "reflected": False,
+            "target_id": None,
         }
     ]
+    assert view["previous_satisfaction"] is None
+    assert view["focus_preference_id"] == "p2"
+    assert view["clue_level"] == "normal"
     assert view["questions_remaining"] == 1
     unlimited = public_request_view(_REQUEST, evaluations, can_regenerate=False)
     assert unlimited["turn_limit"] is None
@@ -654,21 +759,24 @@ async def test_ask_question_answers_in_character_up_to_the_limit(
     assert empty.value.code == "empty_question"
 
     view, _ = await session_request_service.ask_question(
-        "s1", "好きな色はある？", language="ja"
+        "s1", "好きな色はある？", language="ja", topic_id="p2"
     )
     assert view["questions"] == [
         {
             "question": "好きな色はある？",
             "answer": "春に咲く花みたいな、やわらかい色が好きなんだ",
             "reflected": False,
+            "target_id": "p2",
         }
     ]
     assert view["questions_remaining"] == 0
-    # 伏せた好みは手掛かりにするため答える側へ渡すが、画面へは本文を送らない
+    # 手掛かりの対象の好み1つだけを答える側へ渡し、画面へは本文を送らない
     payload = json.loads(prompts[0][1])
-    assert payload["hidden_preferences"][0]["text"] == "淡いピンクのドレス"
+    assert payload["target_preference"] == {"text": "膝より長い丈", "category": "丈"}
+    assert "hidden_preferences" not in payload
     assert payload["stylist_question"] == "好きな色はある？"
-    assert "without ever stating the preference itself" in prompts[0][0]
+    assert "let exactly one clue about target_preference slip" in prompts[0][0]
+    assert "Do this even when the question is about something else" in prompts[0][0]
     assert all(item["text"] is None for item in view["preferences"])
 
     with pytest.raises(SessionRequestError) as limit:
@@ -891,6 +999,109 @@ async def test_create_request_sensitive_saves_the_experience(
     assert payload["motive"] in {"self", "crush"}
 
 
+@pytest.mark.parametrize(
+    ("wish", "word", "fits"),
+    [
+        ("僕を女の子にして、好きな彼に舐められたいんだ", "彼", True),
+        # 実際の生成: 相手は男性なのに「あの子」で、女の子に読めた
+        ("僕を女の子にして…あの子に舐められたいんだ", "彼", False),
+        ("好きな彼女のために女の子になりたい", "彼", False),
+        # 実際の生成: 相手は女性なのに「彼」と書いた
+        ("男らしい体にして、好きな彼とセックスしたい", "彼女", False),
+        ("男らしい体にして、好きな彼女を抱きたい", "彼女", True),
+        ("Make me a girl he would love, so he can lick me", "him", True),
+        ("Make me a girl she would love", "him", False),
+    ],
+)
+def test_crush_wording_fits_the_partner_sex(wish: str, word: str, fits: bool) -> None:
+    assert crush_wording_fits(wish, word) is fits
+
+
+def _crush_generation(monkeypatch) -> None:
+    # 意中の相手のための願いで、候補は「男性に舐められる」と百合の2つにする
+    desires = {item.id: item for item in SENSITIVE_DESIRES}
+    monkeypatch.setattr(request_module, "pick_sensitive_motive", lambda seed: "crush")
+    monkeypatch.setattr(
+        request_module,
+        "pick_sensitive_candidates",
+        lambda bodies, seed, *, motive: [
+            desires["cunnilingus"],
+            desires["yuri_fingering"],
+        ],
+    )
+
+
+_CRUSH_GENERATED = {
+    **_SENSITIVE_GENERATED,
+    "desire_id": "cunnilingus",
+    "wish": "僕を女の子にして…あの子に舐められたいんだ",
+    "experience": "夢の中の寝室で、ユウは顔の見えない彼に脚を開かれ、舌で愛撫される",
+}
+
+
+@pytest.mark.asyncio
+async def test_create_request_repairs_the_crush_wording(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    _crush_generation(monkeypatch)
+    repaired = {
+        **_CRUSH_GENERATED,
+        "wish": "僕を女の子にして…好きな彼に舐められたいんだ",
+    }
+    prompts = _fake_generation_with_prompts(
+        monkeypatch, [json.dumps(_CRUSH_GENERATED), json.dumps(repaired)]
+    )
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", sensitive=True
+    )
+
+    assert view["wish"] == repaired["wish"]
+    assert "wish and experience must refer to the loved person as 彼" in prompts[1][1]
+    candidates = json.loads(prompts[0][1])["desire_candidates"]
+    assert [item["partner_word"] for item in candidates] == ["彼", "彼女"]
+
+
+@pytest.mark.asyncio
+async def test_create_request_retries_as_self_when_only_the_wording_is_off(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    _crush_generation(monkeypatch)
+    # 実際の生成: 相手は女性なのに、修復しても願いと体験で「彼」と書き続けた。
+    # 相手の性別を取り違えたまま出さず、動機を自分の憧れにして作り直す(全年齢には落とさない)
+    wrong = {
+        **_CRUSH_GENERATED,
+        "desire_id": "yuri_fingering",
+        "wish": "可愛い女の子にして、好きな彼に指で愛されたい",
+        "experience": "夢の中の寝室で、ユウは顔の見えない彼に指で愛される",
+    }
+    self_generated = {
+        **_CRUSH_GENERATED,
+        "wish": "僕を女の子にして、男の人に舐められてみたいんだ",
+        "experience": "夢の中の寝室で、ユウは顔の見えない男性に舌で愛撫される",
+    }
+    prompts = _fake_generation_with_prompts(
+        monkeypatch,
+        [json.dumps(wrong), json.dumps(wrong), json.dumps(self_generated)],
+    )
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", sensitive=True
+    )
+
+    assert view["sensitive"] is True
+    assert view["sensitive_fallback"] is False
+    assert view["wish"] == self_generated["wish"]
+    assert len(prompts) == 3
+    retry_payload = json.loads(prompts[2][1])
+    assert retry_payload["motive"] == "self"
+    assert all(
+        "partner_word" not in item for item in retry_payload["desire_candidates"]
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_request_falls_back_to_all_ages_when_the_model_declines(
     isolated_db, monkeypatch
@@ -1069,6 +1280,29 @@ def test_generation_prompt_offers_candidates_and_follows_the_motive() -> None:
     assert "motive is crush" in crush_system
     assert "motive is self" in self_system
     assert "faceless adult" in crush_system
+    # 体験は、施術の直後にサロンが見せる夢の中の場面
+    assert "the salon lets the character dream" in self_system
+    assert "never the salon or anywhere with onlookers" in self_system
+    # 意中の相手は、テーマの相手の性別が分かる言葉で呼び、体験でも同じ人にする
+    assert "partner_word" in crush_system
+    assert "never as a stranger" in crush_system
+    assert "partner_word" not in self_system
+    words = {"man": "彼", "woman": "彼女"}
+    for item in payload["desire_candidates"]:
+        assert item.get("partner_word") == words.get(item["partner"])
+    _, self_user = build_request_generation_prompt(
+        profile, "1boy", "ja", sensitive=True, desires=candidates, motive="self"
+    )
+    assert all(
+        "partner_word" not in item
+        for item in json.loads(self_user)["desire_candidates"]
+    )
+    _, english_user = build_request_generation_prompt(
+        profile, "1boy", "en", sensitive=True, desires=candidates, motive="crush"
+    )
+    english_words = {"man": "him", "woman": "her"}
+    for item in json.loads(english_user)["desire_candidates"]:
+        assert item.get("partner_word") == english_words.get(item["partner"])
     # 全年齢の依頼には行為の候補を渡さない
     _, plain_user = build_request_generation_prompt(profile, "1boy", "ja")
     assert "desire_candidates" not in json.loads(plain_user)
@@ -1118,7 +1352,8 @@ def test_evaluation_prompt_judges_only_the_look_for_sensitive_requests() -> None
     assert "never lower fit" not in plain_system
     # ヒントはまだ満たしていない好みについて、どちらへ変えるかを示す
     assert "never base it on counselling answers" in plain_system
-    assert "say which way to change it" in plain_system
+    assert "say which way to change the current look" in plain_system
+    assert '"hints":[{"id":"p2","text":"..."}]' in plain_system
 
 
 def test_experience_bonus_is_added_and_capped() -> None:

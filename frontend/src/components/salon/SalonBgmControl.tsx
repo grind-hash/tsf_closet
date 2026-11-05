@@ -5,6 +5,9 @@ import type { UseAdventureBgmResult } from "../../hooks/useAdventureBgm";
 
 interface SalonBgmControlProps {
   bgm: UseAdventureBgmResult;
+  /** 開閉を呼び出し側で持つとき(上端バーの他のパネルと同時に開かないようにする) */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -12,10 +15,16 @@ interface SalonBgmControlProps {
  * 初回はミュート(utils/bgmPreferences の salon / salon_se)。
  * 曲も効果音も置かれていなければ出さず、置かれている方の欄だけを出す。
  */
-export default function SalonBgmControl({ bgm }: SalonBgmControlProps) {
+export default function SalonBgmControl({
+  bgm,
+  open: openProp,
+  onOpenChange,
+}: SalonBgmControlProps) {
   const { t } = useTranslation();
   const { soundEffects: se } = useSalon();
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   const panelId = useId();
 
   useEffect(() => {
@@ -25,7 +34,7 @@ export default function SalonBgmControl({ bgm }: SalonBgmControlProps) {
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [open]);
+  }, [open, setOpen]);
 
   if (!bgm.playable && !se.available) return null;
   const allMuted = (!bgm.playable || bgm.muted) && (!se.available || se.muted);
@@ -38,7 +47,7 @@ export default function SalonBgmControl({ bgm }: SalonBgmControlProps) {
         title={t("salon.bgm.settings")}
         aria-expanded={open}
         aria-controls={panelId}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setOpen(!open)}
       >
         ♪
       </button>

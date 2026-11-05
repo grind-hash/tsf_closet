@@ -16,7 +16,7 @@ export const menu = {
   characterChat: "Character Chat",
   characterChatDesc: "Talk one-on-one with a character outside the scenario",
   salon: "Salon Management",
-  salonDesc: "Dress up customers and run a salon for 12 weeks",
+  salonDesc: "Dress up customers and run a salon in seasons of 4 or 12 weeks",
   endings: "Endings",
   endingsDesc: "View unlocked endings",
   guide: "Play Style Guide",

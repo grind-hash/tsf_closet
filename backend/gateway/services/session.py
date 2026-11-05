@@ -573,6 +573,7 @@ class DatabaseSessionStore:
             "question_limit": int(row.question_limit or 0),
             "questions": [item for item in questions if isinstance(item, dict)],
             "emphasize_hints": bool(row.emphasize_hints),
+            "clue_level": row.clue_level or "normal",
             "sensitive": bool(row.sensitive),
             "experience": row.experience_text or "",
         }
@@ -593,6 +594,7 @@ class DatabaseSessionStore:
         turn_limit: int | None = None,
         question_limit: int = 2,
         emphasize_hints: bool = False,
+        clue_level: str = "normal",
         sensitive: bool = False,
         experience: str | None = None,
     ) -> dict:
@@ -610,6 +612,7 @@ class DatabaseSessionStore:
             row.question_limit = question_limit
             row.questions_json = "[]"
             row.emphasize_hints = emphasize_hints
+            row.clue_level = clue_level
             row.sensitive = sensitive
             row.experience_text = experience if sensitive else None
             row.status = "active"
@@ -654,15 +657,26 @@ class DatabaseSessionStore:
             await db_session.commit()
 
     async def append_request_question(
-        self, session_id: str, *, question: str, answer: str
+        self,
+        session_id: str,
+        *,
+        question: str,
+        answer: str,
+        target_id: str | None = None,
     ) -> dict | None:
-        """カウンセリングのやり取りを1件足して依頼を返す。依頼が無ければ None。"""
+        """カウンセリングのやり取りを1件足して依頼を返す。依頼が無ければ None。
+
+        target_id は、答えに手掛かりを滲ませた好み(Python が決めた対象)。
+        """
         async with async_session_factory() as db_session:
             row = await db_session.get(SessionRequestORM, session_id)
             if row is None:
                 return None
             questions = self._request_to_dict(row)["questions"]
-            questions.append({"question": question, "answer": answer})
+            entry: dict = {"question": question, "answer": answer}
+            if target_id:
+                entry["target_id"] = target_id
+            questions.append(entry)
             row.questions_json = json.dumps(questions, ensure_ascii=False)
             row.updated_at = datetime.now()
             await db_session.commit()

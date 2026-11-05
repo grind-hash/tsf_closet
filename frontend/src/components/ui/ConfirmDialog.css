@@ -70,6 +70,11 @@
   cursor: pointer;
 }
 
+/* 本文の中に置いたチェック欄は、本文自体の下余白に任せる */
+.confirm-dialog__body .confirm-dialog__check {
+  margin-bottom: 0;
+}
+
 .confirm-dialog__actions {
   display: flex;
   gap: 0.5rem;

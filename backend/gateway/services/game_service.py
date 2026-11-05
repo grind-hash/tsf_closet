@@ -36,6 +36,7 @@ from ..databases.base import async_session_factory
 from ..databases.character_repo import (
     fetch_latest_character_states,
     fetch_protagonist_session_character,
+    latest_history_has_character_states,
 )
 from ..models import (
     CRITICAL_POINTS,
@@ -73,6 +74,7 @@ from .character_service import (
     build_novelai_characters_section,
     build_session_characters_prompt_section,
     build_stage_roster,
+    extract_protagonist_tags_from_history,
     keep_bystander_looks,
     load_session_characters_for_prompt,
     looks_by_id,
@@ -81,6 +83,7 @@ from .character_service import (
     ref_to_stage_index,
     resolve_turn_targets,
     upsert_protagonist_session_character,
+    with_protagonist_look,
 )
 from .character_service import (
     resolve_protagonist_image_identity as _resolve_protagonist_image_identity,
@@ -156,8 +159,11 @@ from .reality_prompts import (
 from .self_mode_prompts import build_self_mode_feeling_prompt
 from .session import session_store
 from .session_request_service import (
+    experience_feeling_context,
+    experience_image_context,
     feeling_context,
     is_fulfilled,
+    previous_satisfaction,
     session_request_service,
     turns_remaining,
 )
@@ -2288,7 +2294,18 @@ class GameService:
                 previous_states = parse_character_states(
                     await fetch_latest_character_states(db, ctx.session.id)
                 )
+                latest_has_states = await latest_history_has_character_states(
+                    db, ctx.session.id
+                )
             looks = looks_by_id(previous_states)
+            if not latest_has_states:
+                # 直前の手番を一人で描いた: 主人公はその手番の姿から描く
+                # (例: サロンで一人で施術した後の、複数人表示の体験の手番)
+                looks = with_protagonist_look(
+                    records,
+                    looks,
+                    extract_protagonist_tags_from_history(last_after_description),
+                )
             protagonist_name, protagonist_tags = _resolve_protagonist_image_identity(
                 last_after_description=last_after_description,
                 character=ctx.character,
@@ -2811,6 +2828,14 @@ class GameService:
             attributes=attributes,
             gender_discomfort=gender_discomfort,
         )
+        # サロンの過激施術: 接客画面が送る行動の手番は体験の場面だけ。
+        # サロンが仕上げの姿のまま見せる夢として書かせ、画像でも仕上げた服を残す
+        experience_image_rule = ""
+        if not ctx.session.self_mode:
+            session_request = await session_store.get_session_request(ctx.session.id)
+            if session_request is not None:
+                act_user += experience_feeling_context(session_request, ctx.language)
+                experience_image_rule = experience_image_context(session_request)
 
         from .conversation import get_language_rules
 
@@ -2825,7 +2850,7 @@ class GameService:
         image_prompt, characters = await self._generate_action_image_prompt(
             ctx,
             current_desc=current_desc,
-            attribute_context=attribute_context,
+            attribute_context=attribute_context + experience_image_rule,
             multi_char_image_section=sections.image,
         )
         payload = self._build_image_payload(
@@ -3812,6 +3837,18 @@ class GameService:
 
         評価は画像生成と並列のテキスト側で行う。失敗しても依頼の願いだけを添えて続ける。
         """
+        # 前の手番の満足度(この手番の評価はまだ履歴に無い)。反応の明暗を上下に合わせる
+        try:
+            previous = previous_satisfaction(
+                await session_store.get_request_evaluations(ctx.session.id)
+            )
+        except Exception as error:
+            logger.warning(
+                "Previous request evaluation lookup failed: %s: %s",
+                type(error).__name__,
+                error,
+            )
+            previous = None
         state.evaluation = await session_request_service.evaluate_turn(
             session_request,
             current_look=current_look,
@@ -3842,7 +3879,12 @@ class GameService:
             ctx,
             **feeling_kwargs,
             request_feeling=_RequestFeeling(
-                block=feeling_context(session_request, state.evaluation, ctx.language),
+                block=feeling_context(
+                    session_request,
+                    state.evaluation,
+                    ctx.language,
+                    previous=previous,
+                ),
                 tsf_attitude=str((profile or {}).get("tsf_attitude") or "").strip()
                 or str(getattr(ctx.character, "tsf_attitude", "") or "")
                 or str(ctx.custom_metadata.get("tsf_attitude") or ""),

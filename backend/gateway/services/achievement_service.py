@@ -147,24 +147,37 @@ class AchievementService:
 
     @staticmethod
     def _salon_season_stats(session: Any) -> dict[str, int]:
-        """決算まで終えた(倒産していない)サロンの件数・成功・黒字の最大値。"""
-        completed = session.execute(
-            select(SalonRun.state_json).where(SalonRun.status == "completed")
-        ).scalars()
+        """決算まで終えた(倒産していない)期の件数・成功・黒字の最大値。
+
+        サロンは決算のあと次の期へ続けられるので、すべてのサロンの期ごとの結果
+        (state_json の seasons。以前のサロンは result)を数える。黒字は期ごとの値。
+        """
+        rows = session.execute(select(SalonRun.state_json)).scalars()
         completed_count = success_count = hard_success_count = 0
         best_profit = 0
-        for state_json in completed:
+        for state_json in rows:
             try:
                 state = json.loads(state_json or "{}")
             except (TypeError, ValueError):
                 continue
-            result = state.get("result") or {}
-            completed_count += 1
-            if result.get("outcome") == "success":
-                success_count += 1
-                if state.get("difficulty") == "hard":
-                    hard_success_count += 1
-            best_profit = max(best_profit, int(result.get("profit") or 0))
+            if not isinstance(state, dict):
+                continue
+            seasons = state.get("seasons")
+            if not isinstance(seasons, list):
+                result = state.get("result")
+                seasons = [result] if isinstance(result, dict) else []
+            for result in seasons:
+                if not isinstance(result, dict) or result.get("outcome") not in (
+                    "success",
+                    "partial",
+                ):
+                    continue
+                completed_count += 1
+                if result.get("outcome") == "success":
+                    success_count += 1
+                    if state.get("difficulty") == "hard":
+                        hard_success_count += 1
+                best_profit = max(best_profit, int(result.get("profit") or 0))
         return {
             "salon_completed_count": completed_count,
             "salon_success_count": success_count,

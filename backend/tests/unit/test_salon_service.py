@@ -19,6 +19,8 @@ from gateway.consts.salon import (
     SALON_EXTRA_TURN_PRICE,
     SALON_INITIAL_REPUTATION,
     SALON_QUESTION_LIMIT,
+    SALON_SEASON_LENGTHS,
+    SALON_TIP_PER_REPUTATION,
     SALON_TOTAL_WEEKS,
     SALON_TURN_LIMIT,
     SALON_WEEKLY_FIXED_COST,
@@ -95,6 +97,7 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
         turn_limit,
         question_limit,
         emphasize_hints,
+        clue_level,
         previous_visit,
         sensitive,
     ):
@@ -105,6 +108,7 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
                 "turn_limit": turn_limit,
                 "question_limit": question_limit,
                 "emphasize_hints": emphasize_hints,
+                "clue_level": clue_level,
                 "previous_visit": previous_visit,
                 "sensitive": sensitive,
             }
@@ -237,7 +241,13 @@ async def test_season_success_line_is_the_runs_own_opening_funds(
 
     closed = (await salon_service.close_week(run["id"]))["run"]
 
-    assert closed["result"] == {"outcome": "partial", "cash": hard_cash, "profit": 0}
+    assert closed["result"] == {
+        "outcome": "partial",
+        "cash": hard_cash,
+        "profit": 0,
+        "season": 1,
+        "start_cash": hard_cash,
+    }
 
 
 async def test_create_run_rejects_blank_name(stubs) -> None:
@@ -261,6 +271,7 @@ async def test_start_visit_links_session_with_salon_request_limits(stubs) -> Non
             "turn_limit": SALON_TURN_LIMIT,
             "question_limit": SALON_QUESTION_LIMIT,
             "emphasize_hints": True,
+            "clue_level": "normal",
             "previous_visit": None,
             "sensitive": False,
         }
@@ -288,9 +299,9 @@ async def test_start_visit_resumes_serving_session_and_reactivates_it(stubs) -> 
     assert active is not None and active.id == first["session_id"]
 
 
-async def test_only_one_customer_is_served_at_a_time(stubs, monkeypatch) -> None:
-    monkeypatch.setattr(salon_module, "SALON_INITIAL_REPUTATION", 50)
-    run = await salon_service.create_run("店")
+async def test_only_one_customer_is_served_at_a_time(stubs) -> None:
+    # 短い期は初週から 2 名の予約が入る
+    run = await salon_service.create_run("店", season_length="short")
     first, second = _booked(run)[:2]
     await salon_service.start_visit(run["id"], first["id"], language="ja")
 
@@ -324,7 +335,10 @@ async def test_checkout_fulfilled_pays_premium_and_raises_reputation(stubs) -> N
     assert done["status"] == "done"
     assert done["satisfaction"] == 82
     assert done["fulfilled"] is True
-    assert done["payment"] == int(SALON_BASE_PRICE * 1.5)
+    # 施術料(達成の割増)に、会計前の評判に応じたチップが乗る。初来店なので指名料は無い
+    assert done["tip"] == SALON_INITIAL_REPUTATION * SALON_TIP_PER_REPUTATION
+    assert done["regular_fee"] == 0
+    assert done["payment"] == int(SALON_BASE_PRICE * 1.5) + done["tip"]
     assert done["reputation_delta"] == 8
     assert done["review"] == "すてきな髪飾りでした。また来ます。"
     assert result["cost_usd"] == pytest.approx(0.002)
@@ -351,6 +365,7 @@ async def test_checkout_low_satisfaction_uses_fallback_review_on_failure(
 
     done = result["visit"]
     assert done["payment"] == int(SALON_BASE_PRICE * 0.5)
+    assert done["tip"] == 0
     assert done["reputation_delta"] == -5
     assert done["review"] == "今回は、思い描いていた姿とは遠かったかな……。"
     assert result["run"]["reputation"] == SALON_INITIAL_REPUTATION - 5
@@ -369,14 +384,58 @@ async def test_decline_lowers_reputation_once(stubs) -> None:
     assert error.value.code == "visit_closed"
 
 
-async def test_close_week_waits_for_checkout(stubs) -> None:
+async def test_unstyled_serving_customer_can_be_sent_home(stubs) -> None:
+    run = await salon_service.create_run("店")
+    visit = _booked(run)[0]
+    started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
+
+    sent_home = await salon_service.decline_visit(run["id"], visit["id"])
+
+    assert sent_home["visits"][0]["status"] == "declined"
+    assert sent_home["reputation"] == SALON_INITIAL_REPUTATION - 3
+    active = await session_store.get_active_session()
+    assert active is None or active.id != started["session_id"]
+
+
+async def test_styled_serving_customer_cannot_be_sent_home(stubs) -> None:
+    run = await salon_service.create_run("店")
+    visit = _booked(run)[0]
+    started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
+    stubs.views[started["session_id"]].update(satisfaction=50, turns_used=1)
+
+    with pytest.raises(SalonError) as error:
+        await salon_service.decline_visit(run["id"], visit["id"])
+    assert error.value.code == "already_styled"
+
+
+async def test_close_week_sends_home_an_unstyled_serving_customer(stubs) -> None:
     run = await salon_service.create_run("店")
     visit = _booked(run)[0]
     await salon_service.start_visit(run["id"], visit["id"], language="ja")
 
-    with pytest.raises(SalonError) as error:
-        await salon_service.close_week(run["id"])
-    assert error.value.code == "serving_open"
+    closed = (await salon_service.close_week(run["id"]))["run"]
+
+    assert closed["week"] == 2
+    first_week = [item for item in closed["visits"] if item["week"] == 1]
+    assert [item["status"] for item in first_week] == ["declined"]
+    assert closed["reputation"] == SALON_INITIAL_REPUTATION - 3
+
+
+async def test_close_week_checks_out_a_styled_serving_customer(stubs) -> None:
+    run = await salon_service.create_run("店")
+    visit = _booked(run)[0]
+    started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
+    stubs.views[started["session_id"]].update(
+        status="active", satisfaction=60, turns_used=2
+    )
+
+    closed = (await salon_service.close_week(run["id"]))["run"]
+
+    first_week = [item for item in closed["visits"] if item["week"] == 1]
+    assert [item["status"] for item in first_week] == ["done"]
+    assert first_week[0]["payment"] == SALON_BASE_PRICE
+    assert closed["weeks"][0]["revenue"] == SALON_BASE_PRICE
+    assert closed["weeks"][0]["served"] == 1
 
 
 async def test_close_week_settles_costs_and_books_next_week(stubs) -> None:
@@ -520,6 +579,22 @@ async def test_fulfilled_customer_keeps_look_and_comes_back_next_week(
     }
 
 
+async def test_returning_customer_pays_a_regular_fee_when_fulfilled_again(
+    stubs, isolated_db
+) -> None:
+    run = await salon_service.create_run("店")
+    first = (await _serve_fulfilled(stubs, isolated_db, run))["visit"]
+    assert first["regular_fee"] == 0
+    closed = (await salon_service.close_week(run["id"]))["run"]
+
+    # 持ち越しのお客様が先頭の予約。前回の姿のまま来て、もう一度願いを叶えた
+    second = (await _serve_fulfilled(stubs, isolated_db, closed))["visit"]
+
+    assert second["returning_look"] is True
+    assert second["regular_fee"] == 10_000
+    assert second["payment"] == round(SALON_BASE_PRICE * 1.5) + second["tip"] + 10_000
+
+
 async def test_kept_look_falls_back_to_original_look_when_branch_fails(
     stubs, isolated_db
 ) -> None:
@@ -584,9 +659,70 @@ async def test_closing_last_week_settles_the_season(stubs, isolated_db) -> None:
         "outcome": "success",
         "cash": expected_cash,
         "profit": expected_cash - NORMAL_CASH,
+        "season": 1,
+        "start_cash": NORMAL_CASH,
     }
+    assert closed["seasons"] == [closed["result"]]
     # 決算後は翌週の予約を入れない
     assert all(item["week"] == 1 for item in closed["visits"])
+
+
+async def test_short_season_opens_with_smaller_funds_and_more_bookings(stubs) -> None:
+    run = await salon_service.create_run("店", "normal", season_length="short")
+
+    assert run["season_length"] == "short"
+    assert run["total_weeks"] == run["season_weeks"] == SALON_SEASON_LENGTHS["short"]
+    assert run["cash"] == run["initial_cash"] == 600_000
+    assert run["reputation"] == 45
+    assert len(_booked(run)) == 2
+    with pytest.raises(SalonError) as error:
+        await salon_service.create_run("店", season_length="long")
+    assert error.value.code == "invalid_season_length"
+
+
+async def test_next_season_carries_cash_and_reputation(stubs, isolated_db) -> None:
+    run = await salon_service.create_run("店", season_length="short")
+    weeks = SALON_SEASON_LENGTHS["short"]
+    with pytest.raises(SalonError) as error:
+        await salon_service.next_season(run["id"])
+    assert error.value.code == "season_not_settled"
+    await _set_run(isolated_db, run["id"], week=weeks, cash=900_000, reputation=70)
+    settled = (await salon_service.close_week(run["id"]))["run"]
+    assert settled["status"] == "completed"
+    season_end_cash = settled["cash"]
+
+    second = await salon_service.next_season(run["id"])
+
+    assert second["status"] == "active"
+    assert second["season"] == 2
+    assert second["week"] == weeks + 1
+    assert second["season_start_week"] == weeks + 1
+    assert second["total_weeks"] == weeks * 2
+    assert second["cash"] == second["season_start_cash"] == season_end_cash
+    assert second["reputation"] == settled["reputation"]
+    assert second["result"] is None
+    assert [item["season"] for item in second["seasons"]] == [1]
+    # 評判 70 なら 3 名の予約が入る
+    assert len(_booked(second)) == 3
+
+    # 2 期目の成功の線は期首の現金。下回って終えたら部分的な成功
+    await _set_run(isolated_db, run["id"], week=weeks * 2)
+    closed = (await salon_service.close_week(run["id"]))["run"]
+    assert closed["result"]["season"] == 2
+    assert closed["result"]["start_cash"] == season_end_cash
+    assert closed["result"]["outcome"] == "partial"
+    assert [item["season"] for item in closed["seasons"]] == [1, 2]
+
+
+async def test_bankrupt_salon_cannot_go_on(stubs, isolated_db) -> None:
+    run = await salon_service.create_run("店")
+    await _set_run(isolated_db, run["id"], cash=0)
+    closed = (await salon_service.close_week(run["id"]))["run"]
+    assert closed["status"] == "bankrupt"
+
+    with pytest.raises(SalonError) as error:
+        await salon_service.next_season(run["id"])
+    assert error.value.code == "season_not_settled"
 
 
 async def test_delete_run_and_unknown_run(stubs) -> None:
@@ -842,7 +978,7 @@ async def test_experience_bonus_can_fulfil_the_wish(stubs, isolated_db) -> None:
     assert done["experience_bonus"] == 15
     assert done["fulfilled"] is True
     assert done["kept_look"] is True
-    assert done["payment"] == round(SALON_BASE_PRICE * 1.5)
+    assert done["payment"] == round(SALON_BASE_PRICE * 1.5) + done["tip"]
     stored = await session_store.get_session_request(session_id)
     assert stored["status"] == "fulfilled"
     assert stored["fulfilled_history_id"] == "styled"

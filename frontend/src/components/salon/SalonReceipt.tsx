@@ -28,7 +28,10 @@ interface SalonReceiptProps {
   cashTarget: RefObject<HTMLElement | null>;
 }
 
-/** 接客の会計の領収書(満足度・お支払い・評判と、願いを叶えたかどうか) */
+/**
+ * 接客の会計の領収書(満足度・お支払いとその内訳・評判と、願いを叶えたかどうか)。
+ * 内訳は、満点の仕上がりの施術料・評判のチップ・常連の指名料があるときだけ出す。
+ */
 export default function SalonReceipt({
   visit,
   language,
@@ -50,6 +53,11 @@ export default function SalonReceipt({
     delayMs: PAYMENT_DELAY_MS,
   });
   const sealText = t("salon.serving.seal");
+  // お支払いの内訳(上乗せは payment に含まれている)。古い来店には内訳が無い
+  const tip = visit.tip ?? 0;
+  const regularFee = visit.regular_fee ?? 0;
+  const course = visit.payment - tip - regularFee;
+  const perfect = visit.fulfilled && (visit.satisfaction ?? 0) >= 100;
 
   return (
     <div className={`salon-receipt-sheet${celebrate ? " is-celebrating" : ""}`}>
@@ -68,6 +76,24 @@ export default function SalonReceipt({
           <div>
             <dt>{t("salon.serving.experienceBonus")}</dt>
             <dd>+{visit.experience_bonus}%</dd>
+          </div>
+        )}
+        {perfect && (
+          <div>
+            <dt>{t("salon.serving.coursePerfect")}</dt>
+            <dd>{formatYen(course, language)}</dd>
+          </div>
+        )}
+        {tip > 0 && (
+          <div>
+            <dt>{t("salon.serving.tip")}</dt>
+            <dd>{formatSignedYen(tip, language)}</dd>
+          </div>
+        )}
+        {regularFee > 0 && (
+          <div>
+            <dt>{t("salon.serving.regularFee")}</dt>
+            <dd>{formatSignedYen(regularFee, language)}</dd>
           </div>
         )}
         <div>

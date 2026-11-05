@@ -677,6 +677,36 @@ def resolve_character_look(
     return spec_tags, "spec", current
 
 
+def with_protagonist_look(
+    records: Sequence[Any],
+    looks: dict[str, CharacterLook],
+    tags: str | None,
+) -> dict[str, CharacterLook]:
+    """直前の手番を一人で描いた(人物ごとの姿を残していない)ときに、その手番の姿を
+    主人公の履歴の姿として足す。
+
+    古い人物ごとの姿や、主人公の行を作ったときの初期値を今の姿として描かないため。
+    設定の連番は最後に人物ごとの姿を残したときのもの(無ければ 0)を引き継ぎ、
+    手番の後に設定を書き換えたときは今どおり設定を優先させる。
+    """
+    tags = (tags or "").strip()
+    protagonist = next(
+        (r for r in records if getattr(r, "is_protagonist", False)), None
+    )
+    protagonist_id = getattr(protagonist, "id", None)
+    if not tags or not protagonist_id:
+        return looks
+    previous = looks.get(protagonist_id)
+    return {
+        **looks,
+        protagonist_id: CharacterLook(
+            tags=tags,
+            spec_rev=previous.spec_rev if previous else 0,
+            stats=previous.stats if previous else None,
+        ),
+    }
+
+
 @dataclass(frozen=True)
 class StageCharacter:
     """プロンプトに載せる 1 人分。``record_id`` が None なのは未保存の主人公。

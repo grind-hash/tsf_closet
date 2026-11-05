@@ -1,7 +1,7 @@
 export const salon = {
   eyebrow: "SALON",
   title: "Salon Management",
-  lead: "Make your customers' wishes come true with a change of look, and run the salon for {{weeks}} weeks. Every week the fixed costs (property tax, upkeep) exceed your day-job income, so your cash drops by {{net}}. Make it up with the sales from serving customers.",
+  lead: "Make your customers' wishes come true with a change of look, and run the salon in seasons of 4 or 12 weeks. Every week the fixed costs (property tax, upkeep) exceed your day-job income, so your cash drops by {{net}}. Make it up with the sales from serving customers.",
   loading: "Loading…",
   open: {
     heading: "Open a new salon",
@@ -19,15 +19,27 @@ export const salon = {
         "Opening funds {{cash}}. Neglecting your customers leads to bankruptcy",
       hard: "Opening funds {{cash}}. A run of low-satisfaction visits leads to bankruptcy",
     },
+    seasonLabel: "Season length",
+    season: {
+      short: "4 weeks · Quick",
+      standard: "12 weeks · Full",
+    },
+    seasonDesc: {
+      short:
+        "Two customers from the first week, a dozen or so in the season. The opening funds are smaller to match the 4 weeks",
+      standard:
+        "One customer in the first week. Build up your reputation to welcome more customers",
+    },
     sensitiveHint:
-      "Customers arrive with adult wishes, and the reveal shows one picture of them living that wish. It starts as set in your most recent salon, and you can switch it in the owner's room after opening.",
-    goal: "The season succeeds if your final cash is above the opening funds. As a guide, make every other customer's wish come true.",
+      "Customers arrive with adult wishes, and the reveal shows one picture of a brief dream where, in that look, the wish comes true. It starts as set in your most recent salon, and you can switch it in the owner's room after opening.",
+    goal: "The season succeeds if your final cash is above the opening funds. As a guide, make every other customer's wish come true. A granted wish also brings a tip that grows with your reputation, and a regular's fee. After the settlement, you can go on to the next season.",
     submit: "Open the salon",
   },
   list: {
     heading: "Your salons",
     empty: "No salons yet",
     week: "Week {{week}} / {{total}}",
+    season: "Season {{season}}",
     status: {
       active: "Open",
       completed: "Season closed",
@@ -45,13 +57,14 @@ export const salon = {
     back: "Back to salons",
     weekLabel: "Week",
     weekOf: "/ {{total}}",
+    seasonOf: "Season {{season}} (weeks {{start}}–{{end}})",
     cash: "Cash",
     reputation: "Reputation",
     weeklyBalance: "Every week",
     weeklyBalanceValue: "Day job +{{salary}} / Fixed costs −{{fixed}}",
     sensitive: "Explicit treatments (adult)",
     sensitiveHint:
-      "Customers arrive with adult wishes, and the reveal shows one picture of them living that wish. Takes effect from the next customer you serve.",
+      "Customers arrive with adult wishes, and the reveal shows one picture of a brief dream where, in that look, the wish comes true. Takes effect from the next customer you serve.",
     sensitiveNsfwOff: "No effect while NSFW mode is off.",
     sensitiveOpenSettings: "Open settings",
     cutscene: "Opening and week-closing scenes",
@@ -66,7 +79,7 @@ export const salon = {
     },
     bookings: "This week's bookings",
     bookingsHint:
-      "Each 25 reputation adds one booking next week (up to 4). Customers whose wish came true come back next week in the look you styled. Each visit allows 3 styling turns and 2 questions.",
+      "Each 25 reputation adds one booking next week (up to 4). A granted wish brings a tip that grows with your reputation. Customers whose wish came true come back next week in the look you styled, and granting their wish again adds a regular's fee. Each visit allows 3 styling turns and 2 questions.",
     bookingsEmpty: "No bookings this week",
     visitFirst: "First visit",
     visitNumber: "Visit #{{count}}",
@@ -90,7 +103,8 @@ export const salon = {
     closeWeekFinal: "Close the week and settle the season",
     closeWeekHint:
       "You receive {{salary}} from your day job and pay {{fixed}} in fixed costs",
-    closeWeekServing: "Check out the customer you are serving before closing",
+    closeWeekServing:
+      "{{name}}, whom you are serving, is sent home if not yet styled (reputation −{{penalty}}), or checked out at the current satisfaction",
     closeWeekTitle: "Close week {{week}}?",
     closeWeekPending:
       "{{count}} booking(s) have not been served. They count as declined and reputation drops by {{penalty}}.",
@@ -113,6 +127,8 @@ export const salon = {
     chartWeek: "W{{week}}",
     chartGoal:
       "The horizontal line marks the opening funds ({{cash}}). Closing the season above it is a success",
+    chartGoalSeason:
+      "The horizontal line marks the cash at the start of this season ({{cash}}). Closing the season above it is a success",
     chartDescription:
       "From opening funds of {{start}} to {{cash}} at the close of week {{week}}",
     reviews: "Reviews",
@@ -127,7 +143,11 @@ export const salon = {
       bankrupt: "The salon went bankrupt",
     },
     resultDetail:
-      "Final cash {{cash}} (difference from the opening funds: {{profit}})",
+      "Final cash {{cash}} (difference from the {{start}} at the start of the season: {{profit}})",
+    resultSeason: "Season {{season}} settlement",
+    nextSeason: "Keep the salon open for another season",
+    nextSeasonHint:
+      "Carries your cash and reputation over into season {{season}} of the same length ({{weeks}} weeks). The success line is the cash at the start of that season.",
     bankruptDetail: "The cash ran out at the close of the week ({{cash}})",
     achievements: "See achievements",
     newSalon: "Open a new salon",
@@ -141,6 +161,7 @@ export const salon = {
     weeklySalary: "Day-job income each week",
     weeklyFixedCost: "Fixed costs each week",
     goal: "End week {{weeks}} with more cash than your opening funds to succeed",
+    resultSeason: "Season {{season}} settlement",
     week: "Week {{week}}",
     closed: "Closed",
     opened: "Open",
@@ -182,10 +203,35 @@ export const salon = {
     ask: "Ask ({{count}} left)",
     asking: "The customer is thinking…",
     questionsUsed: "No questions left",
+    chart: "Chart",
+    chartHint:
+      "The kinds of taste the customer has not put into words. Press one to write a question about it.",
+    chartFocus: "On their mind",
+    chartMet: "Granted",
+    chartPending: "Not yet",
+    chartAsked: "Asked",
+    askAbout: "May I ask what you like about the {{category}}?",
+    satisfactionMeter:
+      "Satisfaction {{satisfaction}}% · {{threshold}}% grants the wish",
+    satisfactionUp: "▲{{delta}}",
+    satisfactionDown: "▼{{delta}}",
+    satisfactionSame: "±0",
+    satisfactionBefore: "Shown after styling",
+    sendHome: "Send the customer home (reputation −{{penalty}})",
+    sendHomeTitle: "Send the customer home?",
+    sendHomeBody:
+      "Sends {{name}} home before any styling. As with declining a booking, reputation drops by {{penalty}}.",
     startStyling: "Start styling",
     instructionLabel: "Styling instruction",
     instructionPlaceholder: "e.g. Change into a pale blue one-piece dress",
     style: "Style ({{count}} turn(s) left)",
+    styleRange: "Style the selected area ({{count}} turn(s) left)",
+    rangeSelect: "Select area",
+    rangeChip: "Area: {{name}}",
+    rangeHandDrawn: "hand-drawn",
+    rangeClear: "Clear the area and style the whole look",
+    rangeNovelaiOnly:
+      "The area is only used when images are drawn with NovelAI. With the current settings, the whole image is redrawn.",
     styling: "Styling…",
     turnsUsed: "No styling turns left",
     toReveal: "Move on to the reveal",
@@ -196,11 +242,11 @@ export const salon = {
       "Make the customer's image background transparent and place them in the salon",
     revealBefore: "On arrival",
     revealAfter: "After styling",
-    experience: "Living the wish",
-    experienceGenerating: "Drawing them living their wish…",
+    experience: "A dream in this look",
+    experienceGenerating: "Drawing the dream where their wish comes true…",
     experienceFailed:
-      "Could not draw the experience. Try again, or check out as is.",
-    experienceRetry: "Draw the experience again",
+      "Could not draw the dream. Try again, or check out as is.",
+    experienceRetry: "Draw the dream again",
     sensitiveFallback:
       "An adult request could not be written for this customer, so this visit uses an all-ages request.",
     typing: "{{name}} is speaking",
@@ -225,20 +271,27 @@ export const salon = {
     seal: "Granted",
     notFulfilled: "Just short of the wish",
     notFulfilledAfterExperience:
-      "Just short of the wish, but the experience was better than they expected",
-    experienceBonus: "Of which, living the wish",
+      "Just short of the wish, but the dream was better than they expected",
+    experienceBonus: "Of which, the dream in this look",
+    coursePerfect: "A perfect finish",
+    tip: "Tip for your reputation",
+    regularFee: "Regular's fee",
     returningLook:
       "Back in the look from the last visit. This time it is an additional request on top of it",
     keptLook: "They will stay in this look and come back next week wearing it",
     revertedLook: "They went home back in their original look",
     revertedAfterExperience:
-      "They went home in their original look, still glowing from the experience",
+      "They went home in their original look, still glowing from the dream",
     review: "Review",
     log: "Log",
+    compare: "Compare",
+    compareHint:
+      "Compare each styled look with the one before it or with the look on arrival (after at least one styling turn, until the reveal)",
     logTitle: "Visit log",
     logEmpty: "Nothing recorded yet",
     logQuestion: "Question",
     logInstruction: "Styling",
+    logExperience: "Dream",
     close: "Close",
     preparing: "Welcoming the customer…",
     notFound: "This booking was not found",
@@ -257,5 +310,18 @@ export const salon = {
     seVolume: "Sound effect volume",
     autoplayBlocked:
       "The browser blocked autoplay. Click anywhere on the screen to start playback.",
+  },
+  generation: {
+    settings: "Generation settings",
+    sharedNote:
+      "These are the same settings as the right panel in normal play. Changes here also apply to normal play, starting with the next styling.",
+    otherProviderNote:
+      "The image settings have no effect because the image provider is not NovelAI. You can change the provider on the Settings screen.",
+    modelSfwInUse:
+      'This customer is drawn as all-ages, so the "{{label}}" model is used.',
+    modelNsfwInUse:
+      'This customer is drawn with explicit treatments, so the "{{label}}" model is used.',
+    textModelHint:
+      "In the salon, it writes the feelings, answers to questions, reviews, and requests.",
   },
 };
