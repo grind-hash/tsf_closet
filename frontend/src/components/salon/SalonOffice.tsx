@@ -7,7 +7,6 @@ import { useSalon } from "../../contexts/SalonContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import { usePersistedState } from "../../hooks/usePersistedState";
-import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { getSalonVisitPath, ROUTES } from "../../routes";
 import {
   buildOpeningCutscene,
@@ -67,10 +66,6 @@ export default function SalonOffice({ runId }: { runId: string }) {
     "full",
     { deserialize: parseCutsceneMode },
   );
-  const reducedMotion = usePrefersReducedMotion();
-  // OS で動きを減らしているときは、フルでも短い版にする
-  const playedMode: SalonCutsceneMode =
-    cutsceneMode === "full" && reducedMotion ? "short" : cutsceneMode;
   const [cutscene, setCutscene] = useState<SalonCutsceneScene | null>(null);
   const cutsceneLabelId = useId();
   const language = settingsState.language;
@@ -92,8 +87,8 @@ export default function SalonOffice({ runId }: { runId: string }) {
   useEffect(() => {
     if (!grandOpening || !run) return;
     navigate(location.pathname, { replace: true, state: null });
-    if (playedMode !== "none") setCutscene(buildOpeningCutscene(run));
-  }, [grandOpening, run, playedMode, navigate, location.pathname]);
+    if (cutsceneMode !== "none") setCutscene(buildOpeningCutscene(run));
+  }, [grandOpening, run, cutsceneMode, navigate, location.pathname]);
 
   if (!run) {
     return (
@@ -137,9 +132,9 @@ export default function SalonOffice({ runId }: { runId: string }) {
 
   const handleCloseWeek = async () => {
     const before = run;
-    const result = await closeWeek({ announce: playedMode === "none" });
+    const result = await closeWeek({ announce: cutsceneMode === "none" });
     setCloseOpen(false);
-    if (!result || playedMode === "none") return;
+    if (!result || cutsceneMode === "none") return;
     const scene = buildWeekCutscene(before, result);
     if (scene) {
       setCutscene(scene);
@@ -265,11 +260,6 @@ export default function SalonOffice({ runId }: { runId: string }) {
                   {t("salon.office.cutscene")}
                 </strong>
                 <small>{t("salon.office.cutsceneHint")}</small>
-                {reducedMotion && cutsceneMode === "full" && (
-                  <small className="salon-office__settings-note">
-                    {t("salon.office.cutsceneReducedMotion")}
-                  </small>
-                )}
               </span>
               <div
                 className="salon-segments"
@@ -505,10 +495,10 @@ export default function SalonOffice({ runId }: { runId: string }) {
         <p>{t("salon.office.closeWeekBody")}</p>
       </ConfirmDialog>
 
-      {cutscene && playedMode !== "none" && (
+      {cutscene && cutsceneMode !== "none" && (
         <SalonCutscene
           scene={cutscene}
-          mode={playedMode}
+          mode={cutsceneMode}
           language={language}
           onClose={handleCutsceneClose}
           onPreferShort={() => setCutsceneMode("short")}

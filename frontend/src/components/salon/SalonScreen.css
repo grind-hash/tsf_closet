@@ -2850,4 +2850,10 @@ button.salon-karte__chip:disabled {
     animation-duration: 0.01ms !important;
     animation-delay: 0s !important;
   }
+
+  /* 動きそのものが見せ場の装飾なので、動きを減らす環境では出さない。幕は通常どおり送れる */
+  .salon-cutscene__curtain,
+  .salon-cutscene__confetti {
+    display: none;
+  }
 }

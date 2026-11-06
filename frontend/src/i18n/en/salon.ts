@@ -70,8 +70,6 @@ export const salon = {
     cutscene: "Opening and week-closing scenes",
     cutsceneHint:
       "When you open a salon and when you close a week, a scene shows the ledger and the doors opening. Click or press a key to go on one step at a time, or skip to the end.",
-    cutsceneReducedMotion:
-      "Your system is set to reduce motion, so Full plays the short version.",
     cutsceneModes: {
       full: "Full",
       short: "Short",
