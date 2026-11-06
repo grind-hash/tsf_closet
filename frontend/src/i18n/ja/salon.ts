@@ -69,8 +69,6 @@ export const salon = {
     cutscene: "開業・週の締めの演出",
     cutsceneHint:
       "サロンを開業したときと週を締めたときに、帳簿や開店の様子を演出で見せます。クリックかキーで1幕ずつ進み、スキップで最後まで飛ばせます。",
-    cutsceneReducedMotion:
-      "OS で視差効果を減らす設定にしているため、フルでも短い版になります。",
     cutsceneModes: {
       full: "フル",
       short: "短い",
