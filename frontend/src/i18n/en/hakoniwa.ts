@@ -61,6 +61,7 @@ export const hakoniwa = {
     chronicle: "Chronicle",
     residents: "Residents",
     rules: "Rules",
+    furniture: "Furniture",
     settings: "Settings",
     unread: "{{count}} new events",
   },
@@ -71,6 +72,10 @@ export const hakoniwa = {
     next: "Next",
     skip: "Skip",
   },
+  areas: {
+    label: "Place to show",
+    count: "{{count}}",
+  },
   chronicle: {
     empty:
       'No events yet. Press "Advance the day" to start the residents\' day.',
@@ -78,11 +83,61 @@ export const hakoniwa = {
     favorite: "Add to favorites",
     unfavorite: "Remove from favorites",
     replay: "Replay in the room",
+    openAdv: "Read as a scene",
+    hasScene: "Has a scene picture",
+    sceneSuggested: "Worth a picture",
     day: "Day {{day}}",
     sourceTemplate: "Template",
     transformMark: "Transformation",
     participants: "With: {{names}}",
     line: "“{{text}}”",
+  },
+  adv: {
+    narration: "Narration",
+    generateScene: "Draw this scene",
+    regenerateScene: "Redraw this scene",
+    generating: "Drawing the scene…",
+    suggest:
+      'This moment is worth a picture ({{reason}}). Use "Draw this scene" at the top right to draw one.',
+    close: "Close",
+  },
+  digest: {
+    title: "Day {{day}} recap",
+    latest: "Latest recap (Day {{day}})",
+    close: "Close the recap",
+    highlight: "Today's highlight",
+    changes: "What changed most",
+    tomorrow: "A hint of tomorrow",
+    and: " and ",
+    reasonTransform: "{{name}} changed shape",
+    reason: {
+      movement: "a relationship moved a lot",
+      trio: "three of them were together",
+      center: "the event at the center of the day",
+    },
+    affinityChange: "{{names}}: {{delta}} (now {{value}})",
+    moodUp: "{{name}} cheered up (now {{label}})",
+    moodDown: "{{name}} sank a little (now {{label}})",
+    hintSwap:
+      "{{a}} and {{b}} are still swapped. How will they spend tomorrow?",
+    hintNearClose:
+      "{{a}} and {{b}} are {{remaining}} away from becoming close (now {{value}}).",
+    hintNoRules:
+      "No rules are active. Slip one in from the Rules tab and tomorrow will change.",
+    hintMoreRules: "You can add {{remaining}} more rules.",
+    hintGeneric: {
+      furniture: "Move the furniture around, and it may turn up in events.",
+      talk: "Click a resident to talk and see how they are feeling.",
+      transform:
+        "Transform a resident, and the others' reactions go into the chronicle.",
+    },
+  },
+  furniture: {
+    note: "Each place holds up to four pieces. Every piece is one of a kind, so placing it somewhere else moves it there. Placed furniture may appear in events when it fits the scene.",
+    slot: "Spot {{number}}",
+    empty: "(Nothing)",
+    placedAt: " (now: {{areaName}}, spot {{slot}})",
+    view: "Show in the room",
   },
   residents: {
     heading: "Residents",
@@ -217,6 +272,11 @@ export const hakoniwa = {
       "The instruction could not be turned into image tags. Try rewording it.",
     empty_name: "Enter a name.",
     invalid_image_model: "That image model cannot be chosen.",
+    event_not_found: "Event not found.",
+    no_participants: "The residents in this event are no longer here.",
+    area_not_found: "Place not found.",
+    invalid_slot: "That spot is not valid.",
+    furniture_not_found: "Furniture not found.",
   },
   dismissError: "Close",
 };

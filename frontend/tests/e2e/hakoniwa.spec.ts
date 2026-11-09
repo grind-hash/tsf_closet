@@ -1,5 +1,22 @@
 import { expect, type Page, test } from "@playwright/test";
-import type { HakoniwaResident, HakoniwaWorld } from "../../src/apis/hakoniwa";
+import type {
+  HakoniwaArea,
+  HakoniwaResident,
+  HakoniwaWorld,
+} from "../../src/apis/hakoniwa";
+
+function area(id: string, name: string, file: string): HakoniwaArea {
+  return {
+    id,
+    name,
+    background_url: `/hakoniwa-assets/${file}`,
+    slots: [180, 470, 760, 1040].map((x) => ({
+      x,
+      y: 700,
+      furniture_id: null,
+    })),
+  };
+}
 
 function resident(id: string, name: string): HakoniwaResident {
   const avatar = `/hakoniwa-assets/avatar_${id}.png`;
@@ -30,6 +47,7 @@ function resident(id: string, name: string): HakoniwaResident {
     own_avatar_url: avatar,
     avatar_url: avatar,
     dress_avatar_url: `/hakoniwa-assets/avatar_${id}_dress.png`,
+    current_area: "living",
   };
 }
 
@@ -66,6 +84,24 @@ async function mockHakoniwa(page: Page, enabled = true) {
     ],
     residents: [resident("aoi", "高瀬 葵"), resident("ren", "苑田 蓮")],
     events: [],
+    areas: [
+      area("living", "リビング", "room.png"),
+      area("garden", "庭", "area_garden.png"),
+      area("study", "書斎", "area_study.png"),
+    ],
+    furniture_catalog: [
+      {
+        id: "lamp",
+        name: "ランプ",
+        url: "/hakoniwa-assets/furniture_lamp.png",
+      },
+      {
+        id: "plush",
+        name: "ぬいぐるみ",
+        url: "/hakoniwa-assets/furniture_plush.png",
+      },
+    ],
+    last_digest: null,
   };
   await page.addInitScript((flag) => {
     localStorage.setItem("novelai_api_key_consent", "true");
@@ -124,11 +160,45 @@ async function mockHakoniwa(page: Page, enabled = true) {
         affinity_delta: 0,
         source: "template",
         favorite: false,
+        area: "living",
+        scene_image: null,
+        scene_image_url: null,
+        scene_suggestion:
+          index === 0 ? { level: "normal", reason: "手が触れ合う" } : null,
       }));
+      world.last_digest = {
+        day: 1,
+        highlight: {
+          event_id: "event-0",
+          title: "出来事1",
+          reason: "trio",
+          participants: ["aoi", "ren"],
+        },
+        changes: [{ type: "mood", id: "aoi", delta: 9, mood: 59 }],
+        hint: { type: "no_rules" },
+      };
       await route.fulfill({
-        json: { world, new_events: world.events, cost_usd: null },
+        json: {
+          world,
+          new_events: world.events,
+          digest: world.last_digest,
+          cost_usd: null,
+        },
       });
       return;
+    }
+    if (path.endsWith("/furniture")) {
+      const body = route.request().postDataJSON();
+      for (const item of world.areas) {
+        for (const slot of item.slots) {
+          if (body.furniture_id && slot.furniture_id === body.furniture_id) {
+            slot.furniture_id = null;
+          }
+        }
+      }
+      const target = world.areas.find((item) => item.id === body.area_id);
+      const slot = target?.slots[body.slot];
+      if (slot) slot.furniture_id = body.furniture_id;
     }
     if (path.endsWith("/favorite")) {
       const event = world.events.find((item) => path.includes(`/${item.id}/`));
@@ -189,6 +259,8 @@ test("世界作成・台詞送り・年代記・掟・住民の一言", async ({
   await page.goto("/hakoniwa");
   await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
   await expect(page).toHaveURL(/\/hakoniwa\/test-world$/);
+  // 開発サーバーでは StrictMode の再マウントで一時的にキャンバスが2枚になるため、1枚に落ち着くのを待つ
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
   await expect(page.locator(".hakoniwa-stage__canvas canvas")).toBeVisible();
   await page.getByRole("button", { name: "1日進める", exact: true }).click();
   await expect(page.locator(".hakoniwa-caption__progress")).toHaveText(
@@ -243,4 +315,125 @@ test("世界作成・台詞送り・年代記・掟・住民の一言", async ({
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+});
+
+test("ダイアログの上のクリックで住民が反応せず、広い画面でも1日進めるが見える", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1920, height: 950 });
+  await mockHakoniwa(page);
+  // 動きを減らす設定では住民が初期位置から動かない(クリック位置を決められる)
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  // 開発サーバーでは StrictMode の再マウントで一時的にキャンバスが2枚になるため、1枚に落ち着くのを待つ
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "1日進める", exact: true }),
+  ).toBeInViewport();
+
+  await page.getByRole("tab", { name: "掟", exact: true }).click();
+  await page.getByRole("button", { name: "掟を書く" }).click();
+  await page.getByLabel("掟の名前").fill("猫の日");
+  await page.getByLabel("本文").fill("全員が猫耳を付けて過ごす");
+
+  // 2人目(苑田 蓮)の初期位置: 部屋の横 3/4、足元 y=697 / 832、高さ 458 の中ほど
+  const room = await page.getByTestId("hakoniwa-stage").boundingBox();
+  if (!room) throw new Error("room not found");
+  await page.mouse.click(
+    room.x + room.width * 0.75,
+    room.y + room.height * ((697 - 458 / 2) / 832),
+  );
+
+  await expect(page.locator(".hakoniwa-form-dialog")).toBeVisible();
+  await expect(page.getByLabel("掟の名前")).toHaveValue("猫の日");
+  await expect(
+    page.getByRole("tab", { name: "掟", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("場所の切り替え・家具・1日のまとめ・ADV で読む", async ({ page }) => {
+  await mockHakoniwa(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
+
+  // 場所のチップ: 住民の人数が出て、押すと表示する場所が替わる
+  const living = page.getByRole("tab", { name: /^リビング/ });
+  const garden = page.getByRole("tab", { name: /^庭/ });
+  await expect(living).toHaveAttribute("aria-selected", "true");
+  await expect(living).toContainText("2人");
+  await garden.click();
+  await expect(garden).toHaveAttribute("aria-selected", "true");
+  await expect(garden).toContainText("0人");
+
+  // 家具は1点物: 別の場所へ置くと移る
+  await page.getByRole("tab", { name: "家具", exact: true }).click();
+  const areas = page.locator(".hakoniwa-furniture__area");
+  await areas.nth(0).getByLabel("置き場所 1").selectOption("lamp");
+  await expect(areas.nth(0).getByLabel("置き場所 1")).toHaveValue("lamp");
+  await expect(
+    areas.nth(1).getByLabel("置き場所 1").locator("option[value=lamp]"),
+  ).toHaveText("ランプ（いま: リビングの置き場所 1）");
+  await areas.nth(1).getByLabel("置き場所 1").selectOption("lamp");
+  await expect(areas.nth(1).getByLabel("置き場所 1")).toHaveValue("lamp");
+  await expect(areas.nth(0).getByLabel("置き場所 1")).toHaveValue("");
+
+  // 1日進めると出来事の場所(リビング)へ切り替わり、再生後にまとめが出る
+  await page.getByRole("tab", { name: "年代記", exact: true }).click();
+  await page.getByRole("button", { name: "1日進める", exact: true }).click();
+  await expect(page.locator(".hakoniwa-caption")).toBeVisible();
+  await expect(living).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Escape");
+  const digest = page.locator(".hakoniwa-digest--overlay");
+  await expect(digest).toContainText("1日目のまとめ");
+  await expect(digest).toContainText("3人がそろった");
+  await expect(digest).toContainText("高瀬 葵の気分が上向いた");
+  await expect(digest).toContainText("掟がひとつも有効になっていません");
+
+  // まとめの山場から ADV で読む: クリック・Enter で送り、最後は「閉じる」
+  await digest.getByRole("button", { name: /ADVで見る/ }).click();
+  const adv = page.getByTestId("hakoniwa-adv");
+  await expect(adv).toBeVisible();
+  await expect(adv.locator(".hakoniwa-adv__text")).toHaveText(
+    "リビングで住民たちが朝の挨拶を交わした。",
+  );
+  await expect(adv.locator(".hakoniwa-adv__suggest")).toContainText(
+    "手が触れ合う",
+  );
+  await adv.locator(".hakoniwa-adv__background").click();
+  await expect(adv.locator(".hakoniwa-adv__speaker")).toHaveText("高瀬 葵");
+  await expect(adv.locator(".hakoniwa-adv__text")).toHaveText(
+    "「今日はいい天気だね。」",
+  );
+  await adv.getByRole("button", { name: "ウィンドウを非表示" }).click();
+  await expect(adv.locator(".hakoniwa-adv__window")).toHaveCount(0);
+  await adv.getByRole("button", { name: "ウィンドウを表示" }).click();
+  await expect(adv.locator(".hakoniwa-adv__text")).toHaveText(
+    "「今日はいい天気だね。」",
+  );
+  await page.keyboard.press("Enter");
+  await expect(adv.locator(".hakoniwa-adv__progress")).toHaveText("3 / 3");
+  await adv.getByRole("button", { name: "閉じる", exact: true }).click();
+  await expect(adv).toHaveCount(0);
+
+  // 年代記からも開け、Esc で閉じる。まとめは年代記の先頭にも残る
+  await digest.getByRole("button", { name: "まとめを閉じる" }).click();
+  await expect(digest).toHaveCount(0);
+  await expect(page.locator(".hakoniwa-chronicle__digest")).toContainText(
+    "直近のまとめ（1日目）",
+  );
+  await expect(page.locator(".hakoniwa-event__place").first()).toHaveText(
+    "リビング",
+  );
+  await page
+    .locator(".hakoniwa-event")
+    .first()
+    .getByRole("button", { name: /ADVで見る/ })
+    .click();
+  await expect(adv).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(adv).toHaveCount(0);
 });

@@ -1,7 +1,8 @@
 /* AI箱庭: 夜の下宿をイメージした、木の色と灯りの琥珀色の配色 */
 
 .hakoniwa-page,
-.hakoniwa-world {
+.hakoniwa-world,
+.hakoniwa-adv {
   --hk-bg: #1d1916;
   --hk-surface: #27211d;
   --hk-surface-2: #312923;
@@ -553,6 +554,7 @@
 
 .hakoniwa-world__advance {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
@@ -574,16 +576,21 @@
   overflow-y: auto;
 }
 
+/* タブが増えても文字を折り返さず、入りきらない幅では横にスクロールさせる */
 .hakoniwa-tabs {
   display: flex;
   gap: 6px;
   padding: 10px 12px 0;
+  overflow-x: auto;
   border-bottom: 1px solid var(--hk-border);
+  scrollbar-width: thin;
 }
 
 .hakoniwa-tabs__chip {
   position: relative;
+  flex-shrink: 0;
   padding: 8px 12px;
+  white-space: nowrap;
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: 10px 10px 0 0;
@@ -634,10 +641,26 @@
 
 /* --- 部屋(ステージ) --- */
 
+/* 部屋は、使える幅と高さの両方に収まる大きさにする(下の「1日進める」を画面外へ押し出さない) */
 .hakoniwa-stage {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: 8px;
+  min-height: 0;
+}
+
+.hakoniwa-stage__fit {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 0;
+  container-type: size;
+}
+
+.hakoniwa-stage__frame {
+  position: relative;
+  width: min(100cqw, calc(100cqh * 1216 / 832));
 }
 
 .hakoniwa-stage__room {
@@ -789,11 +812,21 @@
 }
 
 /* キャプション(地の文と再生の操作) */
+/* 再生中の地の文は部屋の下端に重ねる(部屋の大きさを変えずに済む) */
 .hakoniwa-caption {
-  padding: 12px 16px;
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 3;
+  box-sizing: border-box;
+  max-height: 46%;
+  padding: 10px 16px;
+  overflow-y: auto;
   border: 1px solid var(--hk-border-strong);
   border-radius: 12px;
-  background: var(--hk-surface);
+  background: rgb(29 25 22 / 0.88);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
 }
 
 .hakoniwa-caption__head {
@@ -905,9 +938,339 @@
 }
 
 .hakoniwa-event__replay {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.hakoniwa-event__place {
+  margin-left: 10px;
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-event__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hakoniwa-chronicle__digest {
+  margin-bottom: 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-chronicle__digest > summary {
+  padding: 8px 12px;
+  color: var(--hk-accent-strong);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* --- 場所のチップ(部屋の上) --- */
+
+.hakoniwa-areas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.hakoniwa-areas__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  background: var(--hk-surface);
+  color: var(--hk-muted);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.hakoniwa-areas__chip.is-active {
+  border-color: var(--hk-accent);
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font-weight: 600;
+}
+
+.hakoniwa-areas__chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.hakoniwa-areas__count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hk-border);
+  color: var(--hk-text);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+/* --- 1日のまとめ --- */
+
+.hakoniwa-digest {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.hakoniwa-digest--overlay {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 3;
+  box-sizing: border-box;
+  max-height: 52%;
+  padding: 10px 16px;
+  overflow-y: auto;
+  border: 1px solid var(--hk-accent);
+  border-radius: 12px;
+  background: rgb(29 25 22 / 0.92);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+}
+
+.hakoniwa-digest--panel {
+  padding: 0 12px 12px;
+}
+
+.hakoniwa-digest--panel .hakoniwa-digest__head {
+  display: none;
+}
+
+.hakoniwa-digest__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-digest__section p,
+.hakoniwa-digest__section ul {
+  margin: 2px 0 0;
+}
+
+.hakoniwa-digest__section ul {
+  padding-left: 1.2em;
+}
+
+.hakoniwa-digest__section .hakoniwa-button {
   margin-top: 4px;
   padding: 4px 10px;
   font-size: 0.82rem;
+}
+
+.hakoniwa-digest__label {
+  color: var(--hk-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+}
+
+/* --- 家具タブ --- */
+
+.hakoniwa-furniture__area {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-furniture__area.is-viewing {
+  border-color: var(--hk-accent);
+}
+
+.hakoniwa-furniture__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.hakoniwa-furniture__head .hakoniwa-button {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.hakoniwa-furniture .hakoniwa-field {
+  margin: 8px 0 0;
+}
+
+/* --- ADV 風に読む画面 --- */
+
+.hakoniwa-adv {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  background: #120f0d;
+  color: var(--hk-text);
+  cursor: pointer;
+  outline: none;
+}
+
+.hakoniwa-adv__background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hakoniwa-adv__cast {
+  position: absolute;
+  inset: 0 0 0 0;
+  pointer-events: none;
+}
+
+.hakoniwa-adv__portrait {
+  position: absolute;
+  bottom: 0;
+  height: 88%;
+  max-width: 46%;
+  object-fit: contain;
+  object-position: bottom;
+  transform: translateX(-50%);
+  transition: filter 0.2s;
+}
+
+.hakoniwa-adv__portrait.is-trio {
+  max-width: 34%;
+}
+
+.hakoniwa-adv__portrait--left {
+  left: 28%;
+}
+
+.hakoniwa-adv__portrait--center {
+  left: 50%;
+}
+
+.hakoniwa-adv__portrait--right {
+  left: 72%;
+}
+
+.hakoniwa-adv__portrait.is-trio.hakoniwa-adv__portrait--left {
+  left: 20%;
+}
+
+.hakoniwa-adv__portrait.is-trio.hakoniwa-adv__portrait--right {
+  left: 80%;
+}
+
+.hakoniwa-adv__portrait.is-dim {
+  filter: brightness(0.55);
+}
+
+.hakoniwa-adv__window {
+  position: absolute;
+  right: max(16px, calc((100% - 1100px) / 2));
+  bottom: 20px;
+  left: max(16px, calc((100% - 1100px) / 2));
+  box-sizing: border-box;
+  max-height: 46%;
+  padding: 14px 20px;
+  overflow-y: auto;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 14px;
+  background: rgb(29 25 22 / 0.9);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  cursor: default;
+}
+
+.hakoniwa-adv__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hakoniwa-adv__speaker {
+  color: var(--hk-accent-strong);
+  font-weight: 700;
+}
+
+.hakoniwa-adv__progress {
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+}
+
+.hakoniwa-adv__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.hakoniwa-adv__actions .hakoniwa-button {
+  padding: 4px 12px;
+  font-size: 0.84rem;
+}
+
+.hakoniwa-adv__suggest {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px dashed var(--hk-border-strong);
+  border-radius: 8px;
+  color: var(--hk-muted);
+  font-size: 0.84rem;
+}
+
+.hakoniwa-adv__suggest.is-strong {
+  border-color: var(--hk-accent);
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-adv__text {
+  margin: 10px 0;
+  font-size: 1.05rem;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.hakoniwa-adv__text.is-narration {
+  color: #e6dccb;
+}
+
+.hakoniwa-adv__controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.hakoniwa-adv__show {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  background: rgb(29 25 22 / 0.85);
+}
+
+/* 縦長の画面では立ち絵を窓の上に立たせる(窓の裏に隠れないように) */
+@media (max-width: 640px) {
+  .hakoniwa-adv__portrait,
+  .hakoniwa-adv__portrait.is-trio {
+    bottom: 30%;
+    height: 56%;
+    max-width: 48%;
+  }
+
+  .hakoniwa-adv__meta {
+    flex-wrap: wrap;
+  }
+
+  .hakoniwa-adv__window {
+    max-height: 58%;
+  }
 }
 
 /* --- 住民 --- */
@@ -1232,4 +1595,30 @@
 
 .hakoniwa-tags code {
   overflow-wrap: anywhere;
+}
+
+/* 1列のときは部屋を横幅いっぱいにし、地の文は部屋の下に出す
+   (部屋とキャプションの基本の規則より後ろに置いて上書きする) */
+@media (max-width: 960px) {
+  .hakoniwa-stage,
+  .hakoniwa-stage__fit {
+    flex: none;
+  }
+
+  .hakoniwa-stage__fit {
+    container-type: normal;
+  }
+
+  .hakoniwa-stage__frame {
+    width: 100%;
+  }
+
+  .hakoniwa-caption,
+  .hakoniwa-digest--overlay {
+    position: static;
+    max-height: none;
+    margin-top: 8px;
+    background: var(--hk-surface);
+    box-shadow: none;
+  }
 }

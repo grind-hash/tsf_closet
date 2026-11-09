@@ -21,6 +21,7 @@ from ..schemas.hakoniwa import (
     HakoniwaCustomRuleRequest,
     HakoniwaDayResponse,
     HakoniwaFavoriteRequest,
+    HakoniwaFurnitureRequest,
     HakoniwaGreetingResponse,
     HakoniwaImageResponse,
     HakoniwaLanguageRequest,
@@ -46,6 +47,8 @@ _NOT_FOUND_CODES = {
     "transformation_not_found",
     "preset_not_found",
     "character_preset_not_found",
+    "area_not_found",
+    "furniture_not_found",
 }
 _UPSTREAM_CODES = {"image_generation_failed", "tag_conversion_failed"}
 _ERROR_RESPONSES = {
@@ -398,6 +401,44 @@ async def set_favorite(
         )
     )
     return HakoniwaWorldResponse(**world)
+
+
+@router.put(
+    "/worlds/{world_id}/furniture",
+    response_model=HakoniwaWorldResponse,
+    summary="家具を置く・片付ける",
+    description="家具は1点物なので、別の場所に置いてあれば移す",
+    responses=_ERROR_RESPONSES,
+)
+async def place_furniture(
+    world_id: str, request: HakoniwaFurnitureRequest
+) -> HakoniwaWorldResponse:
+    world = await _call(
+        hakoniwa_service.place_furniture(
+            world_id,
+            request.area_id,
+            request.slot,
+            request.furniture_id,
+            request.language,
+        )
+    )
+    return HakoniwaWorldResponse(**world)
+
+
+@router.post(
+    "/worlds/{world_id}/events/{event_id}/scene-image",
+    response_model=HakoniwaImageResponse,
+    summary="出来事の場面絵を生成",
+    description="参加者のいまの姿で、出来事の山場を横長の1枚に描く",
+    responses=_ERROR_RESPONSES,
+)
+async def generate_scene_image(
+    world_id: str, event_id: str, request: HakoniwaLanguageRequest
+) -> HakoniwaImageResponse:
+    result = await _call(
+        hakoniwa_service.generate_scene_image(world_id, event_id, request.language)
+    )
+    return HakoniwaImageResponse(**result)
 
 
 @router.get(

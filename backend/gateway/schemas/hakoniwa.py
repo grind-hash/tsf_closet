@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -106,6 +106,11 @@ class HakoniwaLine(BaseModel):
     text: str
 
 
+class HakoniwaSceneSuggestion(BaseModel):
+    level: str = Field(..., description="normal / strong")
+    reason: str
+
+
 class HakoniwaEvent(BaseModel):
     id: str
     day: int
@@ -119,6 +124,12 @@ class HakoniwaEvent(BaseModel):
     kind: str | None = Field(None, description="transform(変身の出来事)など")
     change_text: str | None = None
     favorite: bool = False
+    area: str = Field("living", description="出来事の起きた場所")
+    scene_image: str | None = Field(None, description="場面絵のファイル名")
+    scene_image_url: str | None = None
+    scene_suggestion: HakoniwaSceneSuggestion | None = Field(
+        None, description="場面絵をすすめる理由(生成済みなら null)"
+    )
 
 
 class HakoniwaTransformation(BaseModel):
@@ -158,6 +169,7 @@ class HakoniwaResident(BaseModel):
     own_avatar_url: str | None
     avatar_url: str | None
     dress_avatar_url: str | None
+    current_area: str = Field("living", description="いまいる場所")
 
 
 class HakoniwaRuleCard(BaseModel):
@@ -166,6 +178,25 @@ class HakoniwaRuleCard(BaseModel):
     description: str
     custom: bool
     active: bool
+
+
+class HakoniwaSlot(BaseModel):
+    x: int
+    y: int
+    furniture_id: str | None
+
+
+class HakoniwaArea(BaseModel):
+    id: str
+    name: str
+    background_url: str
+    slots: list[HakoniwaSlot]
+
+
+class HakoniwaFurniture(BaseModel):
+    id: str
+    name: str
+    url: str
 
 
 class HakoniwaWorldResponse(BaseModel):
@@ -187,6 +218,11 @@ class HakoniwaWorldResponse(BaseModel):
     rule_cards: list[HakoniwaRuleCard]
     residents: list[HakoniwaResident]
     events: list[HakoniwaEvent]
+    areas: list[HakoniwaArea]
+    furniture_catalog: list[HakoniwaFurniture]
+    last_digest: dict[str, Any] | None = Field(
+        None, description="直近の1日のまとめ(種類と参照。文は表示側で組み立てる)"
+    )
 
 
 class HakoniwaResidentPreview(BaseModel):
@@ -237,7 +273,14 @@ class HakoniwaCatalogResponse(BaseModel):
 class HakoniwaDayResponse(BaseModel):
     world: HakoniwaWorldResponse
     new_events: list[HakoniwaEvent]
+    digest: dict[str, Any] | None = Field(None, description="その日のまとめ")
     cost_usd: float | None = None
+
+
+class HakoniwaFurnitureRequest(HakoniwaLanguageRequest):
+    area_id: str
+    slot: int = Field(..., ge=0)
+    furniture_id: str | None = Field(None, description="null で片付ける")
 
 
 class HakoniwaResidentChangeResponse(BaseModel):

@@ -9,7 +9,9 @@ import { ROUTES } from "../../routes";
 import { readStorage, writeStorage } from "../../utils/storage";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import HakoniwaAdv from "./HakoniwaAdv";
 import HakoniwaChronicle from "./HakoniwaChronicle";
+import HakoniwaFurnitureTab from "./HakoniwaFurnitureTab";
 import HakoniwaResidentsTab from "./HakoniwaResidentsTab";
 import HakoniwaRulesTab from "./HakoniwaRulesTab";
 import HakoniwaSettingsTab from "./HakoniwaSettingsTab";
@@ -19,6 +21,7 @@ const TABS: HakoniwaPanelTab[] = [
   "chronicle",
   "residents",
   "rules",
+  "furniture",
   "settings",
 ];
 const TAB_STORAGE_KEY = "hakoniwa_panel_tab";
@@ -220,11 +223,13 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
               {panelTab === "chronicle" && <HakoniwaChronicle />}
               {panelTab === "residents" && <HakoniwaResidentsTab />}
               {panelTab === "rules" && <HakoniwaRulesTab />}
+              {panelTab === "furniture" && <HakoniwaFurnitureTab />}
               {panelTab === "settings" && <HakoniwaSettingsTab />}
             </div>
           </aside>
         </div>
       </div>
+      <HakoniwaAdv />
       <ConfirmDialog
         open={usageConfirmOpen}
         title={t("hakoniwa.usage.title")}

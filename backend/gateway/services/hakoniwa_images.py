@@ -27,9 +27,14 @@ from ..consts.novelai_models import (
     resolve_user_image_model,
 )
 from ..settings.config import settings
+from .clothing_layers import merge_negative_prompt
+from .cost_tracker import record_cost
 from .hakoniwa_logic import HakoniwaError, display_look, own_look
+from .hakoniwa_scene import SCENE_EXTRA_NEGATIVE
+from .image_generation import image_service
 from .portrait_generation import generate_portrait_bytes
 from .preset_sessions import portrait_png_bytes
+from .prompts import enhance_prompt_for_novelai
 from .providers import resolve_image_provider
 
 _FILENAME = re.compile(r"^[a-z0-9_\-]+\.png$")
@@ -292,3 +297,40 @@ async def generate_avatar_bytes(
         raw_prompt=True,
     )
     return isolate_single_figure(data)
+
+
+async def generate_scene_bytes(
+    request: dict[str, Any], *, image_model: str, nsfw_mode: bool
+) -> bytes:
+    """場面絵(横長)を1枚生成する。NovelAI はキャラクター枠つき、それ以外は1行のプロンプト。
+
+    request は hakoniwa_scene.scene_request の戻り値。料金は cost_tracker に記録する。
+    """
+    provider = str(resolve_image_provider())
+    if provider == "novelai":
+        negative = merge_negative_prompt(
+            settings.novelai_negative_prompt, SCENE_EXTRA_NEGATIVE
+        )
+        result = await image_service.generate_image(
+            enhance_prompt_for_novelai(request["prompt"], nsfw_mode=nsfw_mode),
+            image_bytes=None,
+            provider_override="novelai",
+            negative_prompt=negative,
+            nsfw_mode=nsfw_mode,
+            characters=request["characters"],
+            size_override="landscape",
+            novelai_model_override=image_model,
+            raw_prompt=True,
+        )
+    else:
+        result = await image_service.generate_image(
+            request["flat_prompt"],
+            image_bytes=None,
+            provider_override=provider,  # type: ignore[arg-type]
+            nsfw_mode=nsfw_mode,
+            size_override="landscape",
+        )
+    record_cost(result.cost_usd)
+    if not result.images:
+        raise HakoniwaError("image_generation_failed", "画像の生成に失敗しました")
+    return result.images[0]

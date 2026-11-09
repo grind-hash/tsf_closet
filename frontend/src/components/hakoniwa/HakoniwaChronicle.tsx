@@ -1,11 +1,13 @@
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
+import HakoniwaDigest from "./HakoniwaDigest";
 
 /** 年代記: 出来事を新しい順に並べる。お気に入りと、部屋での再生ができる */
 export default function HakoniwaChronicle() {
   const { t } = useTranslation();
-  const { world, setFavorite, replayEvent, playbackQueue } = useHakoniwa();
+  const { world, setFavorite, replayEvent, playbackQueue, openAdv } =
+    useHakoniwa();
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const filterId = useId();
 
@@ -26,9 +28,19 @@ export default function HakoniwaChronicle() {
 
   if (!world) return null;
   const nameOf = (id: string) => names[id] ?? "?";
+  const areaName = (id: string) =>
+    world.areas.find((area) => area.id === id)?.name ?? "";
 
   return (
     <div className="hakoniwa-chronicle">
+      {world.last_digest && (
+        <details className="hakoniwa-chronicle__digest">
+          <summary>
+            {t("hakoniwa.digest.latest", { day: world.last_digest.day })}
+          </summary>
+          <HakoniwaDigest variant="panel" />
+        </details>
+      )}
       <label className="hakoniwa-toggle" htmlFor={filterId}>
         <span>{t("hakoniwa.chronicle.favoritesOnly")}</span>
         <input
@@ -84,6 +96,9 @@ export default function HakoniwaChronicle() {
                 {t("hakoniwa.chronicle.participants", {
                   names: event.participants.map(nameOf).join("・"),
                 })}
+                <span className="hakoniwa-event__place">
+                  {areaName(event.area)}
+                </span>
               </p>
               <p className="hakoniwa-event__narration">{event.narration}</p>
               {event.lines.length > 0 && (
@@ -103,14 +118,37 @@ export default function HakoniwaChronicle() {
                   ))}
                 </ul>
               )}
-              <button
-                type="button"
-                className="hakoniwa-button hakoniwa-button--ghost hakoniwa-event__replay"
-                onClick={() => replayEvent(event)}
-                disabled={playbackQueue.length > 0}
-              >
-                ▶ {t("hakoniwa.chronicle.replay")}
-              </button>
+              <div className="hakoniwa-event__actions">
+                <button
+                  type="button"
+                  className="hakoniwa-button hakoniwa-button--ghost hakoniwa-event__replay"
+                  onClick={() => openAdv(event.id)}
+                >
+                  ▶ {t("hakoniwa.chronicle.openAdv")}
+                </button>
+                <button
+                  type="button"
+                  className="hakoniwa-button hakoniwa-button--ghost hakoniwa-event__replay"
+                  onClick={() => replayEvent(event)}
+                  disabled={playbackQueue.length > 0}
+                >
+                  {t("hakoniwa.chronicle.replay")}
+                </button>
+                {event.scene_image_url ? (
+                  <span className="hakoniwa-badge hakoniwa-badge--accent">
+                    {t("hakoniwa.chronicle.hasScene")}
+                  </span>
+                ) : (
+                  event.scene_suggestion && (
+                    <span
+                      className="hakoniwa-badge"
+                      title={event.scene_suggestion.reason}
+                    >
+                      {t("hakoniwa.chronicle.sceneSuggested")}
+                    </span>
+                  )
+                )}
+              </div>
             </li>
           ))}
         </ol>

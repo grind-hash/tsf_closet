@@ -58,4 +58,10 @@ Playwrightの対象は機能OFF時の遷移、世界作成、Phaser表示、3件
 ## 範囲外
 
 複数エリア、家具、物語アーク、観察記録など第2弾以降の機能は、承認済み計画どおり対象外。
-通常プレイなど他の機能の画像生成にも同じ英文の接尾辞が付くが、今回は変更していない。
+## 共通の接尾辞の見直し（2026-11-09）
+
+NovelAI の通常経路（`NovelAIImageClient._format_prompt`。通常プレイの変身・サロンの施術・立ち絵・TSFシナリオの場面画像）でも、
+正のプロンプトから避けたい概念を名指しする英文の否定（`no before/after panels`・`no split screen`・`no side-by-side comparison`・
+`no duplicate characters`・`no twins`・`no clones`）と `show only the transformed state` を外した。避けたい語はネガティブ側に置き、
+`comparison` を追加した。変身の前後で同じ人物に保つための `same person, same face …` は残した。
+この見直しの実モデルでの効果は未確認。

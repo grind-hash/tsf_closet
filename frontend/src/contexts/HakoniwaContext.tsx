@@ -30,6 +30,7 @@ import {
   fetchHakoniwaWorld,
   fetchHakoniwaWorlds,
   generateHakoniwaAvatar,
+  generateHakoniwaSceneImage,
   greetHakoniwaResident,
   type HakoniwaCatalog,
   type HakoniwaCharacterEntry,
@@ -38,6 +39,7 @@ import {
   type HakoniwaResidentInput,
   type HakoniwaWorld,
   type HakoniwaWorldSummary,
+  placeHakoniwaFurniture,
   reapplyHakoniwaTransform,
   removeHakoniwaResident,
   setHakoniwaFavorite,
@@ -67,10 +69,17 @@ export type HakoniwaBusy =
   | "transform"
   | "avatar"
   | "settings"
+  | "furniture"
+  | "scene"
   | null;
 
 /** 右パネルのタブ */
-export type HakoniwaPanelTab = "chronicle" | "residents" | "rules" | "settings";
+export type HakoniwaPanelTab =
+  | "chronicle"
+  | "residents"
+  | "rules"
+  | "furniture"
+  | "settings";
 
 /** 画面に訳を持つエラーコード(それ以外はバックエンドの文言を出す) */
 export const HAKONIWA_ERROR_CODES = [
@@ -87,6 +96,11 @@ export const HAKONIWA_ERROR_CODES = [
   "tag_conversion_failed",
   "empty_name",
   "invalid_image_model",
+  "event_not_found",
+  "no_participants",
+  "area_not_found",
+  "invalid_slot",
+  "furniture_not_found",
 ] as const;
 type HakoniwaErrorCode = (typeof HAKONIWA_ERROR_CODES)[number];
 
@@ -159,6 +173,24 @@ interface HakoniwaContextValue {
   replayEvent: (event: HakoniwaEvent) => void;
   /** 再生を待つ出来事をすべて飛ばす */
   clearPlayback: () => void;
+  /** 部屋に表示している場所(エリア id) */
+  viewAreaId: string;
+  setViewAreaId: (areaId: string) => void;
+  placeFurniture: (
+    areaId: string,
+    slot: number,
+    furnitureId: string | null,
+  ) => Promise<void>;
+  /** 出来事の場面絵を生成する(V5 の利用上限を使い切っていれば確認を出す) */
+  generateSceneImage: (eventId: string) => void;
+  /** 1日のまとめのカードを出しているか(再生が終わったら出す) */
+  digestVisible: boolean;
+  showDigest: () => void;
+  hideDigest: () => void;
+  /** ADV で見ている出来事 */
+  advEventId: string | null;
+  openAdv: (eventId: string) => void;
+  closeAdv: () => void;
 }
 
 const HakoniwaContext = createContext<HakoniwaContextValue | null>(null);
@@ -180,6 +212,10 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [panelTab, setPanelTab] = useState<HakoniwaPanelTab>("chronicle");
+  const [viewAreaId, setViewAreaId] = useState("living");
+  const [digestPending, setDigestPending] = useState(false);
+  const [digestVisible, setDigestVisible] = useState(false);
+  const [advEventId, setAdvEventId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingUsageTask, setPendingUsageTask] = useState<(() => void) | null>(
     null,
@@ -284,6 +320,10 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     setPlaybackQueue([]);
     setGreeting(null);
     setSelectedResidentId(null);
+    setViewAreaId("living");
+    setDigestPending(false);
+    setDigestVisible(false);
+    setAdvEventId(null);
   }, []);
 
   const createWorld = useCallback(
@@ -338,8 +378,34 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     applyWorld(result.world);
     recordCost(result.cost_usd);
     setGreeting(null);
+    setDigestVisible(false);
+    setDigestPending(Boolean(result.digest));
     setPlaybackQueue((current) => [...current, ...result.new_events]);
   }, [applyWorld, language, recordCost, run, worldId]);
+
+  // その日の出来事を見終わったら、まとめのカードを出す
+  useEffect(() => {
+    if (digestPending && playbackQueue.length === 0) {
+      setDigestPending(false);
+      setDigestVisible(true);
+    }
+  }, [digestPending, playbackQueue.length]);
+
+  const showDigest = useCallback(() => setDigestVisible(true), []);
+  const hideDigest = useCallback(() => setDigestVisible(false), []);
+  const openAdv = useCallback((eventId: string) => setAdvEventId(eventId), []);
+  const closeAdv = useCallback(() => setAdvEventId(null), []);
+
+  const placeFurniture = useCallback(
+    async (areaId: string, slot: number, furnitureId: string | null) => {
+      if (!worldId) return;
+      const updated = await run("furniture", () =>
+        placeHakoniwaFurniture(worldId, areaId, slot, furnitureId, language),
+      );
+      if (updated) applyWorld(updated);
+    },
+    [applyWorld, language, run, worldId],
+  );
 
   const toggleRule = useCallback(
     async (cardId: string, active: boolean) => {
@@ -566,6 +632,32 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const generateSceneImage = useCallback(
+    (eventId: string) => {
+      if (!worldId) return;
+      guardImageGeneration(() => {
+        void (async () => {
+          const result = await run("scene", () =>
+            generateHakoniwaSceneImage(worldId, eventId, language),
+          );
+          if (!result) return;
+          applyWorld(result.world);
+          recordCost(result.cost_usd);
+          refreshUsage();
+        })();
+      });
+    },
+    [
+      applyWorld,
+      guardImageGeneration,
+      language,
+      recordCost,
+      refreshUsage,
+      run,
+      worldId,
+    ],
+  );
+
   const clearTransform = useCallback(
     async (residentId: string) => {
       if (!worldId) return;
@@ -673,6 +765,16 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       finishPlayback,
       replayEvent,
       clearPlayback,
+      viewAreaId,
+      setViewAreaId,
+      placeFurniture,
+      generateSceneImage,
+      digestVisible,
+      showDigest,
+      hideDigest,
+      advEventId,
+      openAdv,
+      closeAdv,
     }),
     [
       catalog,
@@ -714,6 +816,15 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       finishPlayback,
       replayEvent,
       clearPlayback,
+      viewAreaId,
+      placeFurniture,
+      generateSceneImage,
+      digestVisible,
+      showDigest,
+      hideDigest,
+      advEventId,
+      openAdv,
+      closeAdv,
     ],
   );
 

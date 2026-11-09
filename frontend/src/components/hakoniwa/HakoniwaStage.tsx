@@ -4,8 +4,13 @@ import { hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { useTransparentImages } from "../../hooks/useTransparentImages";
+import HakoniwaDigest from "./HakoniwaDigest";
 import { anchorRatio, initialPosition, type Point } from "./stage/roomLayout";
-import type { RoomStageHandle, StageResident } from "./stage/roomStage";
+import type {
+  RoomStageHandle,
+  StageFurniture,
+  StageResident,
+} from "./stage/roomStage";
 import { useHakoniwaPlayback } from "./useHakoniwaPlayback";
 
 // 背景の色は四隅から読み取る(生成画像の背景は白とは限らない)
@@ -34,6 +39,9 @@ export default function HakoniwaStage() {
     selectResident,
     setPanelTab,
     playbackQueue,
+    viewAreaId,
+    setViewAreaId,
+    digestVisible,
   } = useHakoniwa();
   const reducedMotion = usePrefersReducedMotion();
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -42,7 +50,20 @@ export default function HakoniwaStage() {
   const playback = useHakoniwaPlayback(stage);
   const playing = playback.event !== null;
 
-  const residents = world?.residents ?? [];
+  // 再生中は出来事の場所を出し、参加者はその場所にいなくても呼び寄せる
+  const areaId = playback.event?.area ?? viewAreaId;
+  const participantsKey = playback.event?.participants.join(",") ?? "";
+  const allResidents = world?.residents;
+  const residents = useMemo(() => {
+    const participants = new Set(
+      participantsKey ? participantsKey.split(",") : [],
+    );
+    return (allResidents ?? []).filter(
+      (resident) =>
+        resident.current_area === areaId || participants.has(resident.id),
+    );
+  }, [allResidents, areaId, participantsKey]);
+  const area = world?.areas.find((item) => item.id === areaId) ?? null;
   const urls = useMemo(
     () => residents.map((r) => hakoniwaMediaUrl(r.display_avatar_url)),
     [residents],
@@ -60,7 +81,35 @@ export default function HakoniwaStage() {
       }),
     [residents, transparent, urls],
   );
-  const backgroundUrl = world ? hakoniwaMediaUrl(world.background_url) : null;
+  const backgroundUrl = hakoniwaMediaUrl(
+    area?.background_url ?? world?.background_url,
+  );
+  const catalog = world?.furniture_catalog;
+  const furniture = useMemo<StageFurniture[]>(() => {
+    if (!area) return [];
+    return area.slots.flatMap((slot, index) => {
+      const item = catalog?.find((entry) => entry.id === slot.furniture_id);
+      const url = item ? hakoniwaMediaUrl(item.url) : null;
+      return url
+        ? [{ key: `${area.id}:${index}`, url, x: slot.x, y: slot.y }]
+        : [];
+    });
+  }, [area, catalog]);
+
+  // 再生した出来事の場所を、見終わったあとも表示し続ける
+  const playingArea = playback.event?.area ?? null;
+  useEffect(() => {
+    if (playingArea) setViewAreaId(playingArea);
+  }, [playingArea, setViewAreaId]);
+
+  // 住民を選んだり一言を頼んだりしたら、その住民のいる場所を出す
+  const focusResidentId = greeting?.residentId ?? selectedResidentId;
+  const focusArea =
+    allResidents?.find((item) => item.id === focusResidentId)?.current_area ??
+    null;
+  useEffect(() => {
+    if (focusArea && !playingArea) setViewAreaId(focusArea);
+  }, [focusArea, playingArea, setViewAreaId]);
 
   // クリックの処理は最新の状態を見る(Phaser 側に渡すのは一度だけ)
   const clickRef = useRef<(id: string) => void>(() => {});
@@ -103,8 +152,8 @@ export default function HakoniwaStage() {
   }, []);
 
   useEffect(() => {
-    stage?.update(stageResidents, backgroundUrl);
-  }, [stage, stageResidents, backgroundUrl]);
+    stage?.update(stageResidents, backgroundUrl, furniture);
+  }, [stage, stageResidents, backgroundUrl, furniture]);
 
   useEffect(() => {
     stage?.setMotionEnabled(!reducedMotion);
@@ -179,84 +228,118 @@ export default function HakoniwaStage() {
     if (greeting) dismissGreeting();
   };
 
+  const residentCount = (id: string) =>
+    world.residents.filter((resident) => resident.current_area === id).length;
+
   return (
     <div className="hakoniwa-stage">
       <div
-        className={`hakoniwa-stage__room${playing ? " hakoniwa-stage__room--playing" : ""}`}
-        onClick={handleStageClick}
-        data-testid="hakoniwa-stage"
+        className="hakoniwa-areas"
+        role="tablist"
+        aria-label={t("hakoniwa.areas.label")}
       >
-        {stageFailed ? (
-          <FallbackRoom
-            backgroundUrl={backgroundUrl}
-            residents={stageResidents}
-            selectedResidentId={selectedResidentId}
-            onResidentClick={(id) => clickRef.current(id)}
-          />
-        ) : (
-          <div className="hakoniwa-stage__canvas" ref={canvasRef} />
-        )}
-        {!stage && !stageFailed && (
-          <div className="hakoniwa-stage__loading" role="status">
-            <span className="hakoniwa-spinner" aria-hidden />
-            {t("hakoniwa.stage.loading")}
-          </div>
-        )}
-        {bubble && (
-          <div
-            key={`${bubble.residentId}:${bubble.text}`}
-            ref={bubbleRef}
-            className={`hakoniwa-bubble${ojousama ? " hakoniwa-bubble--ojousama" : ""}`}
-            style={{ visibility: "hidden" }}
-            role="status"
+        {world.areas.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={item.id === areaId}
+            className={`hakoniwa-areas__chip${item.id === areaId ? " is-active" : ""}`}
+            disabled={playing}
+            onClick={() => setViewAreaId(item.id)}
           >
-            <span className="hakoniwa-bubble__name">
-              {nameOf(bubble.residentId)}
+            {item.name}
+            <span className="hakoniwa-areas__count">
+              {t("hakoniwa.areas.count", { count: residentCount(item.id) })}
             </span>
-            <span className="hakoniwa-bubble__text">{bubble.text}</span>
-          </div>
-        )}
-        {greetingResidentId && !playing && (
-          <div className="hakoniwa-stage__hint" role="status">
-            <span className="hakoniwa-spinner" aria-hidden />
-            {t("hakoniwa.stage.greeting", { name: nameOf(greetingResidentId) })}
-          </div>
-        )}
+          </button>
+        ))}
       </div>
-      {playback.event && (
-        <div className="hakoniwa-caption" aria-live="polite">
-          <div className="hakoniwa-caption__head">
-            <span className="hakoniwa-caption__title">
-              {playback.event.title}
-            </span>
-            <span className="hakoniwa-caption__progress">
-              {t("hakoniwa.stage.progress", {
-                position: playback.position,
-                total: playback.total,
-              })}
-            </span>
+      <div className="hakoniwa-stage__fit">
+        <div className="hakoniwa-stage__frame">
+          <div
+            className={`hakoniwa-stage__room${playing ? " hakoniwa-stage__room--playing" : ""}`}
+            onClick={handleStageClick}
+            data-testid="hakoniwa-stage"
+          >
+            {stageFailed ? (
+              <FallbackRoom
+                backgroundUrl={backgroundUrl}
+                residents={stageResidents}
+                selectedResidentId={selectedResidentId}
+                onResidentClick={(id) => clickRef.current(id)}
+              />
+            ) : (
+              <div className="hakoniwa-stage__canvas" ref={canvasRef} />
+            )}
+            {!stage && !stageFailed && (
+              <div className="hakoniwa-stage__loading" role="status">
+                <span className="hakoniwa-spinner" aria-hidden />
+                {t("hakoniwa.stage.loading")}
+              </div>
+            )}
+            {bubble && (
+              <div
+                key={`${bubble.residentId}:${bubble.text}`}
+                ref={bubbleRef}
+                className={`hakoniwa-bubble${ojousama ? " hakoniwa-bubble--ojousama" : ""}`}
+                style={{ visibility: "hidden" }}
+                role="status"
+              >
+                <span className="hakoniwa-bubble__name">
+                  {nameOf(bubble.residentId)}
+                </span>
+                <span className="hakoniwa-bubble__text">{bubble.text}</span>
+              </div>
+            )}
+            {greetingResidentId && !playing && (
+              <div className="hakoniwa-stage__hint" role="status">
+                <span className="hakoniwa-spinner" aria-hidden />
+                {t("hakoniwa.stage.greeting", {
+                  name: nameOf(greetingResidentId),
+                })}
+              </div>
+            )}
           </div>
-          <p className="hakoniwa-caption__narration">
-            {playback.event.narration}
-          </p>
-          <div className="hakoniwa-caption__actions">
-            <button
-              type="button"
-              className="hakoniwa-button hakoniwa-button--ghost"
-              onClick={playback.skipAll}
-            >
-              {t("hakoniwa.stage.skip")}
-            </button>
-            <button
-              type="button"
-              className="hakoniwa-button hakoniwa-button--primary"
-              onClick={playback.advance}
-            >
-              {t("hakoniwa.stage.next")}
-            </button>
-          </div>
+          {playback.event && (
+            <div className="hakoniwa-caption" aria-live="polite">
+              <div className="hakoniwa-caption__head">
+                <span className="hakoniwa-caption__title">
+                  {playback.event.title}
+                </span>
+                <span className="hakoniwa-caption__progress">
+                  {t("hakoniwa.stage.progress", {
+                    position: playback.position,
+                    total: playback.total,
+                  })}
+                </span>
+              </div>
+              <p className="hakoniwa-caption__narration">
+                {playback.event.narration}
+              </p>
+              <div className="hakoniwa-caption__actions">
+                <button
+                  type="button"
+                  className="hakoniwa-button hakoniwa-button--ghost"
+                  onClick={playback.skipAll}
+                >
+                  {t("hakoniwa.stage.skip")}
+                </button>
+                <button
+                  type="button"
+                  className="hakoniwa-button hakoniwa-button--primary"
+                  onClick={playback.advance}
+                >
+                  {t("hakoniwa.stage.next")}
+                </button>
+              </div>
+            </div>
+          )}
+          {!playing && digestVisible && world.last_digest && (
+            <HakoniwaDigest variant="overlay" />
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

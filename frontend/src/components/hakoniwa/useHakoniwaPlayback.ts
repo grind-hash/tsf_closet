@@ -66,8 +66,12 @@ export function useHakoniwaPlayback(
   useEffect(() => {
     if (!stage || !eventId) return;
     const ids = participantsKey ? participantsKey.split(",") : [];
-    stage.setInvolved(ids);
-    void stage.focusGroup(ids);
+    // 出来事の場所へ表示を切り替えた反映(部屋の住民の入れ替え)を待ってから集める
+    const frame = requestAnimationFrame(() => {
+      stage.setInvolved(ids);
+      void stage.focusGroup(ids);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [stage, eventId, participantsKey]);
 
   const release = useCallback(() => {

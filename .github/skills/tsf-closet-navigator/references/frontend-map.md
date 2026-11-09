@@ -27,6 +27,7 @@
 - `/hakoniwa` と `/hakoniwa/:worldId` は `experimentalHakoniwaEnabled`（既定 OFF）で有効化し、`App.tsx` 内で専用の `HakoniwaProvider` を提供する。
 - `contexts/HakoniwaContext.tsx` が世界・住民・掟・再生キュー・生成料金・V5 使用量確認を管理し、`apis/hakoniwa.ts` が API を呼び出す。
 - `components/hakoniwa/HakoniwaHub.tsx` が世界一覧と作成、`HakoniwaWorldView.tsx` が部屋と年代記・住民・掟・設定タブを担当する。
+- 部屋の上の場所チップ（`viewAreaId`）、`HakoniwaFurnitureTab.tsx`（家具タブ）、`HakoniwaDigest.tsx`（1日のまとめ。部屋の下端と年代記の先頭）、`HakoniwaAdv.tsx`（年代記の出来事を ADV 風に読む全画面表示と場面絵の生成）がある。
 - `HakoniwaStage.tsx` は Phaser 3.90.0 の `stage/roomStage.ts` を遅延読込する。座標計算は `roomLayout.ts`、クリック・Enter による台詞送りと Esc スキップは `useHakoniwaPlayback.ts` に分離する。
 - `hooks/useTransparentImages.ts` が複数画像の単色背景除去を管理する。同梱素材は `public/hakoniwa-assets/`、文言は `i18n/{ja,en}/hakoniwa.ts`。
 - ブラウザ回帰テストは `tests/e2e/hakoniwa.spec.ts`。外部生成 API は呼び出さず、モック応答と同梱画像で主要操作を確認する。

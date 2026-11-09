@@ -34,6 +34,7 @@ from .hakoniwa_prompts import (
     event_system_prompt,
     event_user_prompt,
     greeting_prompts,
+    scene_tags_prompts,
     transform_reaction_prompts,
     transform_tags_prompts,
 )
@@ -257,6 +258,7 @@ async def generate_event(
     rule_focus_rule_id: str | None = None,
     others_today: list[list[str]] | None = None,
     recent_titles: set[str] | None = None,
+    area_id: str | None = None,
 ) -> dict[str, Any]:
     """出来事を1件生成する。失敗したら定型の出来事にする(例外は投げない)。
 
@@ -271,6 +273,7 @@ async def generate_event(
         nsfw=nsfw,
         rule_focus_rule_id=rule_focus_rule_id,
         others_today=others_today,
+        area_id=area_id,
     )
 
     async def generate(system: str, user: str) -> str:
@@ -287,12 +290,16 @@ async def generate_event(
                 user_prompt=prompt,
                 context={"names": names},
             )
-            return _event_from_output(output, group, language)
+            event = _event_from_output(output, group, language)
+            event["area"] = area_id
+            return event
         except Exception as error:
             logger.warning(
                 "Hakoniwa event generation failed: %s: %s", type(error).__name__, error
             )
-    return template_event(state, group, language, rng, recent_titles=recent_titles)
+    event = template_event(state, group, language, rng, recent_titles=recent_titles)
+    event["area"] = area_id
+    return event
 
 
 def recent_titles(state: dict[str, Any]) -> set[str]:
@@ -451,3 +458,31 @@ async def generate_transform_reaction(
             "Hakoniwa transform reaction failed: %s: %s", type(error).__name__, error
         )
     return transform_reaction_template(target, bystanders, language)
+
+
+# 場面のタグの個数の上限
+SCENE_TAGS_MAX_COUNT = 12
+
+
+async def convert_scene_to_tags(
+    event: dict[str, Any],
+    names: dict[str, str],
+    area_label: str,
+    *,
+    novelai_model: str | None,
+) -> str | None:
+    """出来事の山場の動作・表情・構図のタグを作る。失敗したら None(呼び出し側が定型にする)。"""
+    system_prompt, user_prompt = scene_tags_prompts(event, names, area_label)
+    try:
+        raw = await _generate_text(
+            system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=400
+        )
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa scene tags failed: %s: %s", type(error).__name__, error
+        )
+        return None
+    tags = clean_tags(raw)
+    if not tags:
+        return None
+    return ", ".join(tags.split(", ")[:SCENE_TAGS_MAX_COUNT])

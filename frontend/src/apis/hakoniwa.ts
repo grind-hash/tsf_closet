@@ -33,7 +33,61 @@ export interface HakoniwaEvent {
   kind?: string | null;
   change_text?: string | null;
   favorite: boolean;
+  /** 出来事の起きた場所(エリア id) */
+  area: string;
+  scene_image?: string | null;
+  scene_image_url?: string | null;
+  /** 場面絵をすすめる理由(生成済みなら null) */
+  scene_suggestion?: HakoniwaSceneSuggestion | null;
 }
+
+export interface HakoniwaSceneSuggestion {
+  level: "normal" | "strong";
+  reason: string;
+}
+
+export interface HakoniwaSlot {
+  x: number;
+  y: number;
+  furniture_id: string | null;
+}
+
+export interface HakoniwaArea {
+  id: string;
+  name: string;
+  background_url: string;
+  slots: HakoniwaSlot[];
+}
+
+export interface HakoniwaFurniture {
+  id: string;
+  name: string;
+  url: string;
+}
+
+/** 1日のまとめ。文は表示側で言語ごとに組み立てる */
+export interface HakoniwaDigest {
+  day: number;
+  highlight: {
+    event_id: string;
+    title: string;
+    reason: "transform" | "movement" | "trio" | "center";
+    participants: string[];
+  } | null;
+  changes: HakoniwaDigestChange[];
+  hint: HakoniwaDigestHint;
+}
+
+export type HakoniwaDigestChange =
+  | { type: "affinity"; ids: string[]; delta: number; value: number }
+  | { type: "mood"; id: string; delta: number; mood: number };
+
+export type HakoniwaDigestHint =
+  | { type: "swap"; ids: string[] }
+  | { type: "near_close"; ids: string[]; value: number; remaining: number }
+  | { type: "no_rules" }
+  | { type: "more_rules"; remaining: number }
+  | { type: "generic"; index: number };
 
 export interface HakoniwaTransformation {
   description: string;
@@ -74,6 +128,8 @@ export interface HakoniwaResident {
   own_avatar_url: string | null;
   avatar_url: string | null;
   dress_avatar_url: string | null;
+  /** いまいる場所(エリア id) */
+  current_area: string;
 }
 
 export interface HakoniwaRuleCard {
@@ -104,6 +160,9 @@ export interface HakoniwaWorld {
   rule_cards: HakoniwaRuleCard[];
   residents: HakoniwaResident[];
   events: HakoniwaEvent[];
+  areas: HakoniwaArea[];
+  furniture_catalog: HakoniwaFurniture[];
+  last_digest: HakoniwaDigest | null;
 }
 
 export interface HakoniwaWorldSummary {
@@ -138,6 +197,7 @@ export interface HakoniwaCatalog {
 export interface HakoniwaDayResult {
   world: HakoniwaWorld;
   new_events: HakoniwaEvent[];
+  digest?: HakoniwaDigest | null;
   cost_usd: number | null;
 }
 
@@ -408,5 +468,34 @@ export function setHakoniwaFavorite(
   return requestJson<HakoniwaWorld>(
     `${WORLDS}/${worldId}/events/${encodeURIComponent(eventId)}/favorite`,
     jsonInit("PUT", { favorite, language }),
+  );
+}
+
+export function placeHakoniwaFurniture(
+  worldId: string,
+  areaId: string,
+  slot: number,
+  furnitureId: string | null,
+  language: string,
+): Promise<HakoniwaWorld> {
+  return requestJson<HakoniwaWorld>(
+    `${WORLDS}/${worldId}/furniture`,
+    jsonInit("PUT", {
+      area_id: areaId,
+      slot,
+      furniture_id: furnitureId,
+      language,
+    }),
+  );
+}
+
+export function generateHakoniwaSceneImage(
+  worldId: string,
+  eventId: string,
+  language: string,
+): Promise<HakoniwaImageResult> {
+  return requestJson<HakoniwaImageResult>(
+    `${WORLDS}/${worldId}/events/${encodeURIComponent(eventId)}/scene-image`,
+    jsonInit("POST", { language }),
   );
 }

@@ -12,6 +12,8 @@ export const FLOOR_TOP = 580;
 export const FLOOR_BOTTOM = 784;
 /** 部屋の中での住民の表示高さ */
 export const AVATAR_H = Math.round(GAME_H * 0.55);
+/** 部屋の中での家具の表示高さ */
+export const FURNITURE_H = 215;
 /** 歩く速さ(ゲーム座標 px / 秒) */
 export const WALK_SPEED = 58;
 /** 名札と頭の間隔、名札のおおよその高さ(吹き出しの位置合わせ用) */

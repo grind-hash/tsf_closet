@@ -62,6 +62,7 @@ export const hakoniwa = {
     chronicle: "年代記",
     residents: "住民",
     rules: "掟",
+    furniture: "家具",
     settings: "設定",
     unread: "新しい出来事 {{count}} 件",
   },
@@ -72,6 +73,10 @@ export const hakoniwa = {
     next: "次へ",
     skip: "スキップ",
   },
+  areas: {
+    label: "表示する場所",
+    count: "{{count}}人",
+  },
   chronicle: {
     empty:
       "まだ出来事がありません。「1日進める」を押すと、住民たちの1日が始まります。",
@@ -79,11 +84,62 @@ export const hakoniwa = {
     favorite: "お気に入りに入れる",
     unfavorite: "お気に入りから外す",
     replay: "部屋で再生",
+    openAdv: "ADVで見る",
+    hasScene: "場面の絵あり",
+    sceneSuggested: "絵にしたい場面",
     day: "{{day}}日目",
     sourceTemplate: "定型",
     transformMark: "変身",
     participants: "登場: {{names}}",
     line: "「{{text}}」",
+  },
+  adv: {
+    narration: "地の文",
+    generateScene: "場面の絵を生成",
+    regenerateScene: "場面の絵を描き直す",
+    generating: "場面の絵を生成しています…",
+    suggest:
+      "絵にしたい場面です（{{reason}}）。右上の「場面の絵を生成」で1枚描けます。",
+    close: "閉じる",
+  },
+  digest: {
+    title: "{{day}}日目のまとめ",
+    latest: "直近のまとめ（{{day}}日目）",
+    close: "まとめを閉じる",
+    highlight: "今日の山場",
+    changes: "大きく動いたこと",
+    tomorrow: "明日の予感",
+    and: "と",
+    reasonTransform: "{{name}}の姿が変わった",
+    reason: {
+      movement: "関係が大きく動いた",
+      trio: "3人がそろった",
+      center: "今日の中心になった出来事",
+    },
+    affinityChange: "{{names}}の仲が {{delta}}（いま {{value}}）",
+    moodUp: "{{name}}の気分が上向いた（いま {{label}}）",
+    moodDown: "{{name}}の気分が沈んだ（いま {{label}}）",
+    hintSwap:
+      "{{a}}と{{b}}はまだ入れ替わったまま。明日はどんな顔で過ごすのでしょう。",
+    hintNearClose:
+      "{{a}}と{{b}}はあと{{remaining}}で親密になりそう（いま {{value}}）。",
+    hintNoRules:
+      "掟がひとつも有効になっていません。掟タブで1枚差し込むと、明日が変わります。",
+    hintMoreRules: "掟はあと{{remaining}}枚まで足せます。",
+    hintGeneric: {
+      furniture:
+        "家具の置き場所を変えると、出来事に小物として出てくるかもしれません。",
+      talk: "住民をクリックして話しかけると、いまの気分が分かります。",
+      transform:
+        "気になる住民を別の姿に変身させると、周りの反応が年代記に残ります。",
+    },
+  },
+  furniture: {
+    note: "場所ごとに4つまで家具を置けます。家具は1点ずつなので、別の場所へ置くとそこへ移ります。置いた家具は、場面に合えば出来事に出てきます。",
+    slot: "置き場所 {{number}}",
+    empty: "（何も置かない）",
+    placedAt: "（いま: {{areaName}}の置き場所 {{slot}}）",
+    view: "部屋に表示",
   },
   residents: {
     heading: "住民",
@@ -218,6 +274,11 @@ export const hakoniwa = {
       "変身の指定を画像のタグにできませんでした。文を変えてお試しください。",
     empty_name: "名前を入力してください。",
     invalid_image_model: "選べない画像モデルです。",
+    event_not_found: "出来事が見つかりません。",
+    no_participants: "この出来事に出ていた住民が、もういません。",
+    area_not_found: "場所が見つかりません。",
+    invalid_slot: "置き場所が正しくありません。",
+    furniture_not_found: "家具が見つかりません。",
   },
   dismissError: "閉じる",
 };

@@ -467,19 +467,18 @@ class NovelAIImageClient:
         """
         compact = " ".join(prompt.strip().split())
         compact = compact.replace("、", ", ").replace("。", ", ")
+        # NovelAI は "no split screen" のような英文の否定を解釈せず、名指しした語
+        # (split screen, side-by-side, before/after, twins …)に引っ張られて、かえって
+        # 分割・比較・重複の絵を呼び込む。正のプロンプトには肯定の語だけを置き、
+        # 避けたい語は呼び出し側のネガティブ(extra_negative)に置く
         if multiple_people:
-            # 複数人モード: パネル分割防止のみ付与
-            suffix = (
-                ", single frame, single shot, "
-                "no before/after panels, no split screen, no side-by-side comparison"
-            )
+            # 複数人モード: 1枚の絵であることだけを示す
+            suffix = ", single frame, single shot"
         else:
-            # 単一キャラモード: 重複キャラ防止を強調
+            # 単一キャラモード: 1人・1枚であることと、変身の前後で同じ人物であること
             suffix = (
                 ", single frame, one character only, single shot, single pose, "
-                "show only the transformed state, solo portrait, one subject, "
-                "no before/after panels, no split screen, no side-by-side comparison, "
-                "no duplicate characters, no twins, no clones, center composition, "
+                "solo portrait, one subject, center composition, "
                 "same person, same face, same hairstyle, same hair color, same skin tone"
             )
         return compact + suffix
@@ -610,9 +609,11 @@ class NovelAIImageClient:
             # 生プロンプト経路: 分割防止などの自動ネガティブを足さない
             extra_negative = ""
         elif multiple_people:
-            extra_negative = ", split screen, before and after, mirrored panels"
+            extra_negative = (
+                ", split screen, before and after, comparison, mirrored panels"
+            )
         else:
-            extra_negative = ", split screen, before and after, side by side, duplicate characters, mirrored panels, two people, multiple people, clone, twin, copy body, duplicate body"
+            extra_negative = ", split screen, before and after, comparison, side by side, duplicate characters, mirrored panels, two people, multiple people, clone, twin, copy body, duplicate body"
 
         # モデル・アクション選択（PoC準拠）
         # インペイントモデルも要求モデル（override優先）に追従させる

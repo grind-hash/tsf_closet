@@ -10,15 +10,17 @@ from typing import Any
 
 from ..consts.hakoniwa import (
     CUSTOM_RULE_PRIORITY_NOTE,
+    DEFAULT_AREA_ID,
+    HAKONIWA_AREA_MAP,
     HAKONIWA_CUSTOM_RULE_PROMPT_MAX,
     HAKONIWA_EVENT_LINES_RANGE,
+    HAKONIWA_FURNITURE_MAP,
     HAKONIWA_PERSONALITY_PROMPT_MAX,
     HAKONIWA_RECENT_EVENTS_CONTEXT,
     HAKONIWA_RECENT_NARRATION_SNIPPET,
     HAKONIWA_RULE_MAP,
     HAKONIWA_TAGS_MAX_COUNT,
     HAKONIWA_TRANSFORM_DESC_PROMPT_MAX,
-    LIVING_ROOM_SCENE,
     RULE_PRIORITY_NOTE,
     WORLD_BRIEF,
 )
@@ -543,6 +545,36 @@ def event_system_prompt(
     )
 
 
+def area_name(area_id: str | None, language: str) -> str:
+    area = (
+        HAKONIWA_AREA_MAP.get(str(area_id or "")) or HAKONIWA_AREA_MAP[DEFAULT_AREA_ID]
+    )
+    return area["name"]["ja" if language == "ja" else "en"]
+
+
+def place_text(state: dict[str, Any], area_id: str | None) -> str:
+    """出来事の場所の情景と、そこに置かれた家具(場面に合えば顔を出す程度)。"""
+    area = (
+        HAKONIWA_AREA_MAP.get(str(area_id or "")) or HAKONIWA_AREA_MAP[DEFAULT_AREA_ID]
+    )
+    text = f"Place: {area['scene']}"
+    layout = (state.get("furniture_layout") or {}).get(area["id"]) or []
+    items = [
+        HAKONIWA_FURNITURE_MAP[item]["description"]
+        for item in layout
+        if item in HAKONIWA_FURNITURE_MAP
+    ]
+    if items:
+        text += (
+            f" Placed here: {', '.join(items)}. These may appear naturally when they "
+            "fit the scene; there is no need to force them in."
+        )
+    return text + (
+        " The event takes place here; weave in the atmosphere and small details of "
+        "this place."
+    )
+
+
 def event_user_prompt(
     state: dict[str, Any],
     group: tuple[dict[str, Any], ...],
@@ -551,6 +583,7 @@ def event_user_prompt(
     nsfw: bool,
     rule_focus_rule_id: str | None = None,
     others_today: list[list[str]] | None = None,
+    area_id: str | None = None,
 ) -> str:
     names = [resident_name(resident, language) for resident in group]
     if len(group) == 1:
@@ -578,7 +611,7 @@ def event_user_prompt(
     return (
         f"Today is day {state['day']} at Stardust House.\n"
         f"{lead}\n"
-        f"Place: {LIVING_ROOM_SCENE}\n\n"
+        f"{place_text(state, area_id)}\n\n"
         f"World rules:\n{active_rules_text(state, language)}\n\n"
         f"Residents:\n{residents_text(state, language)}\n\n"
         f"Recent events:\n{recent_events_text(state)}\n"
@@ -641,7 +674,8 @@ def greeting_prompts(
         f"You are {text['name']} ({_gender_label(resident_gender(resident))}, "
         f"{text['age']}, {text['job']}). Personality: "
         f"{str(text['personality'])[:HAKONIWA_PERSONALITY_PROMPT_MAX]}{pronoun} "
-        f"Mood {resident['mood']}/100.{top_affinity}"
+        f"Mood {resident['mood']}/100.{top_affinity} "
+        f"Currently in the {area_name(resident.get('current_area'), 'en').lower()}."
         f"{_swap_note(state, resident, language)}{appearance_note(state, resident)}"
         f"{hint}\n"
         f"World rules:\n{active_rules_text(state, language)}"
@@ -749,7 +783,35 @@ def transform_reaction_prompts(
     user_prompt = (
         f'Transformed resident: {target_name}. The instruction: "{change_text}".\n'
         f"Involved residents: {involved_text}.\n"
+        f"{place_text(state, target.get('current_area'))}\n"
         f"{extra}"
         f"World rules:\n{active_rules_text(state, language)}"
+    )
+    return system_prompt, user_prompt
+
+
+def scene_tags_prompts(
+    event: dict[str, Any], names: dict[str, str], area_label: str
+) -> tuple[str, str]:
+    """出来事の山場を1枚の絵にするための、動作・表情・構図のタグを作らせる。"""
+    system_prompt = (
+        "You design tags for image generation. You are given an event from a "
+        "miniature-world story. Pick the climactic moment of the event and output "
+        "English Danbooru-style tags that describe only actions, facial expressions, "
+        "the relationship between the characters, composition, lighting and mood. "
+        "Do not include tags for appearance, hair, eyes, clothing, gender or the "
+        "number of people.\n"
+        "Output at most 12 tags, comma-separated, on a single line. No explanation, "
+        "preface or code fence."
+    )
+    lines = "\n".join(
+        f"{names.get(str(line.get('speaker')), '?')}: {line.get('text', '')}"
+        for line in event.get("lines") or []
+    )
+    user_prompt = (
+        f"Title: {event.get('title', '')}\n"
+        f"Place: {area_label}\n"
+        f"Narration: {event.get('narration', '')}\n"
+        f"Lines:\n{lines or '(none)'}"
     )
     return system_prompt, user_prompt

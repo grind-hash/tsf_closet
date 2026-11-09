@@ -72,7 +72,9 @@ async def test_non_raw_prompt_is_unchanged(client):
         client, prompt="少女、赤いドレス。", negative_prompt_override=None
     )
     assert params.prompt.startswith("少女, 赤いドレス, , single frame")
-    assert "no before/after panels" in params.prompt
+    assert "solo portrait" in params.prompt
+    # 英文の否定("no before/after panels" 等)は正のプロンプトに入れない
+    assert "no before/after panels" not in params.prompt
     assert params.negative_prompt.startswith("lowres, bad anatomy, split screen")
 
 

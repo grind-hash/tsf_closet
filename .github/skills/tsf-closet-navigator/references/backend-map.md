@@ -8,7 +8,9 @@
 
 - `/api/hakoniwa`: `routes/hakoniwa_router.py`、`schemas/hakoniwa.py`、`services/hakoniwa_service.py`。
 - `hakoniwa_logic.py` は状態・掟・住民・変身・年代記の純関数、`hakoniwa_prompts.py` と `hakoniwa_generation.py` は設定中のテキストプロバイダによる生成と定型へのフォールバックを担当する。
-- `hakoniwa_images.py` は世界ごとの画像保存・登録キャラクター立ち絵の複製を担当する。`portrait_generation.py` の透過指定は NovelAI V5 のみで有効になる。
+- `consts/hakoniwa.py` に場所（living / garden / study、背景・家具スロット・英語の情景文）と家具の一覧がある。場所と家具の状態は `hakoniwa_logic.py`（`current_area`・`furniture_layout`・`pick_event_area`・`place_furniture`）。
+- `hakoniwa_digest.py` は1日のまとめ（山場・変化・明日の予感）を種類と数値で組み立てる純関数、`hakoniwa_scene.py` は場面絵の提案（`scene_suggestion`）と NovelAI のキャラクター枠つき要求（`scene_request`）を組み立てる。
+- `hakoniwa_images.py` は世界ごとの画像保存・登録キャラクター立ち絵の複製・姿と場面絵の生成を担当する。`portrait_generation.py` の透過指定は NovelAI V5 のみで有効になる。
 - 永続化は `HakoniwaWorld` / `hakoniwa_worlds.state_json` と migration `038_add_hakoniwa_worlds.py`。状態変更は世界単位のロックで直列化する。
 - 検証: `tests/unit/test_hakoniwa_*.py`、`test_novelai_transparent_background.py`。DB テストは `isolated_db` を使用する。
 

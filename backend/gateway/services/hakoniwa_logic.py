@@ -25,17 +25,23 @@ from typing import Any
 
 from ..consts.hakoniwa import (
     CUSTOM_RESIDENT_LABELS,
+    DEFAULT_AREA_ID,
     DEFAULT_BASE_TAGS,
     GENDERS,
     HAKONIWA_AFFINITY_MAX,
     HAKONIWA_AFFINITY_MIN,
     HAKONIWA_APPEARANCE_TEXT_MAX,
+    HAKONIWA_AREA_MAP,
+    HAKONIWA_AREAS,
     HAKONIWA_CUSTOM_RESIDENT_INITIAL_MOOD,
     HAKONIWA_CUSTOM_RULE_NAME_MAX,
     HAKONIWA_CUSTOM_RULE_TEXT_MAX,
     HAKONIWA_CUSTOM_RULES_MAX,
+    HAKONIWA_EVENT_AREA_MOVE_CHANCE,
     HAKONIWA_EVENT_LOG_MAX,
     HAKONIWA_EVENTS_PER_DAY,
+    HAKONIWA_FURNITURE_MAP,
+    HAKONIWA_FURNITURE_SLOTS,
     HAKONIWA_IMAGE_MODEL_DEFAULT,
     HAKONIWA_MAX_ACTIVE_RULES,
     HAKONIWA_MAX_RESIDENTS,
@@ -44,6 +50,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_MOOD_MIN,
     HAKONIWA_PERSONALITY_MAX,
     HAKONIWA_PRESET_MAP,
+    HAKONIWA_RESIDENT_AREA_MOVE_CHANCE,
     HAKONIWA_RESIDENT_NAME_MAX,
     HAKONIWA_RULE_MAP,
     HAKONIWA_SOLO_GROUP_CHANCE,
@@ -54,6 +61,8 @@ from ..consts.hakoniwa import (
 )
 
 STATE_VERSION = 1
+# 出来事に付いていれば年代記へそのまま写す項目
+EVENT_EXTRA_KEYS = ("kind", "change_text", "scene_image")
 
 
 class HakoniwaError(Exception):
@@ -273,6 +282,7 @@ def _base_resident(**fields: Any) -> dict[str, Any]:
         "affinities": {},
         "transformation": None,
         "transformation_history": [],
+        "current_area": DEFAULT_AREA_ID,
     }
     resident.update(fields)
     return resident
@@ -291,6 +301,7 @@ def preset_resident(preset_id: str) -> dict[str, Any]:
         base_tags=preset["base_tags"],
         dress_tags=preset["dress_tags"],
         mood=int(preset["initial_mood"]),
+        current_area=str(preset.get("initial_area") or DEFAULT_AREA_ID),
     )
 
 
@@ -418,7 +429,28 @@ def new_world_state(residents: list[dict[str, Any]]) -> dict[str, Any]:
         "custom_rules": [],
         "residents": entries,
         "events": [],
+        "furniture_layout": empty_furniture_layout(),
+        "last_digest": None,
     }
+
+
+def empty_furniture_layout() -> dict[str, list[str | None]]:
+    return {area["id"]: [None] * HAKONIWA_FURNITURE_SLOTS for area in HAKONIWA_AREAS}
+
+
+def _normalize_furniture_layout(layout: Any) -> dict[str, list[str | None]]:
+    """家具の配置をエリアとスロットの数にそろえ、知らない家具・重複を外す。"""
+    normalized = empty_furniture_layout()
+    seen: set[str] = set()
+    source = layout if isinstance(layout, dict) else {}
+    for area_id, slots in normalized.items():
+        for index, furniture_id in enumerate(
+            list(source.get(area_id) or [])[: len(slots)]
+        ):
+            if furniture_id in HAKONIWA_FURNITURE_MAP and furniture_id not in seen:
+                slots[index] = furniture_id
+                seen.add(furniture_id)
+    return normalized
 
 
 def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -433,9 +465,15 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         "custom_rules": [dict(rule) for rule in state.get("custom_rules") or []],
         "residents": [],
         "events": [dict(event) for event in state.get("events") or []],
+        "furniture_layout": _normalize_furniture_layout(state.get("furniture_layout")),
+        "last_digest": state.get("last_digest")
+        if isinstance(state.get("last_digest"), dict)
+        else None,
     }
     for resident in state.get("residents") or []:
         entry = _base_resident(**resident)
+        if entry.get("current_area") not in HAKONIWA_AREA_MAP:
+            entry["current_area"] = DEFAULT_AREA_ID
         entry["affinities"] = {
             str(key): int(value)
             for key, value in (resident.get("affinities") or {}).items()
@@ -859,6 +897,12 @@ def apply_event(
                 HAKONIWA_MOOD_MAX,
             )
     participants = [pid for pid in event.get("participants") or [] if pid in by_id]
+    area_id = event.get("area") if event.get("area") in HAKONIWA_AREA_MAP else None
+    if area_id is None:
+        area_id = DEFAULT_AREA_ID
+    # 出来事の参加者は、その場所に集まる
+    for participant_id in participants:
+        by_id[participant_id]["current_area"] = area_id
     if len(participants) >= 2:
         delta = int(event.get("affinity_delta") or 0)
         for index, a_id in enumerate(participants):
@@ -890,9 +934,10 @@ def apply_event(
         },
         "affinity_delta": int(event.get("affinity_delta") or 0),
         "source": str(event.get("source") or "template"),
+        "area": area_id,
         "favorite": False,
     }
-    for key in ("kind", "change_text"):
+    for key in EVENT_EXTRA_KEYS:
         if event.get(key):
             record[key] = event[key]
     new_state["events"].append(record)
@@ -914,9 +959,81 @@ def trim_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
-def finish_day(state: dict[str, Any]) -> dict[str, Any]:
+def finish_day(
+    state: dict[str, Any], rng: random.Random | None = None
+) -> dict[str, Any]:
+    """日を1つ進める。rng があれば、住民がときどき別の場所へ移っている。"""
     new_state = deepcopy(state)
     new_state["day"] = int(state["day"]) + 1
+    if rng is not None:
+        for resident in new_state["residents"]:
+            if rng.random() < HAKONIWA_RESIDENT_AREA_MOVE_CHANCE:
+                others = [
+                    area["id"]
+                    for area in HAKONIWA_AREAS
+                    if area["id"] != resident.get("current_area")
+                ]
+                resident["current_area"] = rng.choice(others)
+    return new_state
+
+
+# --- エリアと家具 ---
+
+
+def pick_event_area(
+    state: dict[str, Any], group: tuple[dict[str, Any], ...], rng: random.Random
+) -> str:
+    """出来事の場所。ときどき別の場所で、ふだんは参加者のいる場所のどれか。"""
+    if rng.random() < HAKONIWA_EVENT_AREA_MOVE_CHANCE:
+        return rng.choice([area["id"] for area in HAKONIWA_AREAS])
+    areas = sorted(
+        {
+            resident.get("current_area")
+            for resident in group
+            if resident.get("current_area") in HAKONIWA_AREA_MAP
+        }
+    )
+    return rng.choice(areas) if areas else DEFAULT_AREA_ID
+
+
+def placed_furniture(state: dict[str, Any], area_id: str) -> list[str]:
+    """その場所に置かれている家具の id(スロット順)。"""
+    layout = state.get("furniture_layout") or {}
+    return [item for item in layout.get(area_id) or [] if item]
+
+
+def place_furniture(
+    state: dict[str, Any], area_id: str, slot: int, furniture_id: str | None
+) -> dict[str, Any]:
+    """家具をスロットに置く(None で片付ける)。1点物なので、別の場所にあれば移す。"""
+    if area_id not in HAKONIWA_AREA_MAP:
+        raise HakoniwaError("area_not_found", "場所が見つかりません")
+    if not 0 <= int(slot) < HAKONIWA_FURNITURE_SLOTS:
+        raise HakoniwaError("invalid_slot", "置く場所が正しくありません")
+    if furniture_id is not None and furniture_id not in HAKONIWA_FURNITURE_MAP:
+        raise HakoniwaError("furniture_not_found", "家具が見つかりません")
+    new_state = deepcopy(state)
+    layout = _normalize_furniture_layout(new_state.get("furniture_layout"))
+    if furniture_id is not None:
+        for slots in layout.values():
+            for index, item in enumerate(slots):
+                if item == furniture_id:
+                    slots[index] = None
+    layout[area_id][int(slot)] = furniture_id
+    new_state["furniture_layout"] = layout
+    return new_state
+
+
+def set_event_scene_image(
+    state: dict[str, Any], event_id: str, filename: str
+) -> dict[str, Any]:
+    new_state = deepcopy(state)
+    target = next(
+        (event for event in new_state["events"] if event["id"] == event_id), None
+    )
+    if target is None:
+        raise HakoniwaError("event_not_found", "出来事が見つかりません")
+    target["scene_image"] = filename
     return new_state
 
 
@@ -997,8 +1114,14 @@ def reapply_transformation(
 def bystanders(
     state: dict[str, Any], resident_id: str, rng: random.Random, limit: int = 2
 ) -> list[dict[str, Any]]:
-    """変身に居合わせる住民(本人以外から最大 limit 人)。"""
-    others = [item for item in state["residents"] if item["id"] != resident_id]
+    """変身に居合わせる住民(本人と同じ場所にいる住民から最大 limit 人)。"""
+    target = find_resident(state, resident_id)
+    others = [
+        item
+        for item in state["residents"]
+        if item["id"] != resident_id
+        and item.get("current_area") == target.get("current_area")
+    ]
     if len(others) <= limit:
         return others
     return rng.sample(others, limit)

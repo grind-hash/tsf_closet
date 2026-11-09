@@ -415,3 +415,72 @@ def test_character_without_gender_requires_choice(
     assert missing.json()["detail"]["error"] == "gender_required"
     assert chosen.status_code == 200
     assert again.json()["detail"]["error"] == "duplicate_resident"
+
+
+def test_world_lists_areas_and_furniture_and_places_items(client: TestClient) -> None:
+    world = _create(client, ["aoi", "ren"])
+
+    assert [area["id"] for area in world["areas"]] == ["living", "garden", "study"]
+    assert world["areas"][1]["background_url"] == "/hakoniwa-assets/area_garden.png"
+    assert {item["id"] for item in world["furniture_catalog"]} >= {"lamp", "kotatsu"}
+    ren = next(r for r in world["residents"] if r["id"] == "ren")
+    assert ren["current_area"] == "garden"
+
+    placed = client.put(
+        f"/api/hakoniwa/worlds/{world['id']}/furniture",
+        json={"area_id": "garden", "slot": 1, "furniture_id": "lamp"},
+    ).json()
+    assert placed["areas"][1]["slots"][1]["furniture_id"] == "lamp"
+    unknown = client.put(
+        f"/api/hakoniwa/worlds/{world['id']}/furniture",
+        json={"area_id": "moon", "slot": 1, "furniture_id": "lamp"},
+    )
+    assert unknown.status_code == 404
+
+
+def test_day_returns_digest_and_event_areas(client: TestClient) -> None:
+    world = _create(client)
+
+    body = client.post(f"/api/hakoniwa/worlds/{world['id']}/day", json={}).json()
+
+    assert body["digest"]["day"] == 1
+    assert body["digest"]["highlight"]["event_id"] in {
+        event["id"] for event in body["new_events"]
+    }
+    assert body["world"]["last_digest"] == body["digest"]
+    assert all(
+        event["area"] in {"living", "garden", "study"} for event in body["new_events"]
+    )
+
+
+def test_scene_image_is_generated_with_fallback_tags(
+    client: TestClient, monkeypatch
+) -> None:
+    captured: dict = {}
+
+    async def fake_scene(request, *, image_model, nsfw_mode):
+        captured.update(request)
+        return _png()
+
+    monkeypatch.setattr(service_module, "generate_scene_bytes", fake_scene)
+    world = _create(client, ["aoi", "ren"])
+    day = client.post(f"/api/hakoniwa/worlds/{world['id']}/day", json={}).json()
+    event = next(e for e in day["new_events"] if len(e["participants"]) == 2)
+
+    body = client.post(
+        f"/api/hakoniwa/worlds/{world['id']}/events/{event['id']}/scene-image",
+        json={},
+    ).json()
+
+    assert "cinematic scene" in captured["prompt"]
+    assert len(captured["characters"]) == 2
+    updated = next(e for e in body["world"]["events"] if e["id"] == event["id"])
+    assert updated["scene_image_url"].startswith(
+        f"/hakoniwa/worlds/{world['id']}/images/scene_"
+    )
+    assert updated["scene_suggestion"] is None
+    assert client.get("/api" + updated["scene_image_url"]).status_code == 200
+    missing = client.post(
+        f"/api/hakoniwa/worlds/{world['id']}/events/nope/scene-image", json={}
+    )
+    assert missing.status_code == 404

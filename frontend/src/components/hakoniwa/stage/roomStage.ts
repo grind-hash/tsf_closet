@@ -12,6 +12,7 @@ import {
   anchorRatio,
   FLOOR_BOTTOM,
   FLOOR_TOP,
+  FURNITURE_H,
   focusTargets,
   focusZone,
   GAME_H,
@@ -33,12 +34,24 @@ export interface StageResident {
   imageUrl: string | null;
 }
 
+/** 部屋に置く家具(スロットの位置に足元を合わせて描く) */
+export interface StageFurniture {
+  key: string;
+  url: string;
+  x: number;
+  y: number;
+}
+
 export interface RoomStageCallbacks {
   onResidentClick?: (residentId: string) => void;
 }
 
 export interface RoomStageHandle {
-  update: (residents: StageResident[], backgroundUrl: string | null) => void;
+  update: (
+    residents: StageResident[],
+    backgroundUrl: string | null,
+    furniture?: StageFurniture[],
+  ) => void;
   /** 参加住民を集めて向き合わせる。全員が着くか見切り時間で解決する */
   focusGroup: (ids: string[]) => Promise<boolean>;
   releaseFocus: () => void;
@@ -97,7 +110,12 @@ class RoomStage {
   private pending: {
     residents: StageResident[];
     backgroundUrl: string | null;
-  } = { residents: [], backgroundUrl: null };
+    furniture: StageFurniture[];
+  } = { residents: [], backgroundUrl: null, furniture: [] };
+  private readonly furnitureSprites = new Map<
+    string,
+    { image: Phaser.GameObjects.Image; url: string }
+  >();
   private focus: FocusSession | null = null;
   /** 出来事の再生中に、居合わせない住民が空ける横の範囲 */
   private zone: XRange | null = null;
@@ -170,6 +188,7 @@ class RoomStage {
     if (!scene) return;
     const used = new Set<string | null | undefined>([this.backgroundUrl]);
     for (const agent of this.agents.values()) used.add(agent.url);
+    for (const item of this.furnitureSprites.values()) used.add(item.url);
     for (const [url, key] of this.textureKeys) {
       if (used.has(url) || this.textureWaiters.has(url)) continue;
       this.textureKeys.delete(url);
@@ -265,10 +284,43 @@ class RoomStage {
     return agent;
   }
 
+  /** 家具を置き直す(表示中の場所の家具だけ)。奥行きは足元の y で住民と前後させる */
+  private applyFurniture(): void {
+    const scene = this.scene;
+    if (!scene) return;
+    const desired = new Map(
+      this.pending.furniture.map((item) => [item.key, item]),
+    );
+    for (const [key, sprite] of this.furnitureSprites) {
+      if (desired.get(key)?.url === sprite.url) continue;
+      sprite.image.destroy();
+      this.furnitureSprites.delete(key);
+    }
+    for (const [key, item] of desired) {
+      if (this.furnitureSprites.has(key)) continue;
+      const image = scene.add
+        .image(item.x, item.y, "hakoniwa-blank")
+        .setOrigin(0.5, 1)
+        .setDepth(item.y - 1)
+        .setVisible(false);
+      this.furnitureSprites.set(key, { image, url: item.url });
+      this.ensureTexture(item.url, (texture) => {
+        if (!image.active || !texture || !this.scene) return;
+        const frame = this.scene.textures.getFrame(texture);
+        const height = frame && frame.height > 0 ? frame.height : FURNITURE_H;
+        image
+          .setTexture(texture)
+          .setScale(FURNITURE_H / height)
+          .setVisible(true);
+      });
+    }
+  }
+
   private apply(): void {
     const scene = this.scene;
     if (!scene) return;
     const { residents, backgroundUrl } = this.pending;
+    this.applyFurniture();
     if (backgroundUrl !== this.backgroundUrl) {
       this.backgroundUrl = backgroundUrl;
       if (backgroundUrl) {
@@ -327,9 +379,14 @@ class RoomStage {
     }
   }
 
-  update(residents: StageResident[], backgroundUrl: string | null): void {
-    this.pending = { residents, backgroundUrl };
+  update(
+    residents: StageResident[],
+    backgroundUrl: string | null,
+    furniture: StageFurniture[] = [],
+  ): void {
+    this.pending = { residents, backgroundUrl, furniture };
     this.apply();
+    this.collectTextures();
   }
 
   setSelected(id: string | null): void {
@@ -475,6 +532,7 @@ class RoomStage {
   dispose(): void {
     this.finishFocus(false);
     this.agents.clear();
+    this.furnitureSprites.clear();
     this.textureKeys.clear();
     this.textureWaiters.clear();
     this.scene = null;
@@ -493,8 +551,8 @@ export function createRoomStage(
     let settled = false;
     let game: Phaser.Game | null = null;
     const handle: RoomStageHandle = {
-      update: (residents, backgroundUrl) =>
-        stage.update(residents, backgroundUrl),
+      update: (residents, backgroundUrl, furniture) =>
+        stage.update(residents, backgroundUrl, furniture),
       focusGroup: (ids) => stage.focusGroup(ids),
       releaseFocus: () => stage.releaseFocus(),
       setSelected: (id) => stage.setSelected(id),
@@ -547,6 +605,9 @@ export function createRoomStage(
         scene: [HakoniwaRoomScene],
         banner: false,
         audio: { noAudio: true },
+        // window 全体の押下を拾うと、キャンバスの上に重なったダイアログ等のクリックまで
+        // 住民のクリックとして扱われる。キャンバス上の操作だけを受け取る
+        input: { windowEvents: false },
       });
     } catch (error) {
       settled = true;

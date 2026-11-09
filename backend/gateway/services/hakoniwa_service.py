@@ -20,13 +20,19 @@ from typing import Any
 from sqlalchemy import select
 
 from ..consts.hakoniwa import (
+    DEFAULT_AREA_ID,
     DEFAULT_BASE_TAGS,
+    HAKONIWA_AREA_MAP,
+    HAKONIWA_AREAS,
+    HAKONIWA_FURNITURE,
     HAKONIWA_IMAGE_MODEL_DEFAULT,
     HAKONIWA_PRESET_MAP,
     HAKONIWA_PRESET_RESIDENTS,
     HAKONIWA_ROOM_BACKGROUND_URL,
     HAKONIWA_RULE_CARDS,
     HAKONIWA_WORLD_NAME_MAX,
+    area_background_url,
+    furniture_url,
     preset_bundled_avatar_url,
 )
 from ..consts.language import normalize_language
@@ -35,8 +41,10 @@ from ..databases.base import async_session_factory
 from ..databases.models import HakoniwaWorld
 from . import hakoniwa_logic as logic
 from .cost_tracker import begin_cost_tracking
+from .hakoniwa_digest import build_day_digest
 from .hakoniwa_generation import (
     convert_change_to_tags,
+    convert_scene_to_tags,
     expand_appearance_tags,
     generate_event,
     generate_greeting,
@@ -49,6 +57,7 @@ from .hakoniwa_images import (
     copy_portrait,
     delete_world_images,
     generate_avatar_bytes,
+    generate_scene_bytes,
     image_model_options,
     image_path,
     image_url,
@@ -58,6 +67,7 @@ from .hakoniwa_images import (
     transparency_mode,
 )
 from .hakoniwa_logic import HakoniwaError
+from .hakoniwa_scene import scene_request, scene_suggestion
 from .preset_sessions import PresetSessionError, load_preset_play_source
 from .session import DEFAULT_USER_ID, session_store
 
@@ -145,6 +155,7 @@ def _resident_view(
             for item in resident.get("transformation_history") or []
         ],
         "swapped_with": logic.swap_partner_id(state, resident["id"]),
+        "current_area": resident.get("current_area") or DEFAULT_AREA_ID,
         **resident_image_urls(world_id, state, resident),
     }
 
@@ -202,8 +213,49 @@ def _world_view(
             _resident_view(world.id, state, resident, language)
             for resident in state["residents"]
         ],
-        "events": state["events"],
+        "events": [_event_view(world.id, event, language) for event in state["events"]],
+        "areas": _areas_view(state, language),
+        "last_digest": state.get("last_digest"),
+        "furniture_catalog": [
+            {
+                "id": item["id"],
+                "name": item["name"]["ja" if language == "ja" else "en"],
+                "url": furniture_url(item["id"]),
+            }
+            for item in HAKONIWA_FURNITURE
+        ],
     }
+
+
+def _areas_view(state: dict[str, Any], language: str) -> list[dict[str, Any]]:
+    layout = state.get("furniture_layout") or {}
+    key = "ja" if language == "ja" else "en"
+    return [
+        {
+            "id": area["id"],
+            "name": area["name"][key],
+            "background_url": area_background_url(area["id"]),
+            "slots": [
+                {
+                    "x": x,
+                    "y": y,
+                    "furniture_id": (layout.get(area["id"]) or [None] * 4)[index],
+                }
+                for index, (x, y) in enumerate(area["slots"])
+            ],
+        }
+        for area in HAKONIWA_AREAS
+    ]
+
+
+def _event_view(world_id: str, event: dict[str, Any], language: str) -> dict[str, Any]:
+    """年代記の出来事に、場面絵の URL と場面絵の提案を足す。"""
+    view = dict(event)
+    view.setdefault("area", DEFAULT_AREA_ID)
+    scene = event.get("scene_image")
+    view["scene_image_url"] = image_url(world_id, str(scene)) if scene else None
+    view["scene_suggestion"] = scene_suggestion(event, language)
+    return view
 
 
 def _world_summary(world: HakoniwaWorld, language: str) -> dict[str, Any]:
@@ -447,7 +499,9 @@ class HakoniwaService:
                 state = _load_state(world)
             tracker = begin_cost_tracking()
             rng = random.Random()
+            before = state
             groups = logic.choose_groups(state, rng)
+            areas = [logic.pick_event_area(state, group, rng) for group in groups]
             focus = logic.custom_rule_focus_assignments(state, groups)
             titles = recent_titles(state)
             names = [
@@ -468,22 +522,26 @@ class HakoniwaService:
                             item for other, item in enumerate(names) if other != index
                         ],
                         recent_titles=titles,
+                        area_id=areas[index],
                     )
                     for index, group in enumerate(groups)
                 )
             )
             used_titles = set(titles)
             new_events: list[dict[str, Any]] = []
-            for group, event in zip(groups, events, strict=True):
+            for group, area_id, event in zip(groups, areas, events, strict=True):
                 if event.get("source") == "template" and event["title"] in used_titles:
                     # 並列に選んだ定型が同じ日に重ならないよう選び直す
                     event = template_event(
                         state, group, lang, rng, recent_titles=used_titles
                     )
+                    event["area"] = area_id
                 used_titles.add(event["title"])
                 state = logic.apply_event(state, event, rng)
                 new_events.append(state["events"][-1])
-            state = logic.finish_day(state)
+            state = logic.finish_day(state, rng)
+            digest = build_day_digest(before, state, new_events)
+            state["last_digest"] = digest
             async with async_session_factory() as db:
                 world = await self._load(db, world_id)
                 _store_state(world, state)
@@ -492,6 +550,7 @@ class HakoniwaService:
         return {
             "world": view,
             "new_events": new_events,
+            "digest": digest,
             "cost_usd": tracker.total_usd or None,
         }
 
@@ -882,6 +941,7 @@ class HakoniwaService:
                     "source": "player",
                     "kind": "transform",
                     "change_text": change_text,
+                    "area": target.get("current_area"),
                 },
                 rng,
             )
@@ -897,6 +957,7 @@ class HakoniwaService:
                 novelai_model=novelai_model,
                 nsfw=nsfw,
             )
+            reaction["area"] = target.get("current_area")
             state = logic.apply_event(state, reaction, rng)
             new_events.append(state["events"][-1])
             async with async_session_factory() as db:
@@ -909,6 +970,89 @@ class HakoniwaService:
             "new_events": new_events,
             "cost_usd": tracker.total_usd or None,
         }
+
+    # ------------------------------------------------------------------
+    # 家具と場面絵
+    # ------------------------------------------------------------------
+
+    async def place_furniture(
+        self,
+        world_id: str,
+        area_id: str,
+        slot: int,
+        furniture_id: str | None,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._mutate(
+            world_id,
+            language,
+            lambda state: logic.place_furniture(state, area_id, slot, furniture_id),
+        )
+
+    async def generate_scene_image(
+        self, world_id: str, event_id: str, language: str | None = None
+    ) -> dict[str, Any]:
+        """年代記の出来事の山場を、参加者のいまの姿で1枚の横長の絵にする。"""
+        lang, user_settings = await self._context(language)
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                world = await self._load(db, world_id)
+                state = _load_state(world)
+            event = next(
+                (item for item in state["events"] if item["id"] == event_id), None
+            )
+            if event is None:
+                raise HakoniwaError("event_not_found", "出来事が見つかりません")
+            ids = {resident["id"] for resident in state["residents"]}
+            if not any(pid in ids for pid in event.get("participants") or []):
+                raise HakoniwaError("no_participants", "この出来事の住民がもういません")
+            event = {
+                **event,
+                "participants": [
+                    pid for pid in event.get("participants") or [] if pid in ids
+                ],
+            }
+            tracker = begin_cost_tracking()
+            names = {
+                resident["id"]: logic.resident_name(resident, lang)
+                for resident in state["residents"]
+            }
+            area = (
+                HAKONIWA_AREA_MAP.get(str(event.get("area") or ""))
+                or (HAKONIWA_AREA_MAP[DEFAULT_AREA_ID])
+            )
+            scene_tags = await convert_scene_to_tags(
+                event,
+                names,
+                area["scene"],
+                novelai_model=user_settings.get("novelai_text_model"),
+            )
+            request = scene_request(state, event, scene_tags or "")
+            try:
+                data = await generate_scene_bytes(
+                    request,
+                    image_model=resolve_image_model(state, user_settings),
+                    nsfw_mode=bool(user_settings.get("nsfw_mode")),
+                )
+            except HakoniwaError:
+                raise
+            except Exception as error:
+                logger.warning(
+                    "Hakoniwa scene image failed: %s: %s", type(error).__name__, error
+                )
+                raise HakoniwaError(
+                    "image_generation_failed", "画像の生成に失敗しました"
+                ) from error
+            filename = save_image(world_id, f"scene_{event_id[:8]}", data)
+            async with async_session_factory() as db:
+                world = await self._load(db, world_id)
+                state = logic.set_event_scene_image(
+                    _load_state(world), event_id, filename
+                )
+                _store_state(world, state)
+                await db.commit()
+                view = _world_view(world, state, lang, user_settings)
+        return {"world": view, "cost_usd": tracker.total_usd or None}
 
     async def clear_transform(
         self, world_id: str, resident_id: str, language: str | None = None

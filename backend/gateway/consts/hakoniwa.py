@@ -97,6 +97,120 @@ LIVING_ROOM_SCENE = (
     "with curtains and warm sunlight, and a wide open floor."
 )
 
+# --- エリアと家具 ---
+# 各エリアは背景1枚(家具を描き込まない殺風景な舞台)と、家具を置くスロット4つを持つ。
+# スロットの座標は部屋のゲーム座標(1216x832)の x と足元の y。家具は実物1点として扱い、
+# どこか1か所にだけ置ける(別のスロットへ置くと移動する)。
+
+DEFAULT_AREA_ID = "living"
+HAKONIWA_FURNITURE_SLOTS = 4
+# 出来事を参加者のいる場所以外で起こす確率と、日の終わりに住民が別の場所へ移る確率
+HAKONIWA_EVENT_AREA_MOVE_CHANCE = 0.35
+HAKONIWA_RESIDENT_AREA_MOVE_CHANCE = 0.25
+
+HAKONIWA_AREAS: list[dict[str, Any]] = [
+    {
+        "id": "living",
+        "background_file": "room.png",
+        "name": {"ja": "リビング", "en": "Living room"},
+        "scene": LIVING_ROOM_SCENE,
+        "scene_tags": (
+            "sparse empty living room interior, wooden floor, plain wall, "
+            "window with curtains, warm sunlight through window, minimal, "
+            "wide open floor space, scenery, anime background"
+        ),
+        "slots": [(180, 700), (470, 730), (760, 700), (1040, 730)],
+    },
+    {
+        "id": "garden",
+        "background_file": "area_garden.png",
+        "name": {"ja": "庭", "en": "Garden"},
+        "scene": (
+            "The garden of Stardust House: a lawn, garden trees and flower beds with "
+            "seasonal flowers in bloom, a stone path and wide open ground."
+        ),
+        "scene_tags": (
+            "sparse japanese garden, green lawn, garden trees, flower beds along the "
+            "wall, stone path, warm sunlight, minimal, wide open ground, scenery, "
+            "anime background"
+        ),
+        "slots": [(200, 710), (500, 740), (800, 710), (1050, 740)],
+    },
+    {
+        "id": "study",
+        "background_file": "area_study.png",
+        "name": {"ja": "書斎", "en": "Study"},
+        "scene": (
+            "The small library study of Stardust House: a wooden floor, plain walls "
+            "and a window, quiet and calm, with a wide open floor."
+        ),
+        "scene_tags": (
+            "sparse empty study room interior, wooden floor, plain walls, window, "
+            "warm light, minimal, wide open floor space, scenery, anime background"
+        ),
+        "slots": [(190, 700), (480, 730), (770, 700), (1040, 730)],
+    },
+]
+HAKONIWA_AREA_MAP: dict[str, dict[str, Any]] = {
+    area["id"]: area for area in HAKONIWA_AREAS
+}
+
+HAKONIWA_FURNITURE: list[dict[str, Any]] = [
+    {
+        "id": "houseplant",
+        "name": {"ja": "観葉植物", "en": "Houseplant"},
+        "description": "a large potted houseplant",
+    },
+    {
+        "id": "cat_tower",
+        "name": {"ja": "猫タワー", "en": "Cat tower"},
+        "description": "a cat tower (no cat on it)",
+    },
+    {
+        "id": "bookshelf",
+        "name": {"ja": "本棚", "en": "Bookshelf"},
+        "description": "a wooden bookshelf full of books",
+    },
+    {
+        "id": "round_table",
+        "name": {"ja": "丸テーブル", "en": "Round table"},
+        "description": "a small round table",
+    },
+    {
+        "id": "lamp",
+        "name": {"ja": "フロアランプ", "en": "Floor lamp"},
+        "description": "a warmly glowing floor lamp",
+    },
+    {
+        "id": "plush",
+        "name": {"ja": "ぬいぐるみ", "en": "Plush toy"},
+        "description": "a big teddy bear plush",
+    },
+    {
+        "id": "aquarium",
+        "name": {"ja": "水槽", "en": "Aquarium"},
+        "description": "an aquarium with tropical fish",
+    },
+    {
+        "id": "kotatsu",
+        "name": {"ja": "こたつ", "en": "Kotatsu"},
+        "description": "a kotatsu table with a blanket",
+    },
+]
+HAKONIWA_FURNITURE_MAP: dict[str, dict[str, Any]] = {
+    item["id"]: item for item in HAKONIWA_FURNITURE
+}
+
+
+def area_background_url(area_id: str) -> str:
+    area = HAKONIWA_AREA_MAP.get(area_id) or HAKONIWA_AREA_MAP[DEFAULT_AREA_ID]
+    return f"{HAKONIWA_ASSET_BASE}/{area['background_file']}"
+
+
+def furniture_url(furniture_id: str) -> str:
+    return f"{HAKONIWA_ASSET_BASE}/furniture_{furniture_id}.png"
+
+
 # --- プリセット住民(全員成人) ---
 # base_tags は通常版、dress_tags はドレスの掟用のドレス版の画像タグ(同梱素材の生成に使ったもの)。
 
@@ -114,6 +228,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
             "ribbon, energetic, cheerful"
         ),
         "initial_mood": 62,
+        "initial_area": "living",
         "initial_affinities": {"shiori": 10, "tamako": 15, "ren": 5, "ritsu": 10},
         "text": {
             "ja": {
@@ -157,6 +272,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
             "modest dress, lace collar, pure, graceful"
         ),
         "initial_mood": 45,
+        "initial_area": "study",
         "initial_affinities": {"aoi": 10, "tamako": 0, "ren": 15, "ritsu": -5},
         "text": {
             "ja": {
@@ -202,6 +318,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
             "pearl necklace, dignified"
         ),
         "initial_mood": 58,
+        "initial_area": "living",
         "initial_affinities": {"aoi": 15, "shiori": 5, "ren": 10, "ritsu": 10},
         "text": {
             "ja": {
@@ -245,6 +362,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
             "sharp silhouette, high collar, cool beauty"
         ),
         "initial_mood": 50,
+        "initial_area": "garden",
         "initial_affinities": {"aoi": 5, "shiori": 15, "tamako": 5, "ritsu": 0},
         "text": {
             "ja": {
@@ -288,6 +406,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
             "fresh, lively"
         ),
         "initial_mood": 66,
+        "initial_area": "living",
         "initial_affinities": {"aoi": 10, "shiori": -5, "tamako": 10, "ren": 0},
         "text": {
             "ja": {
