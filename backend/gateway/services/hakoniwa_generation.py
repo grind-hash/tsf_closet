@@ -16,13 +16,16 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from ..consts.hakoniwa import (
     GENERIC_GREETINGS,
+    HAKONIWA_APPEARANCE_TEXT_MAX,
     HAKONIWA_CONVERT_TAGS_MAX_ATTEMPTS,
     HAKONIWA_EVENT_LINE_TEXT_MAX,
     HAKONIWA_EVENT_LINES_MAX,
     HAKONIWA_EVENT_NARRATION_MAX,
     HAKONIWA_EVENT_TITLE_MAX,
     HAKONIWA_GREETING_MAX,
+    HAKONIWA_PERSONALITY_MAX,
     HAKONIWA_RECENT_EVENTS_CONTEXT,
+    HAKONIWA_RESIDENT_NAME_MAX,
     HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT,
     HAKONIWA_TAGS_MAX_COUNT,
     HAKONIWA_TAGS_MAX_LENGTH,
@@ -35,10 +38,20 @@ from ..consts.hakoniwa_play import (
     TOUCH_REACTION_TEMPLATES,
     TOUCH_TOLERANT_MOOD,
 )
+from ..consts.hakoniwa_random import (
+    HAKONIWA_RANDOM_AGE_MAX,
+    HAKONIWA_RANDOM_JOB_MAX,
+    HAKONIWA_RANDOM_PRONOUN_MAX,
+)
 from . import hakoniwa_play as play
 from . import hakoniwa_story as story
 from .cost_tracker import record_cost
-from .hakoniwa_logic import is_male_in_feminine_form, resident_name, resident_text
+from .hakoniwa_logic import (
+    ensure_gender_token,
+    is_male_in_feminine_form,
+    resident_name,
+    resident_text,
+)
 from .hakoniwa_prompts import (
     RULE_FOCUS_RETRY_NOTE,
     alteration_prompts,
@@ -50,13 +63,15 @@ from .hakoniwa_prompts import (
     event_system_prompt,
     event_user_prompt,
     greeting_prompts,
+    random_residents_prompts,
     rule_look_tags_prompts,
     scene_tags_prompts,
     touch_prompts,
     transform_reaction_prompts,
     transform_tags_prompts,
 )
-from .hakoniwa_text import normalize_output
+from .hakoniwa_random import name_key
+from .hakoniwa_text import SIMPLIFIED_ONLY_CHARS, normalize_output
 from .llm_json import generate_validated
 from .llm_service import llm_service
 
@@ -296,6 +311,7 @@ async def generate_event(
     arc_focus_id: str | None = None,
     arc_climax: bool = False,
     intervention: str | None = None,
+    include_theme: bool = True,
 ) -> dict[str, Any]:
     """出来事を1件生成する。失敗したら定型の出来事にする(例外は投げない)。
 
@@ -314,6 +330,7 @@ async def generate_event(
         arc_focus_id=arc_focus_id,
         arc_climax=arc_climax,
         intervention=intervention,
+        include_theme=include_theme,
     )
 
     async def generate(system: str, user: str) -> str:
@@ -773,3 +790,125 @@ async def classify_chat_alteration(
         )
         return {"action": "none", "instruction": ""}
     return _parse_alteration(raw, message) or {"action": "none", "instruction": ""}
+
+
+# --- おまかせの住民(ランダムな住民構成) ---
+
+
+class _RandomResident(BaseModel):
+    name: str = Field(min_length=1)
+    gender: str
+    age: str = ""
+    job: str = ""
+    personality: str = Field(min_length=1)
+    pronoun: str = ""
+    appearance: str = Field(min_length=1)
+    appearance_tags: str = ""
+
+    @field_validator("gender")
+    @classmethod
+    def _gender(cls, gender: str) -> str:
+        if gender not in ("female", "male"):
+            raise ValueError("gender must be 'female' or 'male'")
+        return gender
+
+
+class RandomResidentsOutput(BaseModel):
+    """生成された住民の構成。人数は context の count、名前は重複と exclude_names を禁じる。"""
+
+    residents: list[_RandomResident] = Field(min_length=1)
+
+    @field_validator("residents")
+    @classmethod
+    def _count_and_names(
+        cls, residents: list[_RandomResident], info: ValidationInfo
+    ) -> list[_RandomResident]:
+        context = info.context or {}
+        count = context.get("count")
+        if count and len(residents) != count:
+            raise ValueError(f"exactly {count} residents are required")
+        used = {name_key(name) for name in context.get("exclude_names") or []}
+        for resident in residents:
+            key = name_key(resident.name)
+            if key in used:
+                raise ValueError(f"the name '{resident.name}' is already used")
+            used.add(key)
+            if context.get("language") == "ja":
+                fields = (
+                    resident.name,
+                    resident.age,
+                    resident.job,
+                    resident.personality,
+                    resident.appearance,
+                )
+                found = sorted(
+                    {char for text in fields for char in text} & SIMPLIFIED_ONLY_CHARS
+                )
+                if found:
+                    raise ValueError(
+                        "write natural Japanese, not simplified Chinese "
+                        f"(found {''.join(found)} in {resident.name})"
+                    )
+        return residents
+
+
+def clean_profile(raw: dict[str, Any], language: str) -> dict[str, str]:
+    """住民の定義を整える(長さ・日本語の字形・タグ)。タグが使えなければ空にする。"""
+    gender = "male" if raw.get("gender") == "male" else "female"
+
+    def text(key: str, limit: int) -> str:
+        value = " ".join(str(raw.get(key) or "").split())
+        return normalize_output(value, language)[:limit]
+
+    tags = clean_tags(str(raw.get("base_tags") or raw.get("appearance_tags") or ""))
+    return {
+        "name": text("name", HAKONIWA_RESIDENT_NAME_MAX),
+        "gender": gender,
+        "age": text("age", HAKONIWA_RANDOM_AGE_MAX),
+        "job": text("job", HAKONIWA_RANDOM_JOB_MAX),
+        "personality": text("personality", HAKONIWA_PERSONALITY_MAX),
+        "pronoun": text("pronoun", HAKONIWA_RANDOM_PRONOUN_MAX)
+        or ("私" if language == "ja" else "I"),
+        "appearance_text": text(
+            "appearance_text" if raw.get("appearance_text") else "appearance",
+            HAKONIWA_APPEARANCE_TEXT_MAX,
+        ),
+        "base_tags": ensure_gender_token(tags, gender) if tags else "",
+    }
+
+
+async def generate_random_resident_profiles(
+    count: int,
+    language: str,
+    *,
+    exclude_names: list[str],
+    novelai_model: str | None,
+) -> list[dict[str, str]] | None:
+    """住民の構成をテキストモデルで作る。作れなかったら None(定型の組み立てに切り替える)。"""
+    system_prompt, user_prompt = random_residents_prompts(
+        count, language, exclude_names
+    )
+
+    async def generate(system: str, user: str) -> str:
+        return await _generate_text(
+            system, user, novelai_model=novelai_model, max_tokens=1800
+        )
+
+    try:
+        output = await generate_validated(
+            RandomResidentsOutput,
+            generate=generate,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            context={
+                "count": count,
+                "exclude_names": exclude_names,
+                "language": language,
+            },
+        )
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa random residents failed: %s: %s", type(error).__name__, error
+        )
+        return None
+    return [clean_profile(item.model_dump(), language) for item in output.residents]

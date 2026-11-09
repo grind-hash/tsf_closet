@@ -106,6 +106,33 @@ def _swap_active(state: dict[str, Any]) -> list[str] | None:
     return None
 
 
+def body_of(state: dict[str, Any], resident: dict[str, Any]) -> dict[str, Any]:
+    """住民がいまいる体のエントリ。入れ替わり中は相手のエントリ。
+
+    変身は体に付く(体のエントリに保存する)ので、人として見た「いまの変身」はここから読む。
+    """
+    pair = _swap_active(state)
+    if pair and resident["id"] in pair:
+        partner_id = pair[1] if resident["id"] == pair[0] else pair[0]
+        partner = next(
+            (item for item in state.get("residents", []) if item["id"] == partner_id),
+            None,
+        )
+        if partner is not None:
+            return partner
+    return resident
+
+
+def current_transformation(
+    state: dict[str, Any], resident: dict[str, Any]
+) -> dict[str, Any] | None:
+    """住民がいまいる体の変身(無ければ None)。"""
+    transformation = body_of(state, resident).get("transformation")
+    return (
+        transformation if isinstance(transformation, dict) and transformation else None
+    )
+
+
 # --- 状態の正規化 ---
 
 
@@ -340,7 +367,7 @@ def _adaptation_condition_met(state: dict[str, Any], resident: dict[str, Any]) -
     if not isinstance(adaptation, dict):
         return False
     if adaptation.get("kind") == "transform":
-        return bool(resident.get("transformation"))
+        return current_transformation(state, resident) is not None
     if adaptation.get("kind") == "swap":
         return resident["id"] in (_swap_active(state) or [])
     return False
@@ -401,7 +428,7 @@ def advance_adaptations(
 
 def form_key(state: dict[str, Any], resident: dict[str, Any]) -> str | None:
     """いま世界に出ている姿のキー。変身を入れ替わりより優先する。通常の姿は None。"""
-    transformation = resident.get("transformation")
+    transformation = current_transformation(state, resident)
     if transformation:
         marker = str(transformation.get("image") or "") or (
             f"day{_int(transformation.get('day'))}"
@@ -751,7 +778,7 @@ def _arc_condition_gone(state: dict[str, Any], arc: dict[str, Any]) -> bool:
     if kind == "swap":
         return set(_swap_active(state) or []) != set(resident_ids)
     if kind == "transform":
-        return not by_id[resident_ids[0]].get("transformation")
+        return current_transformation(state, by_id[resident_ids[0]]) is None
     if kind == "investigation":
         return not investigation_active(state)
     if kind == "bond":
@@ -813,7 +840,7 @@ def _detect_arc_candidate(
             if found:
                 return found
     for resident in state.get("residents", []):
-        transformation = resident.get("transformation")
+        transformation = current_transformation(state, resident)
         if not transformation or _int(transformation.get("day"), day) > day - 1:
             continue
         others = [item for item in state["residents"] if item["id"] != resident["id"]]

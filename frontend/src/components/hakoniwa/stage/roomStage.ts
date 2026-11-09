@@ -182,15 +182,29 @@ class RoomStage {
     image.src = url;
   }
 
-  /** どの住民・背景も使っていないテクスチャを破棄する */
+  /**
+   * どの住民・背景・家具も使っておらず、表示もしていないテクスチャを破棄する。
+   * 新しい画像を読み込む間は古いテクスチャを表示し続けるため、表示中のものは残す
+   * (破棄すると WebGL の描画で glTexture が null になり、描画が止まる)。
+   */
   private collectTextures(): void {
     const scene = this.scene;
     if (!scene) return;
     const used = new Set<string | null | undefined>([this.backgroundUrl]);
-    for (const agent of this.agents.values()) used.add(agent.url);
-    for (const item of this.furnitureSprites.values()) used.add(item.url);
+    const shown = new Set<string>();
+    if (this.background) shown.add(this.background.texture.key);
+    for (const agent of this.agents.values()) {
+      used.add(agent.url);
+      shown.add(agent.sprite.texture.key);
+    }
+    for (const item of this.furnitureSprites.values()) {
+      used.add(item.url);
+      shown.add(item.image.texture.key);
+    }
     for (const [url, key] of this.textureKeys) {
-      if (used.has(url) || this.textureWaiters.has(url)) continue;
+      if (used.has(url) || shown.has(key) || this.textureWaiters.has(url)) {
+        continue;
+      }
       this.textureKeys.delete(url);
       if (scene.textures.exists(key)) scene.textures.remove(key);
     }

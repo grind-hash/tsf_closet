@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type HakoniwaResident, hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaCharacterAdder from "./HakoniwaCharacterAdder";
 import HakoniwaPortrait from "./HakoniwaPortrait";
 import HakoniwaResidentModal from "./HakoniwaResidentModal";
@@ -19,14 +20,18 @@ export default function HakoniwaResidentsTab() {
     selectedResidentId,
     selectResident,
     addCharacterResident,
+    generateMissingAvatars,
+    avatarBatch,
   } = useHakoniwa();
   const [editing, setEditing] = useState<HakoniwaResident | "new" | null>(null);
+  const [confirmAvatars, setConfirmAvatars] = useState(false);
 
   if (!world) return null;
   const selected =
     world.residents.find((resident) => resident.id === selectedResidentId) ??
     null;
   const full = world.residents.length >= MAX_RESIDENTS;
+  const missing = world.residents.filter((resident) => !resident.avatar_url);
 
   return (
     <div className="hakoniwa-residents">
@@ -82,6 +87,30 @@ export default function HakoniwaResidentsTab() {
         ))}
       </ul>
 
+      {(missing.length > 0 || avatarBatch) && (
+        <div className="hakoniwa-residents__batch">
+          <button
+            type="button"
+            className="hakoniwa-button"
+            disabled={busy !== null || avatarBatch !== null}
+            onClick={() => setConfirmAvatars(true)}
+          >
+            {avatarBatch ? (
+              <>
+                <span className="hakoniwa-spinner" aria-hidden />
+                {t("hakoniwa.residents.batchProgress", {
+                  done: avatarBatch.done,
+                  total: avatarBatch.total,
+                })}
+              </>
+            ) : (
+              t("hakoniwa.residents.batchGenerate", { count: missing.length })
+            )}
+          </button>
+          <p className="hakoniwa-note">{t("hakoniwa.residents.batchNote")}</p>
+        </div>
+      )}
+
       <div className="hakoniwa-residents__add">
         <button
           type="button"
@@ -104,6 +133,29 @@ export default function HakoniwaResidentsTab() {
           disabled={full || busy !== null}
         />
       </div>
+
+      <ConfirmDialog
+        open={confirmAvatars}
+        title={t("hakoniwa.residents.batchConfirmTitle")}
+        confirmLabel={t("hakoniwa.residents.batchConfirm", {
+          count: missing.length,
+        })}
+        cancelLabel={t("hakoniwa.residentForm.cancel")}
+        onCancel={() => setConfirmAvatars(false)}
+        onConfirm={() => {
+          setConfirmAvatars(false);
+          generateMissingAvatars();
+        }}
+      >
+        <p>
+          {t("hakoniwa.residents.batchConfirmBody", {
+            names: missing
+              .map((resident) => resident.name)
+              .join(t("hakoniwa.residents.nameSeparator")),
+            count: missing.length,
+          })}
+        </p>
+      </ConfirmDialog>
 
       {editing && (
         <HakoniwaResidentModal

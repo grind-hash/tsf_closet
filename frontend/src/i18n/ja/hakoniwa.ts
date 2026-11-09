@@ -116,6 +116,7 @@ export const hakoniwa = {
     close: "閉じる",
   },
   digest: {
+    theme: "実験テーマ",
     title: "{{day}}日目のまとめ",
     latest: "直近のまとめ（{{day}}日目）",
     close: "まとめを閉じる",
@@ -178,6 +179,15 @@ export const hakoniwa = {
     view: "部屋に表示",
   },
   residents: {
+    batchGenerate: "立ち絵の無い住民の姿をまとめて生成（{{count}}人）",
+    batchProgress: "立ち絵を生成しています（{{done}} / {{total}}）",
+    batchNote:
+      "立ち絵の無い住民の通常の姿を、1人ずつ順に生成します（画像生成を使います）。",
+    batchConfirmTitle: "立ち絵をまとめて生成しますか？",
+    batchConfirm: "{{count}}人分を生成",
+    batchConfirmBody:
+      "{{names}}の通常の姿を、1人ずつ順に生成します（{{count}}人分の画像生成を使います）。",
+    nameSeparator: "、",
     heading: "住民",
     addCustom: "住民を書いて迎える",
     addCharacter: "キャラクターを迎える",
@@ -361,6 +371,94 @@ export const hakoniwa = {
       dissonance_push: "違和感を煽りました。世界の違和感が少し高まりました。",
     },
   },
+  random: {
+    heading: "おまかせの住民",
+    lead: "人数を選ぶと、名前・性格・見た目の違う住民をおまかせで組みます。気に入らない住民は1人ずつ入れ替えられます。",
+    countLabel: "人数",
+    countOption: "{{count}}人",
+    roll: "おまかせで組む",
+    reroll: "組み直す",
+    rolling: "組んでいます…",
+    replace: "この住民を入れ替える",
+    replacing: "入れ替えています…",
+    remove: "外す",
+    full: "住民は10人までです。ほかの住民を外すと、おまかせの住民を組めます。",
+    note: "テキスト生成で住民を考えます（使えないときは、用意した組み合わせから作ります）。立ち絵は、世界を作ったあと住民タブの「立ち絵の無い住民の姿をまとめて生成」で作れます。",
+  },
+  theme: {
+    label: "実験テーマ",
+    none: "テーマ無し",
+    custom: "自分で書く",
+    textLabel: "テーマ（{{max}}文字まで）",
+    textPlaceholder: "例: 住民みんなが少しずつ猫好きになっていく",
+    note: "この世界で試すことを決めると、1日のまとめに進み具合が出ます。自分で書いたテーマは、出来事・一言・会話にも控えめに反映されます（世界のメモと掟が優先されます）。",
+    save: "テーマを保存",
+    presets: {
+      swap: {
+        name: "入れ替わりを続ける",
+        description:
+          "入れ替わりの朝を有効にし続けて、入れ替わった二人が慣れていく様子を見守ります。",
+      },
+      dress: {
+        name: "ドレスの掟の1週間",
+        description: "ドレスの掟を7日間続けて、装いの変化を観察します。",
+      },
+      dissonance: {
+        name: "違和感を対面まで育てる",
+        description:
+          "書き換えを重ねて、住民が書き手の存在に気づくまで育てます（世界の違和感を使わない世界では進みません）。",
+      },
+      transform: {
+        name: "変身の実験",
+        description:
+          "その場の変身を重ねて、姿の変化と住民が慣れていく様子を観察します。",
+      },
+      free: {
+        name: "自由実験",
+        description:
+          "決まった目標はありません。気の向くままに世界を揺らして観察します。",
+      },
+    },
+    progress: {
+      swapping:
+        "入れ替わりが有効だった日: {{days}}日。いまも入れ替わり中。慣れ具合にも注目したい。",
+      notSwapping:
+        "入れ替わりが有効だった日: {{days}}日。入れ替わりの朝を有効にすると、このテーマが進みます。",
+      dressDone:
+        "ドレスの掟が有効だった日: {{days}}日 / 目標{{target}}日。1週間のドレス生活を達成しました。",
+      dress:
+        "ドレスの掟が有効だった日: {{days}}日 / 目標{{target}}日。あと{{remaining}}日。",
+      dissonanceOff:
+        "この世界は違和感を使わないため、このテーマは進みません（設定タブで切り替えられます）。",
+      dissonanceDone:
+        "世界の違和感: {{value}}（{{stage}}）。住民たちは書き手の存在を知っています。",
+      dissonance:
+        "世界の違和感: {{value}}（{{stage}}）。対面まであと{{remaining}}。",
+      transform: "変身の回数: {{count}}回 / いま変身中: {{now}}人。",
+      free: "{{day}}日目・出来事{{events}}件。気になる変化が起きたら、掟と変身で揺らしてみましょう。",
+      custom: "{{day}}日目・出来事{{events}}件。",
+    },
+  },
+  intro: {
+    title: "はじまりの案内",
+    lead: "住民たちは勝手に暮らし、小さな出来事を起こし続けます。あなたは「掟」で世界を書き換え、住民を変身させる、見えない書き手です。",
+    stepRules: "掟を1枚有効にして、世界のルールを変えてみる",
+    stepClick:
+      "部屋の住民をクリックすると、その住民の一言が聞ける（住民タブから変身もさせられる）",
+    stepAdvance: "「1日進める」を押すと、その日の出来事が3件生まれる",
+    noteDissonance:
+      "書き換えを重ねるほど、住民たちは世界の変化に気づき始めます。",
+    openRules: "掟を見てみる",
+    advance: "さっそく1日進める",
+    fold: "畳む",
+    open: "開く",
+    dismiss: "案内を閉じる",
+  },
+  ruleReaction: {
+    title: "掟の切り替え: {{rule}}",
+    started: "「{{rule}}」が有効になった。住民たちが、さっそく変化に気づく。",
+    ended: "「{{rule}}」が解けた。住民たちが、変化に気づく。",
+  },
   touch: {
     open: "立ち絵を拡大して触れる",
     title: "{{name}}に触れる",
@@ -437,6 +535,9 @@ export const hakoniwa = {
     suppress: "ブラウザを閉じるまで表示しない",
   },
   errors: {
+    invalid_theme:
+      "実験テーマの指定が正しくありません（自分で書くテーマは100文字までです）。",
+    invalid_count: "おまかせの住民の人数が正しくありません。",
     world_not_found: "世界が見つかりません。",
     resident_not_found: "住民が見つかりません。",
     too_few_residents: "住民は2人以上必要です。",

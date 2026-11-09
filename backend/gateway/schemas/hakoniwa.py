@@ -19,7 +19,13 @@ from ..consts.hakoniwa import (
 )
 from ..consts.hakoniwa_play import (
     HAKONIWA_CHAT_MESSAGE_MAX,
+    HAKONIWA_THEME_TEXT_MAX,
     HAKONIWA_WORLD_MEMO_MAX,
+)
+from ..consts.hakoniwa_random import (
+    HAKONIWA_RANDOM_COUNT_DEFAULT,
+    HAKONIWA_RANDOM_COUNT_MAX,
+    HAKONIWA_RANDOM_COUNT_MIN,
 )
 
 Gender = Literal["female", "male"]
@@ -40,6 +46,50 @@ class HakoniwaCharacterEntry(BaseModel):
     )
 
 
+class HakoniwaRandomResident(BaseModel):
+    """おまかせの住民の定義(作成画面のプレビューと、世界を作るときの入力)。"""
+
+    name: str = Field(..., max_length=HAKONIWA_RESIDENT_NAME_MAX)
+    gender: Gender
+    age: str = ""
+    job: str = ""
+    personality: str = Field(..., max_length=HAKONIWA_PERSONALITY_MAX)
+    pronoun: str = ""
+    appearance_text: str = Field("", max_length=HAKONIWA_APPEARANCE_TEXT_MAX)
+    base_tags: str = Field("", description="外見の英語タグ(画像生成用)")
+
+
+class HakoniwaRandomResidentsRequest(HakoniwaLanguageRequest):
+    count: int = Field(
+        HAKONIWA_RANDOM_COUNT_DEFAULT,
+        ge=HAKONIWA_RANDOM_COUNT_MIN,
+        le=HAKONIWA_RANDOM_COUNT_MAX,
+        description="組む人数(1人の入れ替えは 1)",
+    )
+    exclude_names: list[str] = Field(
+        default_factory=list,
+        max_length=HAKONIWA_MAX_RESIDENTS * 2,
+        description="重ねない名前(ほかの住民の名前)",
+    )
+
+
+class HakoniwaRandomResidentsResponse(BaseModel):
+    residents: list[HakoniwaRandomResident]
+    source: Literal["llm", "template"] = Field(
+        ..., description="llm: テキストモデルで作った / template: 語彙の組み合わせ"
+    )
+    cost_usd: float | None = None
+
+
+class HakoniwaThemeInput(BaseModel):
+    """実験テーマ。自由文があれば自由文、無ければプリセット。どちらも空ならテーマ無し。"""
+
+    preset_id: str | None = Field(
+        None, description="swap / dress / dissonance / transform / free"
+    )
+    text: str = Field("", max_length=HAKONIWA_THEME_TEXT_MAX)
+
+
 class HakoniwaCreateRequest(HakoniwaLanguageRequest):
     name: str = Field(..., max_length=HAKONIWA_WORLD_NAME_MAX, description="世界の名前")
     preset_ids: list[str] = Field(
@@ -55,6 +105,14 @@ class HakoniwaCreateRequest(HakoniwaLanguageRequest):
     dissonance_enabled: bool = Field(
         True, description="世界の違和感(住民が書き換えに気づいていく)を使うか"
     )
+    custom_residents: list[HakoniwaRandomResident] = Field(
+        default_factory=list,
+        max_length=HAKONIWA_MAX_RESIDENTS,
+        description="おまかせの住民(作成画面で組んだ定義)",
+    )
+    experiment_theme: HakoniwaThemeInput | None = Field(
+        None, description="実験テーマ。未指定はテーマ無し"
+    )
 
 
 class HakoniwaSettingsRequest(HakoniwaLanguageRequest):
@@ -69,10 +127,17 @@ class HakoniwaSettingsRequest(HakoniwaLanguageRequest):
         max_length=HAKONIWA_WORLD_MEMO_MAX,
         description="世界のメモ(全生成に最優先の指示として載せる)。未指定は変更しない",
     )
+    experiment_theme: HakoniwaThemeInput | None = Field(
+        None,
+        description="実験テーマ。未指定は変更しない(両方空で送るとテーマ無し)",
+    )
 
 
 class HakoniwaRuleToggleRequest(HakoniwaLanguageRequest):
     active: bool
+    area_id: str | None = Field(
+        None, description="いま見ている場所。切り替え直後の反応の話し手をそこから選ぶ"
+    )
 
 
 class HakoniwaCustomRuleRequest(HakoniwaLanguageRequest):
@@ -351,6 +416,9 @@ class HakoniwaWorldResponse(BaseModel):
         None, description="見た目の掟が2つ以上重なっているときの複合の姿"
     )
     world_memo: str = Field("", description="世界のメモ")
+    experiment_theme: HakoniwaThemeInput | None = Field(
+        None, description="実験テーマ(テーマ無しは null)"
+    )
     intervention: HakoniwaIntervention
 
 
@@ -399,10 +467,27 @@ class HakoniwaCatalogResponse(BaseModel):
     image_model_options: list[str]
 
 
+class HakoniwaReactionLine(BaseModel):
+    resident_id: str
+    text: str
+
+
+class HakoniwaRuleReaction(BaseModel):
+    """掟を切り替えた直後の住民の反応(年代記には残さない)。"""
+
+    card_id: str
+    active: bool
+    area: str | None = None
+    lines: list[HakoniwaReactionLine]
+
+
 class HakoniwaDayResponse(BaseModel):
     world: HakoniwaWorldResponse
     new_events: list[HakoniwaEvent]
     digest: dict[str, Any] | None = Field(None, description="その日のまとめ")
+    reaction: HakoniwaRuleReaction | None = Field(
+        None, description="掟の切り替え直後の反応(掟の切り替えのときだけ)"
+    )
     cost_usd: float | None = None
 
 

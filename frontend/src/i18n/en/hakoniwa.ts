@@ -115,6 +115,7 @@ export const hakoniwa = {
     close: "Close",
   },
   digest: {
+    theme: "Experiment theme",
     title: "Day {{day}} recap",
     latest: "Latest recap (Day {{day}})",
     close: "Close the recap",
@@ -177,6 +178,16 @@ export const hakoniwa = {
     view: "Show in the room",
   },
   residents: {
+    batchGenerate:
+      "Generate looks for residents without a portrait ({{count}})",
+    batchProgress: "Generating portraits ({{done}} / {{total}})",
+    batchNote:
+      "Generates the usual look of each resident without a portrait, one at a time (uses image generation).",
+    batchConfirmTitle: "Generate the portraits?",
+    batchConfirm: "Generate {{count}}",
+    batchConfirmBody:
+      "Generates the usual look of {{names}}, one at a time (uses image generation {{count}} times).",
+    nameSeparator: ", ",
     heading: "Residents",
     addCustom: "Write a new resident",
     addCharacter: "Bring in a character",
@@ -367,6 +378,95 @@ export const hakoniwa = {
       dissonance_push: "You stirred the strangeness. It rose a little.",
     },
   },
+  random: {
+    heading: "Random residents",
+    lead: "Pick a number and residents with different names, personalities and looks are put together for you. Swap out any one you do not like.",
+    countLabel: "Number",
+    countOption: "{{count}}",
+    roll: "Put together residents",
+    reroll: "Put together again",
+    rolling: "Putting them together...",
+    replace: "Swap out this resident",
+    replacing: "Swapping...",
+    remove: "Remove",
+    full: "Up to 10 residents. Remove other residents to add random ones.",
+    note: 'Residents are written with text generation (when it is not available, they are built from prepared combinations). After creating the world, generate their portraits with "Generate looks for residents without a portrait" on the Residents tab.',
+  },
+  theme: {
+    label: "Experiment theme",
+    none: "No theme",
+    custom: "Write my own",
+    textLabel: "Theme (up to {{max}} characters)",
+    textPlaceholder: "e.g. Everyone slowly becomes a cat lover",
+    note: "Set what you want to try in this world and its progress appears in the day recap. A theme you write yourself also gently shapes events, one-liners and conversations (the world memo and the rules come first).",
+    save: "Save theme",
+    presets: {
+      swap: {
+        name: "Keep the swap going",
+        description:
+          "Keep The Swapped Morning on and watch the swapped pair get used to it.",
+      },
+      dress: {
+        name: "A week of the dress rule",
+        description:
+          "Keep the Rule of Dresses for 7 days and watch how the outfits change things.",
+      },
+      dissonance: {
+        name: "Grow the strangeness to a confrontation",
+        description:
+          "Keep rewriting until the residents notice the writer (does not progress in worlds without world strangeness).",
+      },
+      transform: {
+        name: "Transformation experiment",
+        description:
+          "Transform residents again and again and watch them get used to their new looks.",
+      },
+      free: {
+        name: "Free experiment",
+        description: "No set goal. Shake up the world as you like and watch.",
+      },
+    },
+    progress: {
+      swapping:
+        "Days with the swap on: {{days}}. Still swapped; watch how they are adjusting.",
+      notSwapping:
+        "Days with the swap on: {{days}}. Turn on The Swapped Morning to move this theme forward.",
+      dressDone:
+        "Days with the dress rule on: {{days}} / goal {{target}}. A full week in dresses is done.",
+      dress:
+        "Days with the dress rule on: {{days}} / goal {{target}}. {{remaining}} to go.",
+      dissonanceOff:
+        "This world does not use world strangeness, so this theme does not progress (switch it on the Settings tab).",
+      dissonanceDone:
+        "World strangeness: {{value}} ({{stage}}). The residents know about the writer.",
+      dissonance:
+        "World strangeness: {{value}} ({{stage}}). {{remaining}} more to the confrontation.",
+      transform: "Transformations: {{count}} / transformed now: {{now}}.",
+      free: "Day {{day}}, {{events}} events. When something catches your eye, shake things up with rules and transformations.",
+      custom: "Day {{day}}, {{events}} events.",
+    },
+  },
+  intro: {
+    title: "Getting started",
+    lead: "The residents live as they please and keep stirring up small events. You are the unseen writer who rewrites the world with rules and transforms the residents.",
+    stepRules: "Turn on one rule to change how the world works",
+    stepClick:
+      "Click a resident in the room to hear a word from them (you can transform them from the Residents tab)",
+    stepAdvance: 'Press "Advance the day" and three events happen that day',
+    noteDissonance:
+      "The more you rewrite, the more the residents start to notice the world changing.",
+    openRules: "Look at the rules",
+    advance: "Advance the day now",
+    fold: "Fold",
+    open: "Open",
+    dismiss: "Close the guide",
+  },
+  ruleReaction: {
+    title: "Rule changed: {{rule}}",
+    started:
+      '"{{rule}}" is now in effect. The residents notice the change right away.',
+    ended: '"{{rule}}" has been lifted. The residents notice the change.',
+  },
   touch: {
     open: "Enlarge the portrait to touch",
     title: "Touch {{name}}",
@@ -443,6 +543,9 @@ export const hakoniwa = {
     suppress: "Don't show again until the browser is closed",
   },
   errors: {
+    invalid_theme:
+      "The experiment theme is not valid (a theme you write can be up to 100 characters).",
+    invalid_count: "The number of random residents is not valid.",
     world_not_found: "World not found.",
     resident_not_found: "Resident not found.",
     too_few_residents: "A world needs at least 2 residents.",

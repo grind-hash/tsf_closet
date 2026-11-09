@@ -2033,3 +2033,140 @@
 .hakoniwa-chat__entry.is-system {
   color: var(--hk-muted);
 }
+
+/* --- はじまりの案内(1日目・出来事0件の世界だけ。右パネルのタブの上) --- */
+
+.hakoniwa-intro {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  max-height: 50%;
+  margin: 10px 12px 0;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-intro__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hakoniwa-intro p {
+  margin: 6px 0;
+  line-height: 1.6;
+}
+
+.hakoniwa-intro__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-intro__steps {
+  margin: 6px 0;
+  padding-left: 1.4em;
+  line-height: 1.6;
+}
+
+.hakoniwa-intro__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.hakoniwa-intro--strip {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+}
+
+.hakoniwa-intro__label {
+  color: var(--hk-accent-strong);
+}
+
+/* --- おまかせの住民と実験テーマ(作成画面・設定タブ) --- */
+
+.hakoniwa-random__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0;
+}
+
+.hakoniwa-random__count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.hakoniwa-random__count select {
+  padding: 6px 10px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+}
+
+.hakoniwa-random__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-random__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-random__item p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.hakoniwa-random__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.hakoniwa-random__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.hakoniwa-residents__batch {
+  margin: 10px 0;
+}
+
+.hakoniwa-residents__batch .hakoniwa-note {
+  margin: 6px 0 0;
+}

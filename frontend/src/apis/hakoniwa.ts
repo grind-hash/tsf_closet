@@ -125,6 +125,57 @@ export interface HakoniwaFurniture {
   url: string;
 }
 
+export type HakoniwaThemePreset =
+  | "swap"
+  | "dress"
+  | "dissonance"
+  | "transform"
+  | "free";
+
+/** 実験テーマ。自由文(text)があれば自由文、無ければプリセット */
+export interface HakoniwaTheme {
+  preset_id: HakoniwaThemePreset | null;
+  text: string;
+}
+
+/** 実験テーマの進み具合(数値だけ。文は表示側で組み立てる) */
+export interface HakoniwaThemeProgress {
+  preset_id: HakoniwaThemePreset | null;
+  text: string;
+  day: number;
+  events: number;
+  swap_days?: number;
+  swapping?: boolean;
+  dress_days?: number;
+  dress_target?: number;
+  dissonance?: number;
+  dissonance_stage?: HakoniwaDissonanceStage;
+  acknowledged?: boolean;
+  remaining?: number;
+  dissonance_enabled?: boolean;
+  transform_count?: number;
+  transformed_now?: number;
+}
+
+/** おまかせの住民(作成画面で組む住民の定義) */
+export interface HakoniwaRandomResident {
+  name: string;
+  gender: "female" | "male";
+  age: string;
+  job: string;
+  personality: string;
+  pronoun: string;
+  appearance_text: string;
+  base_tags: string;
+}
+
+export interface HakoniwaRandomResidentsResult {
+  residents: HakoniwaRandomResident[];
+  /** llm: テキストモデルで作った / template: 語彙の組み合わせ */
+  source: "llm" | "template";
+  cost_usd: number | null;
+}
+
 /** 1日のまとめ。文は表示側で言語ごとに組み立てる */
 export interface HakoniwaDigest {
   day: number;
@@ -153,6 +204,8 @@ export interface HakoniwaDigest {
   arcs?: HakoniwaDigestArc[];
   /** その日に効かせた介入 */
   intervention?: HakoniwaInterventionChoice | null;
+  /** 実験テーマの進み具合(テーマ無しは null) */
+  theme?: HakoniwaThemeProgress | null;
   /** 世界の違和感の変化(違和感を使わない世界では null) */
   dissonance?: {
     from: number;
@@ -374,6 +427,8 @@ export interface HakoniwaWorld {
   combo_look: HakoniwaComboLook | null;
   /** 世界のメモ(全生成に最優先の指示として載せる) */
   world_memo: string;
+  /** 実験テーマ(テーマ無しは null) */
+  experiment_theme?: HakoniwaTheme | null;
   intervention: {
     /** 次の「1日進める」で効かせる介入 */
     selected: HakoniwaInterventionChoice;
@@ -411,10 +466,21 @@ export interface HakoniwaCatalog {
   image_model_options: string[];
 }
 
+/** 掟を切り替えた直後の住民の反応(定型文。年代記には残らない) */
+export interface HakoniwaRuleReaction {
+  card_id: string;
+  active: boolean;
+  /** 反応を見せる場所(話し手のいる場所) */
+  area: string | null;
+  lines: { resident_id: string; text: string }[];
+}
+
 export interface HakoniwaDayResult {
   world: HakoniwaWorld;
   new_events: HakoniwaEvent[];
   digest?: HakoniwaDigest | null;
+  /** 掟の切り替えのときだけ */
+  reaction?: HakoniwaRuleReaction | null;
   cost_usd: number | null;
 }
 
@@ -492,8 +558,22 @@ export function createHakoniwaWorld(body: {
   characters: HakoniwaCharacterEntry[];
   language: string;
   dissonance_enabled: boolean;
+  custom_residents?: HakoniwaRandomResident[];
+  experiment_theme?: HakoniwaTheme | null;
 }): Promise<HakoniwaWorld> {
   return requestJson<HakoniwaWorld>(WORLDS, jsonInit("POST", body));
+}
+
+/** おまかせの住民を組む(世界は変えない)。1人の入れ替えは count=1 */
+export function generateHakoniwaRandomResidents(
+  count: number,
+  excludeNames: string[],
+  language: string,
+): Promise<HakoniwaRandomResidentsResult> {
+  return requestJson<HakoniwaRandomResidentsResult>(
+    `${BASE}/random-residents`,
+    jsonInit("POST", { count, exclude_names: excludeNames, language }),
+  );
 }
 
 export function fetchHakoniwaWorld(
@@ -514,6 +594,8 @@ export function updateHakoniwaSettings(
     image_model?: string;
     dissonance_enabled?: boolean;
     world_memo?: string;
+    /** 両方空でテーマ無し */
+    experiment_theme?: HakoniwaTheme;
   },
   language: string,
 ): Promise<HakoniwaWorld> {
@@ -534,15 +616,17 @@ export function advanceHakoniwaDay(
 }
 
 /** 掟の切り替え。違和感が到達点に達すると、対面の出来事が new_events に入る */
+/** areaId はいま見ている場所(切り替え直後の反応の話し手をそこから選ぶ) */
 export function toggleHakoniwaRule(
   worldId: string,
   cardId: string,
   active: boolean,
   language: string,
+  areaId: string | null = null,
 ): Promise<HakoniwaDayResult> {
   return requestJson<HakoniwaDayResult>(
     `${WORLDS}/${worldId}/rules/${encodeURIComponent(cardId)}`,
-    jsonInit("PUT", { active, language }),
+    jsonInit("PUT", { active, language, area_id: areaId }),
   );
 }
 

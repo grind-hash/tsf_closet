@@ -62,6 +62,7 @@ from .hakoniwa_digest import build_day_digest
 from .hakoniwa_generation import (
     classify_chat_alteration,
     clean_look_tags,
+    clean_profile,
     convert_change_to_tags,
     convert_scene_to_tags,
     expand_appearance_tags,
@@ -69,6 +70,7 @@ from .hakoniwa_generation import (
     generate_confrontation_event,
     generate_event,
     generate_greeting,
+    generate_random_resident_profiles,
     generate_rule_look_tags,
     generate_touch_reaction,
     generate_transform_reaction,
@@ -91,6 +93,9 @@ from .hakoniwa_images import (
 )
 from .hakoniwa_logic import HakoniwaError
 from .hakoniwa_prompts import rule_look_instruction
+from .hakoniwa_random import template_residents
+from .hakoniwa_random import validate_count as random_resident_count
+from .hakoniwa_reactions import rule_reactions
 from .hakoniwa_scene import scene_request, scene_suggestion
 from .preset_sessions import PresetSessionError, load_preset_play_source
 from .session import DEFAULT_USER_ID, session_store
@@ -171,12 +176,14 @@ def _resident_view(
         "dress_tags": resident.get("dress_tags") or "",
         "mood": int(resident["mood"]),
         "affinities": dict(resident["affinities"]),
+        # 変身は体に付くので、いま入っている体の変身と履歴を出す(入れ替わり中は相手の体)
         "transformation": _transformation_view(
-            world_id, resident.get("transformation")
+            world_id, logic.current_transformation(state, resident)
         ),
         "transformation_history": [
             _transformation_view(world_id, item)
-            for item in resident.get("transformation_history") or []
+            for item in logic.body_of(state, resident).get("transformation_history")
+            or []
         ],
         "swapped_with": logic.swap_partner_id(state, resident["id"]),
         "current_area": resident.get("current_area") or DEFAULT_AREA_ID,
@@ -188,6 +195,25 @@ def _resident_view(
         "memories": story_text.memories_view(state, resident["id"], language),
         **resident_image_urls(world_id, state, resident),
     }
+
+
+def _random_resident_entry(raw: dict[str, Any], language: str) -> dict[str, Any]:
+    """作成画面で組んだおまかせの住民を、自作の住民のエントリにする。
+
+    タグはおまかせの住民を組んだときに作ってある。無いときは性別の既定のタグにする
+    (作成では生成を呼ばない)。
+    """
+    profile = clean_profile(raw, language)
+    return logic.custom_resident(
+        name=profile["name"],
+        personality=profile["personality"],
+        gender=profile["gender"],
+        appearance_text=profile["appearance_text"],
+        base_tags=profile["base_tags"] or DEFAULT_BASE_TAGS[profile["gender"]],
+        age=profile["age"],
+        job=profile["job"],
+        pronoun=profile["pronoun"],
+    )
 
 
 def _adaptation_view(entry: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -319,6 +345,7 @@ def _world_view(
         "story_arcs": _arcs_view(state),
         "combo_look": _combo_look_view(state),
         "world_memo": play.world_memo(state),
+        "experiment_theme": play.experiment_theme(state),
         "intervention": {
             "selected": state.get("intervention") or "watch",
             "choices": play.available_interventions(state),
@@ -537,11 +564,24 @@ class HakoniwaService:
         language: str | None = None,
         *,
         dissonance_enabled: bool = True,
+        custom_residents: list[dict[str, Any]] | None = None,
+        experiment_theme: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """プリセットの住民と登録キャラクターで新しい世界を作る。"""
+        """プリセットの住民・登録キャラクター・おまかせの住民で新しい世界を作る。
+
+        おまかせの住民(custom_residents)は作成画面で組んだ定義。英語のタグが無ければ
+        外見の説明から順に作る(並列にしない)。experiment_theme は {preset_id, text}。
+        """
         clean_name = " ".join(str(name or "").split())[:HAKONIWA_WORLD_NAME_MAX]
         if not clean_name:
             raise HakoniwaError("empty_name", "世界の名前を入力してください")
+        theme = (
+            play.validate_theme(
+                experiment_theme.get("preset_id"), experiment_theme.get("text")
+            )
+            if experiment_theme
+            else None
+        )
         lang, user_settings = await self._context(language)
         world_id = str(uuid.uuid4())
         try:
@@ -557,9 +597,13 @@ class HakoniwaService:
                         world_id, character_id, item.get("gender")
                     )
                 )
+            residents.extend(
+                _random_resident_entry(item, lang) for item in custom_residents or []
+            )
             state = logic.new_world_state(
                 residents, dissonance_enabled=dissonance_enabled
             )
+            state["experiment_theme"] = theme
         except HakoniwaError:
             delete_world_images(world_id)
             raise
@@ -580,6 +624,47 @@ class HakoniwaService:
             await db.refresh(world)
             return _world_view(world, state, lang, user_settings)
 
+    async def random_residents(
+        self,
+        count: int,
+        exclude_names: list[str],
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """おまかせの住民の構成を作る(状態は変えない)。
+
+        テキストモデルで作り、作れなければ語彙の組み合わせで組み立てる。どの住民にも
+        英語のタグを付けて返す(作成では生成を呼ばない)。
+        """
+        count = random_resident_count(count)
+        exclude = [str(name) for name in exclude_names if str(name or "").strip()]
+        lang, user_settings = await self._context(language)
+        novelai_model = user_settings.get("novelai_text_model")
+        tracker = begin_cost_tracking()
+        profiles = await generate_random_resident_profiles(
+            count, lang, exclude_names=exclude, novelai_model=novelai_model
+        )
+        source = "llm"
+        if profiles is None:
+            profiles = template_residents(count, lang, random.Random(), exclude)
+            source = "template"
+        for profile in profiles:
+            if profile["base_tags"]:
+                continue
+            # タグが使えなかった住民だけ、外見の説明から順に作る(並列にしない)
+            tags, _failed = await self._derive_tags(
+                profile["appearance_text"] if lang == "ja" else "",
+                profile["gender"],
+                dress=False,
+                fallback=DEFAULT_BASE_TAGS[profile["gender"]],
+                novelai_model=novelai_model,
+            )
+            profile["base_tags"] = tags
+        return {
+            "residents": profiles,
+            "source": source,
+            "cost_usd": tracker.total_usd or None,
+        }
+
     async def delete_world(self, world_id: str) -> None:
         async with self._world_locks[world_id], async_session_factory() as db:
             world = await self._load(db, world_id)
@@ -595,10 +680,21 @@ class HakoniwaService:
         image_model: str | None = None,
         dissonance_enabled: bool | None = None,
         world_memo: str | None = None,
+        experiment_theme: dict[str, Any] | None = None,
         language: str | None = None,
     ) -> dict[str, Any]:
-        """世界の設定(画像モデル・世界の違和感・世界のメモ)。None の項目は変えない。"""
+        """世界の設定(画像モデル・世界の違和感・世界のメモ・実験テーマ)。None の項目は変えない。
+
+        実験テーマは {preset_id, text}。どちらも空ならテーマ無しにする。
+        """
         memo = play.validate_world_memo(world_memo) if world_memo is not None else None
+        theme = (
+            play.validate_theme(
+                experiment_theme.get("preset_id"), experiment_theme.get("text")
+            )
+            if experiment_theme is not None
+            else None
+        )
         _, user_settings = await self._context(language)
         options = image_model_options(bool(user_settings.get("nsfw_mode")))
         if (
@@ -616,6 +712,8 @@ class HakoniwaService:
                 updated["dissonance_enabled"] = bool(dissonance_enabled)
             if memo is not None:
                 updated["world_memo"] = memo
+            if experiment_theme is not None:
+                updated["experiment_theme"] = theme
             return updated
 
         return await self._mutate(world_id, language, change)
@@ -691,6 +789,12 @@ class HakoniwaService:
                 [logic.resident_name(resident, lang) for resident in group]
                 for group in groups
             ]
+            # 自由文の実験テーマは、その日の出来事のうち1件だけに渡す(全部が染まらないように)
+            theme_index = (
+                rng.randrange(len(groups))
+                if play.theme_text(state) and groups
+                else None
+            )
             events = await asyncio.gather(
                 *(
                     generate_event(
@@ -709,6 +813,7 @@ class HakoniwaService:
                         arc_focus_id=(arc_focus.get(index) or {}).get("arc_id"),
                         arc_climax=bool((arc_focus.get(index) or {}).get("climax")),
                         intervention=intervention,
+                        include_theme=index == theme_index,
                     )
                     for index, group in enumerate(groups)
                 )
@@ -745,6 +850,7 @@ class HakoniwaService:
             state, world_adaptations = story.advance_world_adaptations(state)
             state = story.decay_remnants(state)
             state = story.decay_dissonance(state)
+            state = play.record_theme_day(state)
             closing = state
             state = logic.finish_day(state, rng)
             digest = build_day_digest(
@@ -754,6 +860,7 @@ class HakoniwaService:
                 adaptations=adaptations,
                 world_adaptations=world_adaptations,
                 intervention=intervention,
+                theme=play.theme_progress(closing),
             )
             state["last_digest"] = digest
             async with async_session_factory() as db:
@@ -773,9 +880,18 @@ class HakoniwaService:
     # ------------------------------------------------------------------
 
     async def set_rule(
-        self, world_id: str, card_id: str, active: bool, language: str | None = None
+        self,
+        world_id: str,
+        card_id: str,
+        active: bool,
+        language: str | None = None,
+        *,
+        area_id: str | None = None,
     ) -> dict[str, Any]:
-        """掟を切り替える。書き換えで違和感が溜まり、到達点なら対面の出来事が起きる。"""
+        """掟を切り替える。書き換えで違和感が溜まり、到達点なら対面の出来事が起きる。
+
+        切り替え直後の住民の反応(定型文)も返す。話し手は見ている場所(area_id)を優先する。
+        """
         lang, user_settings = await self._context(language)
         async with self._world_locks[world_id]:
             async with async_session_factory() as db:
@@ -784,6 +900,9 @@ class HakoniwaService:
             tracker = begin_cost_tracking()
             rng = random.Random()
             state = logic.set_rule(before, card_id, active, rng)
+            reaction = rule_reactions(
+                before, state, card_id, active, lang, area_id, rng
+            )
             new_events: list[dict[str, Any]] = []
             if state["active_rules"] != before["active_rules"]:
                 state = story.record_rule_toggle_memories(
@@ -806,6 +925,9 @@ class HakoniwaService:
         return {
             "world": view,
             "new_events": [_event_view(world_id, event, lang) for event in new_events],
+            "reaction": (
+                {"card_id": card_id, "active": active, **reaction} if reaction else None
+            ),
             "cost_usd": tracker.total_usd or None,
         }
 
@@ -1360,16 +1482,18 @@ class HakoniwaService:
         novelai_model = user_settings.get("novelai_text_model")
         nsfw = bool(user_settings.get("nsfw_mode"))
         resident = logic.find_resident(state, resident_id)
-        # 変身は今見えている姿(変身・複合・掟の姿)から書き換える
+        # 変身は体に付く。入れ替わり中なら、本人がいま入っている相手の体を書き換える。
+        # 元にするのはその体の今見えている姿(変身・複合・掟の姿)
+        body = logic.body_of(state, resident)
         base_tags = (
-            logic.own_look(state, resident).get("tags")
+            logic.own_look(state, body).get("tags")
             or (
-                resident.get("dress_tags")
+                body.get("dress_tags")
                 if "dress" in state.get("active_rules", [])
                 else None
             )
-            or resident.get("base_tags")
-            or _source_base_tags(resident)
+            or body.get("base_tags")
+            or _source_base_tags(body)
         )
         tags = await convert_change_to_tags(
             change_text, base_tags, novelai_model=novelai_model
@@ -1379,9 +1503,9 @@ class HakoniwaService:
                 "tag_conversion_failed",
                 "変身の指定を画像のタグにできませんでした。文を変えてお試しください",
             )
-        tags = logic.ensure_gender_token(tags, logic.resident_gender(resident))
+        tags = logic.ensure_gender_token(tags, logic.resident_gender(body))
         data = await self._generate_image(state, user_settings, tags)
-        filename = save_image(world_id, f"tf_{resident_id}", data)
+        filename = save_image(world_id, f"tf_{body['id']}", data)
         rng = random.Random()
         state = logic.set_transformation(
             state,
@@ -1543,7 +1667,7 @@ class HakoniwaService:
             entries: list[dict[str, Any]] = [{"role": "player", "text": text}]
             reply: dict[str, Any]
             if action == "clear":
-                if resident.get("transformation"):
+                if logic.current_transformation(state, resident):
                     state = logic.clear_transformation(state, resident_id)
                     result = CHAT_ALTERATION_RESULT["clear"][key]
                     alteration["executed"] = True

@@ -33,6 +33,7 @@ import {
   fetchHakoniwaWorlds,
   generateHakoniwaAvatar,
   generateHakoniwaComboLook,
+  generateHakoniwaRandomResidents,
   generateHakoniwaRuleLook,
   generateHakoniwaSceneImage,
   greetHakoniwaResident,
@@ -42,8 +43,11 @@ import {
   type HakoniwaCustomRuleInput,
   type HakoniwaEvent,
   type HakoniwaInterventionChoice,
+  type HakoniwaRandomResident,
   type HakoniwaResidentChange,
   type HakoniwaResidentInput,
+  type HakoniwaRuleReaction,
+  type HakoniwaTheme,
   type HakoniwaTouchPart,
   type HakoniwaWorld,
   type HakoniwaWorldSummary,
@@ -84,7 +88,26 @@ export type HakoniwaBusy =
   | "look"
   | "touch"
   | "chat"
+  | "random"
   | null;
+
+/** 世界を作るときの入力 */
+export interface HakoniwaCreateInput {
+  name: string;
+  presetIds: string[];
+  characters: HakoniwaCharacterEntry[];
+  dissonanceEnabled: boolean;
+  /** おまかせの住民(作成画面で組んだ定義) */
+  customResidents: HakoniwaRandomResident[];
+  /** 実験テーマ(テーマ無しは null) */
+  theme: HakoniwaTheme | null;
+}
+
+/** 立ち絵の無い住民をまとめて生成している進み具合 */
+export interface HakoniwaAvatarBatch {
+  done: number;
+  total: number;
+}
 
 /** 右パネルのタブ */
 export type HakoniwaPanelTab =
@@ -122,6 +145,8 @@ export const HAKONIWA_ERROR_CODES = [
   "invalid_touch_part",
   "empty_message",
   "invalid_message",
+  "invalid_theme",
+  "invalid_count",
 ] as const;
 type HakoniwaErrorCode = (typeof HAKONIWA_ERROR_CODES)[number];
 
@@ -169,12 +194,17 @@ interface HakoniwaContextValue {
   loadWorlds: () => Promise<void>;
   openWorld: (worldId: string) => Promise<HakoniwaWorld | null>;
   closeWorld: () => void;
-  createWorld: (
-    name: string,
-    presetIds: string[],
-    characters: HakoniwaCharacterEntry[],
-    dissonanceEnabled: boolean,
-  ) => Promise<HakoniwaWorld | null>;
+  createWorld: (input: HakoniwaCreateInput) => Promise<HakoniwaWorld | null>;
+  /** おまかせの住民を組む。excludeNames と名前を重ねない。失敗したら null */
+  randomResidents: (
+    count: number,
+    excludeNames: string[],
+  ) => Promise<HakoniwaRandomResident[] | null>;
+  /** 実験テーマを変える(null でテーマ無し) */
+  setExperimentTheme: (theme: HakoniwaTheme | null) => Promise<boolean>;
+  /** 立ち絵の無い住民の通常の姿を、1人ずつ順に生成する */
+  generateMissingAvatars: () => void;
+  avatarBatch: HakoniwaAvatarBatch | null;
   deleteWorld: (worldId: string) => Promise<void>;
   advanceDay: () => Promise<void>;
   toggleRule: (cardId: string, active: boolean) => Promise<void>;
@@ -389,19 +419,16 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createWorld = useCallback(
-    (
-      name: string,
-      presetIds: string[],
-      characters: HakoniwaCharacterEntry[],
-      dissonanceEnabled: boolean,
-    ) =>
+    (input: HakoniwaCreateInput) =>
       run("create", async () => {
         const created = await createHakoniwaWorld({
-          name,
-          preset_ids: presetIds,
-          characters,
+          name: input.name,
+          preset_ids: input.presetIds,
+          characters: input.characters,
           language,
-          dissonance_enabled: dissonanceEnabled,
+          dissonance_enabled: input.dissonanceEnabled,
+          custom_residents: input.customResidents,
+          experiment_theme: input.theme,
         });
         setWorld(created);
         setWorlds((current) => [
@@ -475,21 +502,70 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     [applyWorld, language, run, worldId],
   );
 
+  const reactionSeq = useRef(0);
+  /** 掟の切り替え直後の反応を、再生の列に入れられる一時の場面にする(年代記には無い) */
+  const reactionEvent = useCallback(
+    (
+      reaction: HakoniwaRuleReaction,
+      current: HakoniwaWorld,
+      fallbackArea: string,
+    ): HakoniwaEvent | null => {
+      if (reaction.lines.length === 0) return null;
+      reactionSeq.current += 1;
+      const rule =
+        current.rule_cards.find((card) => card.id === reaction.card_id)?.name ??
+        reaction.card_id;
+      return {
+        id: `reaction-${reactionSeq.current}`,
+        day: current.day,
+        title: t("hakoniwa.ruleReaction.title", { rule }),
+        narration: t(
+          reaction.active
+            ? "hakoniwa.ruleReaction.started"
+            : "hakoniwa.ruleReaction.ended",
+          { rule },
+        ),
+        lines: reaction.lines.map((line) => ({
+          speaker: line.resident_id,
+          text: line.text,
+        })),
+        participants: [
+          ...new Set(reaction.lines.map((line) => line.resident_id)),
+        ],
+        mood_delta: {},
+        affinity_delta: 0,
+        source: "template",
+        kind: "reaction",
+        favorite: false,
+        area: reaction.area ?? fallbackArea,
+      };
+    },
+    [t],
+  );
+
   const toggleRule = useCallback(
     async (cardId: string, active: boolean) => {
       if (!worldId) return;
       const result = await run("rule", () =>
-        toggleHakoniwaRule(worldId, cardId, active, language),
+        toggleHakoniwaRule(worldId, cardId, active, language, viewAreaId),
       );
       if (!result) return;
       applyWorld(result.world);
       recordCost(result.cost_usd);
-      // 書き換えが重なって対面が起きたら、その出来事を部屋で再生する
-      if (result.new_events.length > 0) {
-        setPlaybackQueue((current) => [...current, ...result.new_events]);
+      // 切り替え直後の住民の反応を、年代記に入らない一時の場面として先に再生する。
+      // 書き換えが重なって対面が起きたら、その出来事を続けて再生する
+      const reaction = result.reaction
+        ? reactionEvent(result.reaction, result.world, viewAreaId)
+        : null;
+      if (reaction || result.new_events.length > 0) {
+        setPlaybackQueue((current) => [
+          ...current,
+          ...(reaction ? [reaction] : []),
+          ...result.new_events,
+        ]);
       }
     },
-    [applyWorld, language, recordCost, run, worldId],
+    [applyWorld, language, reactionEvent, recordCost, run, viewAreaId, worldId],
   );
 
   const saveCustomRule = useCallback(
@@ -708,6 +784,72 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       worldId,
     ],
   );
+
+  const randomResidents = useCallback(
+    async (count: number, excludeNames: string[]) => {
+      const result = await run("random", () =>
+        generateHakoniwaRandomResidents(count, excludeNames, language),
+      );
+      if (!result) return null;
+      recordCost(result.cost_usd);
+      return result.residents;
+    },
+    [language, recordCost, run],
+  );
+
+  const setExperimentTheme = useCallback(
+    async (theme: HakoniwaTheme | null) => {
+      if (!worldId) return false;
+      const updated = await run("settings", () =>
+        updateHakoniwaSettings(
+          worldId,
+          { experiment_theme: theme ?? { preset_id: null, text: "" } },
+          language,
+        ),
+      );
+      if (!updated) return false;
+      applyWorld(updated);
+      return true;
+    },
+    [applyWorld, language, run, worldId],
+  );
+
+  const [avatarBatch, setAvatarBatch] = useState<HakoniwaAvatarBatch | null>(
+    null,
+  );
+  const generateMissingAvatars = useCallback(() => {
+    if (!worldId || !world) return;
+    const targets = world.residents
+      .filter((resident) => !resident.avatar_url)
+      .map((resident) => resident.id);
+    if (targets.length === 0) return;
+    guardImageGeneration(() => {
+      void (async () => {
+        // 画像生成は並列にしない(NovelAI は同時に呼ぶと 429 になる)
+        setAvatarBatch({ done: 0, total: targets.length });
+        for (const [index, residentId] of targets.entries()) {
+          const result = await run("avatar", () =>
+            generateHakoniwaAvatar(worldId, residentId, "base", language),
+          );
+          if (!result) break;
+          applyWorld(result.world);
+          recordCost(result.cost_usd);
+          setAvatarBatch({ done: index + 1, total: targets.length });
+        }
+        setAvatarBatch(null);
+        refreshUsage();
+      })();
+    });
+  }, [
+    applyWorld,
+    guardImageGeneration,
+    language,
+    recordCost,
+    refreshUsage,
+    run,
+    world,
+    worldId,
+  ]);
 
   const setWorldMemo = useCallback(
     async (memo: string) => {
@@ -989,6 +1131,10 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       openWorld,
       closeWorld,
       createWorld,
+      randomResidents,
+      setExperimentTheme,
+      generateMissingAvatars,
+      avatarBatch,
       deleteWorld,
       advanceDay,
       toggleRule,
@@ -1053,6 +1199,10 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       openWorld,
       closeWorld,
       createWorld,
+      randomResidents,
+      setExperimentTheme,
+      generateMissingAvatars,
+      avatarBatch,
       deleteWorld,
       advanceDay,
       toggleRule,

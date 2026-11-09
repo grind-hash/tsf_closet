@@ -13,6 +13,10 @@
 - 物語の厚み: `hakoniwa_story.py`（世界の違和感と対面・本人と世界の適応・名残・住民の記憶・物語の弧の純関数）、`hakoniwa_story_text.py`（記憶・名残の文とプロンプトの指示ブロック）、定数と文面は `consts/hakoniwa_story.py`。状態は種類と参照で保存し、文は表示・プロンプトのときに言語ごとに組み立てる。掟の切り替え API は対面の出来事を `new_events` で返す。
 - 掟の姿・複合の姿: 自作の掟の `appearance_text`(プレイヤーの文)と `appearance_tags`(派生)、住民の `rule_images` / `combo_images`。表示の優先順位は `hakoniwa_logic.own_look`(変身 → 複合 → 掟 → ドレス → 通常)、生成は `HakoniwaService.generate_rule_look` / `generate_combo_look`(住民ごとに直列)。
 - 関わり方: `hakoniwa_play.py`（世界のメモ・掟の相性・明日の介入・タッチの気分・会話の履歴と変身指示の判定の純関数）、定数と文面は `consts/hakoniwa_play.py`。会話からの変身は `HakoniwaService._apply_transform` を変身パネルと共有し、V5 の確認が要るときは `needs_confirmation` を返して実行しない。`HakoniwaError` は `hakoniwa_errors.py`。
+- 変身は体に付く: `hakoniwa_logic.body_of` / `current_transformation`（実体は `hakoniwa_story`）。入れ替わり中の変身・元に戻す・履歴から戻すは、本人がいま入っている体のエントリへ書き、適応は本人に付ける。文章・表示・住民の表示の `transformation` もこの体で読む。
+- 掟の切り替え直後の反応: `hakoniwa_reactions.rule_reactions`（定型文 `consts/hakoniwa_play.RULE_REACTION_TEMPLATES`）。`PUT /rules` の `area_id` で話し手を選び、応答の `reaction` で返す（年代記には残さない）。
+- おまかせの住民: `POST /api/hakoniwa/random-residents`（`HakoniwaService.random_residents`）。LLM 版は `hakoniwa_generation.generate_random_resident_profiles`（出力言語の文と英語タグを1回で作る。日本語に簡体字があれば修復を依頼）、作れなければ `hakoniwa_random.template_residents`（語彙は `consts/hakoniwa_random.py`）。世界の作成は `custom_residents` で受け、作成時は生成を呼ばない。
+- 実験テーマ: `hakoniwa_play.validate_theme` / `record_theme_day` / `theme_progress`（数値だけ。文はフロント）。自由文のテーマだけ `hakoniwa_prompts.theme_section` で生成に渡し、出来事は1日1件（`advance_day` の `theme_index`）に絞る。
 - `hakoniwa_images.py` は世界ごとの画像保存・登録キャラクター立ち絵の複製・姿と場面絵の生成を担当する。`portrait_generation.py` の透過指定は NovelAI V5 のみで有効になる。
 - 永続化は `HakoniwaWorld` / `hakoniwa_worlds.state_json` と migration `038_add_hakoniwa_worlds.py`。状態変更は世界単位のロックで直列化する。
 - 検証: `tests/unit/test_hakoniwa_*.py`、`test_novelai_transparent_background.py`。DB テストは `isolated_db` を使用する。

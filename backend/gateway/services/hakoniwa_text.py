@@ -73,7 +73,24 @@ _SIMPLIFIED_TO_JAPANESE = str.maketrans(
         "满": "満",
         "脸": "顔",
         "紧": "緊",
+        "统": "統",
+        "师": "師",
+        "设": "設",
+        "计": "計",
+        "员": "員",
+        "务": "務",
+        "职": "職",
+        "护": "護",
+        "厅": "庁",
+        "馆": "館",
     }
+)
+
+# 日本語の文に紛れた簡体字を見つける(置き換え表の字)
+SIMPLIFIED_ONLY_CHARS = frozenset(
+    chr(code)
+    for code in _SIMPLIFIED_TO_JAPANESE
+    if chr(code) != _SIMPLIFIED_TO_JAPANESE[code]
 )
 
 

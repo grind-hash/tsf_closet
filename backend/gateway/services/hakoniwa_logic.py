@@ -178,7 +178,7 @@ def appearance_kind(state: dict[str, Any], resident: dict[str, Any]) -> str | No
 
     表示と同じ優先順位。文章の文脈に使うので、画像の有無は見ない(掟の見た目のタグで決める)。
     """
-    if resident.get("transformation"):
+    if current_transformation(state, resident) is not None:
         return "transform"
     if active_combo(state) is not None:
         return "combo"
@@ -199,7 +199,7 @@ def is_male_in_feminine_form(state: dict[str, Any], resident: dict[str, Any]) ->
     if kind == "dress":
         return True
     if kind == "transform":
-        return is_feminine_transformation(resident)
+        return is_feminine_transformation(state, resident)
     if kind in ("combo", "rule"):
         return has_feminine_marker(look_rules_tags(state, kind))
     return False
@@ -225,8 +225,20 @@ def has_feminine_marker(text: str) -> bool:
     return any(marker in haystack for marker in _FEMININE_MARKERS)
 
 
-def is_feminine_transformation(resident: dict[str, Any]) -> bool:
-    transformation = resident.get("transformation") or {}
+def body_of(state: dict[str, Any], resident: dict[str, Any]) -> dict[str, Any]:
+    """住民がいまいる体のエントリ(入れ替わり中は相手)。変身はこの体に付く。"""
+    return story.body_of(state, resident)
+
+
+def current_transformation(
+    state: dict[str, Any], resident: dict[str, Any]
+) -> dict[str, Any] | None:
+    """住民がいまいる体の変身。文章も表示も、この変身を「いまの姿」として扱う。"""
+    return story.current_transformation(state, resident)
+
+
+def is_feminine_transformation(state: dict[str, Any], resident: dict[str, Any]) -> bool:
+    transformation = current_transformation(state, resident) or {}
     return has_feminine_marker(
         f"{transformation.get('tags', '')} {transformation.get('description', '')}"
     )
@@ -542,8 +554,14 @@ def custom_resident(
     base_tags: str,
     dress_text: str = "",
     dress_tags: str = "",
+    age: str = "",
+    job: str = "",
+    pronoun: str = "",
 ) -> dict[str, Any]:
-    """プレイヤーが書いた住民のエントリ。base_tags / dress_tags は変換済みの派生値。"""
+    """プレイヤーが書いた住民(おまかせの住民を含む)のエントリ。
+
+    base_tags / dress_tags は変換済みの派生値。age / job / pronoun は空なら表示の既定値になる。
+    """
     if gender not in GENDERS:
         raise HakoniwaError("invalid_gender", "性別の指定が正しくありません")
     return _base_resident(
@@ -573,6 +591,9 @@ def custom_resident(
             code="invalid_appearance",
         ),
         dress_tags=ensure_gender_token(dress_tags, gender) if dress_tags else "",
+        age=str(age or "").strip(),
+        job=str(job or "").strip(),
+        pronoun=str(pronoun or "").strip(),
     )
 
 
@@ -730,7 +751,14 @@ def set_rule(
                     story.end_adaptation(
                         resident, "swap", int(new_state["day"]), partner
                     )
+                    _resume_transform_adaptation(resident, int(new_state["day"]))
     return new_state
+
+
+def _resume_transform_adaptation(resident: dict[str, Any], day: int) -> None:
+    """入れ替わりから戻った体が変身していれば、その変身への適応を始める(名残は残す)。"""
+    if resident.get("transformation") and not resident.get("adaptation"):
+        resident["adaptation"] = story.new_adaptation("transform", day)
 
 
 def validate_custom_rule(
@@ -909,6 +937,11 @@ def remove_resident(state: dict[str, Any], resident_id: str) -> dict[str, Any]:
     for item in new_state["residents"]:
         item["affinities"].pop(resident_id, None)
     if new_state.get("swap_pair") and resident_id in new_state["swap_pair"]:
+        # 残った相手は自分の体へ戻る
+        for item in new_state["residents"]:
+            if item["id"] in new_state["swap_pair"]:
+                story.end_adaptation(item, "swap", int(new_state["day"]), resident_id)
+                _resume_transform_adaptation(item, int(new_state["day"]))
         new_state["swap_pair"] = None
         new_state["active_rules"] = [
             card_id for card_id in new_state["active_rules"] if card_id != "swap"
@@ -1298,55 +1331,63 @@ def validate_transform_text(text: Any) -> str:
 def set_transformation(
     state: dict[str, Any], resident_id: str, transformation: dict[str, Any]
 ) -> dict[str, Any]:
-    """今の変身を設定し、履歴(最大10件)に積んだ状態を返す。"""
+    """住民がいまいる体に変身を設定し、その体の履歴(最大10件)に積んだ状態を返す。
+
+    変身は体に付く。入れ替わり中なら相手の体(本人がいま入っている体)が変わり、
+    適応はその体にいる本人に付く。
+    """
     new_state = deepcopy(state)
-    target = find_resident(new_state, resident_id)
+    person = find_resident(new_state, resident_id)
+    body = body_of(new_state, person)
     entry = {
         "description": str(transformation["description"]),
         "tags": str(transformation["tags"]),
         "image": str(transformation["image"]),
         "day": int(transformation["day"]),
     }
-    target["transformation"] = entry
+    body["transformation"] = entry
     history = [
         item
-        for item in target.get("transformation_history") or []
+        for item in body.get("transformation_history") or []
         if item.get("image") != entry["image"]
     ]
     history.append(dict(entry))
-    target["transformation_history"] = history[-HAKONIWA_TRANSFORMATION_HISTORY_MAX:]
-    story.start_adaptation(target, "transform", int(new_state["day"]))
+    body["transformation_history"] = history[-HAKONIWA_TRANSFORMATION_HISTORY_MAX:]
+    story.start_adaptation(person, "transform", int(new_state["day"]))
     return new_state
 
 
 def clear_transformation(state: dict[str, Any], resident_id: str) -> dict[str, Any]:
+    """住民がいまいる体の変身を解く。"""
     new_state = deepcopy(state)
-    target = find_resident(new_state, resident_id)
-    if not target.get("transformation"):
+    person = find_resident(new_state, resident_id)
+    body = body_of(new_state, person)
+    if not body.get("transformation"):
         raise HakoniwaError("not_transformed", "変身していません")
-    target["transformation"] = None
-    story.end_adaptation(target, "transform", int(new_state["day"]))
+    body["transformation"] = None
+    story.end_adaptation(person, "transform", int(new_state["day"]))
     return new_state
 
 
 def reapply_transformation(
     state: dict[str, Any], resident_id: str, image: str
 ) -> dict[str, Any]:
-    """履歴の変身をもう一度今の姿にする。"""
+    """住民がいまいる体の履歴から、変身をもう一度今の姿にする。"""
     new_state = deepcopy(state)
-    target = find_resident(new_state, resident_id)
+    person = find_resident(new_state, resident_id)
+    body = body_of(new_state, person)
     entry = next(
         (
             item
-            for item in target.get("transformation_history") or []
+            for item in body.get("transformation_history") or []
             if item.get("image") == image
         ),
         None,
     )
     if entry is None:
         raise HakoniwaError("transformation_not_found", "変身の履歴が見つかりません")
-    target["transformation"] = dict(entry)
-    story.start_adaptation(target, "transform", int(new_state["day"]))
+    body["transformation"] = dict(entry)
+    story.start_adaptation(person, "transform", int(new_state["day"]))
     return new_state
 
 

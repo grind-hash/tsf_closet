@@ -231,8 +231,9 @@ def build_day_digest(
     adaptations: list[dict[str, Any]] | None = None,
     world_adaptations: list[dict[str, Any]] | None = None,
     intervention: str | None = None,
+    theme: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """1日のまとめ。day は進める前の日(まとめた日)。
+    """1日のまとめ。day は進める前の日(まとめた日)。theme は実験テーマの進み具合(数値)。
 
     after は日の終わりの処理(適応・名残・違和感)を済ませ、日を進める前の状態。
     """
@@ -247,4 +248,5 @@ def build_day_digest(
         "arcs": _arcs(after, day),
         "dissonance": _dissonance(before, after),
         "intervention": intervention,
+        "theme": theme,
     }

@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import type { HakoniwaTheme } from "../../apis/hakoniwa";
 import {
   ADVENTURE_IMAGE_MODEL_CHOICES,
   isV5ImageModel,
@@ -10,6 +11,7 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import HakoniwaThemePicker, { normalizeTheme } from "./HakoniwaThemePicker";
 
 const DEFAULT_MODEL = "default";
 const MEMO_MAX = 1000;
@@ -32,6 +34,7 @@ export default function HakoniwaSettingsTab() {
     setImageModel,
     setDissonanceEnabled,
     setWorldMemo,
+    setExperimentTheme,
     deleteWorld,
   } = useHakoniwa();
   const modelId = useId();
@@ -40,10 +43,21 @@ export default function HakoniwaSettingsTab() {
   const savedMemo = world?.world_memo ?? "";
   const [memo, setMemo] = useState(savedMemo);
 
+  const savedTheme = world?.experiment_theme ?? null;
+  const savedThemeKey = JSON.stringify(savedTheme);
+  const [themeDraft, setThemeDraft] = useState<HakoniwaTheme | null>(
+    savedTheme,
+  );
+
   // 別の世界を開いたり保存したりしたら、欄を保存済みの内容にそろえる
   useEffect(() => {
     setMemo(savedMemo);
   }, [savedMemo]);
+  useEffect(() => {
+    setThemeDraft(JSON.parse(savedThemeKey) as HakoniwaTheme | null);
+  }, [savedThemeKey]);
+  const themeChanged =
+    JSON.stringify(normalizeTheme(themeDraft)) !== savedThemeKey;
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!world) return null;
@@ -113,6 +127,26 @@ export default function HakoniwaSettingsTab() {
           </button>
         </div>
         <p className="hakoniwa-note">{t("hakoniwa.settings.memoNote")}</p>
+      </section>
+
+      <section className="hakoniwa-settings__section">
+        <HakoniwaThemePicker
+          key={savedThemeKey}
+          value={savedTheme}
+          onChange={setThemeDraft}
+          disabled={busy !== null}
+        />
+        <div className="hakoniwa-settings__memo-actions">
+          <span />
+          <button
+            type="button"
+            className="hakoniwa-button"
+            disabled={busy !== null || !themeChanged}
+            onClick={() => void setExperimentTheme(normalizeTheme(themeDraft))}
+          >
+            {t("hakoniwa.theme.save")}
+          </button>
+        </div>
       </section>
 
       <section className="hakoniwa-settings__section">

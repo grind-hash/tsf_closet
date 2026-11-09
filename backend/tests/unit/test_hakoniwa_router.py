@@ -127,9 +127,16 @@ def test_advance_day_with_template_fallback(client: TestClient) -> None:
 def test_swap_rule_swaps_display_avatars(client: TestClient) -> None:
     world = _create(client, ["aoi", "ren"])
 
-    swapped = client.put(
-        f"/api/hakoniwa/worlds/{world['id']}/rules/swap", json={"active": True}
-    ).json()["world"]
+    response = client.put(
+        f"/api/hakoniwa/worlds/{world['id']}/rules/swap",
+        json={"active": True, "area_id": "living"},
+    ).json()
+    swapped = response["world"]
+    # 切り替え直後の反応: 入れ替わった二人の一言(年代記には残らない)
+    reaction = response["reaction"]
+    assert reaction["card_id"] == "swap" and reaction["active"] is True
+    assert {line["resident_id"] for line in reaction["lines"]} == {"aoi", "ren"}
+    assert swapped["events"] == []
 
     by_id = {r["id"]: r for r in swapped["residents"]}
     assert by_id["aoi"]["display_avatar_url"] == "/hakoniwa-assets/avatar_ren.png"
@@ -769,3 +776,114 @@ def test_chat_reply_transform_confirmation_and_clear(client: TestClient, llm_out
     assert aoi["transformation"] is None
     history = client.get(path).json()["history"]
     assert len(history) == 7
+
+
+def test_random_residents_fall_back_to_templates(client: TestClient) -> None:
+    body = client.post(
+        "/api/hakoniwa/random-residents",
+        json={"count": 3, "exclude_names": ["高瀬 葵"], "language": "ja"},
+    ).json()
+    assert body["source"] == "template"
+    assert len(body["residents"]) == 3
+    assert all(item["base_tags"] for item in body["residents"])
+    assert (
+        client.post("/api/hakoniwa/random-residents", json={"count": 9}).status_code
+        == 422
+    )
+
+
+def test_random_residents_from_llm_get_tags(client: TestClient, llm_outputs) -> None:
+    llm_outputs.append(
+        '{"residents": [{"name": "Kaede Fujiwara", "gender": "male", "age": "30s", '
+        '"job": "potter", "personality": "Calm and curious.", "pronoun": "I", '
+        '"appearance": "Short black hair and a work apron.", "appearance_tags": ""}]}'
+    )
+    body = client.post(
+        "/api/hakoniwa/random-residents", json={"count": 1, "language": "en"}
+    ).json()
+    assert body["source"] == "llm"
+    resident = body["residents"][0]
+    assert resident["name"] == "Kaede Fujiwara"
+    # タグが使えなかったので性別の既定のタグ(英語の説明はタグにしない)
+    assert resident["base_tags"].startswith("1boy")
+
+
+def test_create_world_with_random_residents_and_theme(client: TestClient) -> None:
+    random_body = client.post(
+        "/api/hakoniwa/random-residents", json={"count": 2, "language": "ja"}
+    ).json()
+    response = client.post(
+        "/api/hakoniwa/worlds",
+        json={
+            "name": "おまかせ荘",
+            "preset_ids": ["aoi"],
+            "custom_residents": random_body["residents"],
+            "experiment_theme": {"preset_id": "dress", "text": ""},
+            "language": "ja",
+        },
+    )
+    assert response.status_code == 200, response.text
+    world = response.json()
+    assert len(world["residents"]) == 3
+    custom = [r for r in world["residents"] if r["source"] == "custom"]
+    expected = random_body["residents"][0]
+    assert custom[0]["name"] == expected["name"]
+    assert custom[0]["age"] == expected["age"]
+    assert custom[0]["job"] == expected["job"]
+    assert custom[0]["pronoun"] == expected["pronoun"]
+    assert custom[0]["base_tags"] == expected["base_tags"]
+    assert world["experiment_theme"] == {"preset_id": "dress", "text": ""}
+
+    wid = world["id"]
+    client.put(f"/api/hakoniwa/worlds/{wid}/rules/dress", json={"active": True})
+    day = client.post(f"/api/hakoniwa/worlds/{wid}/day", json={}).json()
+    assert day["digest"]["theme"]["preset_id"] == "dress"
+    assert day["digest"]["theme"]["dress_days"] == 1
+
+    changed = client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings",
+        json={"experiment_theme": {"preset_id": None, "text": "猫好きの世界"}},
+    ).json()
+    assert changed["experiment_theme"] == {"preset_id": None, "text": "猫好きの世界"}
+    cleared = client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings",
+        json={"experiment_theme": {"preset_id": None, "text": ""}},
+    ).json()
+    assert cleared["experiment_theme"] is None
+    kept = client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings", json={"world_memo": "雪の日"}
+    ).json()
+    assert kept["experiment_theme"] is None
+    bad = client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings",
+        json={"experiment_theme": {"preset_id": "unknown"}},
+    )
+    assert bad.status_code == 400
+
+
+def test_free_text_theme_goes_to_one_event_a_day(client: TestClient, monkeypatch):
+    seen: list = []
+    original = service_module.generate_event
+
+    async def spy(*args, **kwargs):
+        seen.append(kwargs.get("include_theme"))
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(service_module, "generate_event", spy)
+    world = client.post(
+        "/api/hakoniwa/worlds",
+        json={
+            "name": "猫の世界",
+            "preset_ids": PRESETS,
+            "experiment_theme": {"text": "住民みんなが猫好きになっていく"},
+            "language": "ja",
+        },
+    ).json()
+    client.post(f"/api/hakoniwa/worlds/{world['id']}/day", json={})
+    assert len(seen) == 3
+    assert seen.count(True) == 1
+
+    seen.clear()
+    plain = _create(client)
+    client.post(f"/api/hakoniwa/worlds/{plain['id']}/day", json={})
+    assert seen == [False, False, False]

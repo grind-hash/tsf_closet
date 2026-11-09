@@ -4,6 +4,7 @@ import type {
   HakoniwaDigestChange,
   HakoniwaDigestHint,
   HakoniwaDissonanceStage,
+  HakoniwaThemeProgress,
 } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import {
@@ -119,6 +120,63 @@ export default function HakoniwaDigest({ variant }: HakoniwaDigestProps) {
     return remaining <= 1
       ? t("hakoniwa.digest.arcNearClimax")
       : t("hakoniwa.digest.arcRemaining", { remaining });
+  };
+
+  const themeName = (theme: HakoniwaThemeProgress) =>
+    theme.text ||
+    (theme.preset_id
+      ? t(`hakoniwa.theme.presets.${theme.preset_id}.name`)
+      : "");
+
+  const themeLine = (theme: HakoniwaThemeProgress): string => {
+    switch (theme.preset_id) {
+      case "swap":
+        return t(
+          theme.swapping
+            ? "hakoniwa.theme.progress.swapping"
+            : "hakoniwa.theme.progress.notSwapping",
+          { days: theme.swap_days ?? 0 },
+        );
+      case "dress": {
+        const days = theme.dress_days ?? 0;
+        const target = theme.dress_target ?? 7;
+        return t(
+          days >= target
+            ? "hakoniwa.theme.progress.dressDone"
+            : "hakoniwa.theme.progress.dress",
+          { days, target, remaining: Math.max(target - days, 0) },
+        );
+      }
+      case "dissonance":
+        if (theme.dissonance_enabled === false) {
+          return t("hakoniwa.theme.progress.dissonanceOff");
+        }
+        return t(
+          theme.acknowledged
+            ? "hakoniwa.theme.progress.dissonanceDone"
+            : "hakoniwa.theme.progress.dissonance",
+          {
+            value: theme.dissonance ?? 0,
+            stage: stageName(theme.dissonance_stage ?? "stillness"),
+            remaining: theme.remaining ?? 0,
+          },
+        );
+      case "transform":
+        return t("hakoniwa.theme.progress.transform", {
+          count: theme.transform_count ?? 0,
+          now: theme.transformed_now ?? 0,
+        });
+      case "free":
+        return t("hakoniwa.theme.progress.free", {
+          day: theme.day,
+          events: theme.events,
+        });
+      default:
+        return t("hakoniwa.theme.progress.custom", {
+          day: theme.day,
+          events: theme.events,
+        });
+    }
   };
 
   const dissonanceTail = () => {
@@ -259,6 +317,17 @@ export default function HakoniwaDigest({ variant }: HakoniwaDigestProps) {
             {t("hakoniwa.digest.intervention")}
           </span>
           <p>{t(`hakoniwa.intervention.result.${digest.intervention}`)}</p>
+        </div>
+      )}
+      {digest.theme && (
+        <div className="hakoniwa-digest__section">
+          <span className="hakoniwa-digest__label">
+            {t("hakoniwa.digest.theme")}
+          </span>
+          <p>
+            <strong>{themeName(digest.theme)}</strong> —{" "}
+            {themeLine(digest.theme)}
+          </p>
         </div>
       )}
       <div className="hakoniwa-digest__section">

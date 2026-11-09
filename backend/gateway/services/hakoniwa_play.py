@@ -7,6 +7,8 @@
     world_memo: str
     intervention: 次の「1日進める」で効かせる介入(watch は何もしない)
     chat_histories: {住民 id: [{role: player | resident | system, text, kind?}]}
+    experiment_theme: {preset_id: プリセット id | None, text: 自由文} | None
+    theme_stats: {swap_active_days, dress_active_days}(実験テーマの進み具合)
 """
 
 from __future__ import annotations
@@ -25,15 +27,20 @@ from ..consts.hakoniwa_play import (
     HAKONIWA_CHAT_MESSAGE_MAX,
     HAKONIWA_INTERVENTIONS,
     HAKONIWA_RULE_SYNERGIES,
+    HAKONIWA_THEME_DRESS_TARGET_DAYS,
+    HAKONIWA_THEME_PRESETS,
+    HAKONIWA_THEME_TEXT_MAX,
     HAKONIWA_WORLD_MEMO_MAX,
     INTERVENTION_ARC_BOOST_AFFINITY,
     TOUCH_PARTS,
     TOUCH_TOLERANT_MOOD,
 )
+from ..consts.hakoniwa_story import DISSONANCE_CONFRONTATION_THRESHOLD
 from . import hakoniwa_story as story
 from .hakoniwa_errors import HakoniwaError
 
 CHAT_ROLES = ("player", "resident", "system")
+THEME_STAT_KEYS = ("swap_active_days", "dress_active_days")
 
 
 def normalize_play(source: dict[str, Any], normalized: dict[str, Any]) -> None:
@@ -54,10 +61,37 @@ def normalize_play(source: dict[str, Any], normalized: dict[str, Any]) -> None:
         for key, value in (histories.items() if isinstance(histories, dict) else [])
         if str(key) in ids and isinstance(value, list)
     }
+    theme = source.get("experiment_theme")
+    try:
+        normalized["experiment_theme"] = (
+            validate_theme(theme.get("preset_id"), theme.get("text"))
+            if isinstance(theme, dict)
+            else None
+        )
+    except HakoniwaError:
+        normalized["experiment_theme"] = None
+    stats = source.get("theme_stats")
+    stats = stats if isinstance(stats, dict) else {}
+    normalized["theme_stats"] = {
+        key: max(0, _int(stats.get(key))) for key in THEME_STAT_KEYS
+    }
 
 
 def initial_play_state() -> dict[str, Any]:
-    return {"world_memo": "", "intervention": "watch", "chat_histories": {}}
+    return {
+        "world_memo": "",
+        "intervention": "watch",
+        "chat_histories": {},
+        "experiment_theme": None,
+        "theme_stats": dict.fromkeys(THEME_STAT_KEYS, 0),
+    }
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 # --- 世界のメモ ---
@@ -272,3 +306,88 @@ def forget_chat(state: dict[str, Any], resident_id: str) -> dict[str, Any]:
         if key != resident_id
     }
     return {**state, "chat_histories": histories}
+
+
+# --- 実験テーマ ---
+
+
+def validate_theme(preset_id: Any, text: Any) -> dict[str, Any] | None:
+    """実験テーマ。自由文があれば自由文、無ければプリセット。どちらも無ければ None(テーマ無し)。"""
+    clean = " ".join(str(text or "").split())
+    if len(clean) > HAKONIWA_THEME_TEXT_MAX:
+        raise HakoniwaError(
+            "invalid_theme", f"実験テーマは{HAKONIWA_THEME_TEXT_MAX}文字までです"
+        )
+    if clean:
+        return {"preset_id": None, "text": clean}
+    if preset_id in (None, ""):
+        return None
+    if preset_id not in HAKONIWA_THEME_PRESETS:
+        raise HakoniwaError("invalid_theme", "実験テーマの指定が正しくありません")
+    return {"preset_id": str(preset_id), "text": ""}
+
+
+def experiment_theme(state: dict[str, Any]) -> dict[str, Any] | None:
+    theme = state.get("experiment_theme")
+    return dict(theme) if isinstance(theme, dict) else None
+
+
+def theme_text(state: dict[str, Any]) -> str:
+    """生成に渡す自由文のテーマ(プリセットや無しなら空)。"""
+    theme = experiment_theme(state)
+    return str(theme.get("text") or "") if theme else ""
+
+
+def record_theme_day(state: dict[str, Any]) -> dict[str, Any]:
+    """日の終わりに、その日に入れ替わりの朝とドレスの掟が有効だったかを数える。"""
+    active = set(state.get("active_rules", []))
+    stats = {
+        key: _int((state.get("theme_stats") or {}).get(key)) for key in THEME_STAT_KEYS
+    }
+    if "swap" in active and state.get("swap_pair"):
+        stats["swap_active_days"] += 1
+    if "dress" in active:
+        stats["dress_active_days"] += 1
+    return {**state, "theme_stats": stats}
+
+
+def theme_progress(state: dict[str, Any]) -> dict[str, Any] | None:
+    """実験テーマの進み具合(数値だけ。文はフロントで言語に合わせて組み立てる)。"""
+    theme = experiment_theme(state)
+    if theme is None:
+        return None
+    stats = state.get("theme_stats") or {}
+    preset_id = theme.get("preset_id")
+    progress: dict[str, Any] = {
+        "preset_id": preset_id,
+        "text": str(theme.get("text") or ""),
+        "day": _int(state.get("day")) or 1,
+        "events": len(state.get("events") or []),
+    }
+    if preset_id == "swap":
+        progress["swap_days"] = _int(stats.get("swap_active_days"))
+        progress["swapping"] = bool(
+            "swap" in state.get("active_rules", []) and state.get("swap_pair")
+        )
+    elif preset_id == "dress":
+        progress["dress_days"] = _int(stats.get("dress_active_days"))
+        progress["dress_target"] = HAKONIWA_THEME_DRESS_TARGET_DAYS
+    elif preset_id == "dissonance":
+        value = story.dissonance_value(state)
+        progress["dissonance"] = value
+        progress["dissonance_stage"] = story.dissonance_stage(value)
+        progress["acknowledged"] = bool(state.get("dissonance_acknowledged"))
+        progress["remaining"] = max(0, DISSONANCE_CONFRONTATION_THRESHOLD - value)
+        progress["dissonance_enabled"] = story.dissonance_enabled(state)
+    elif preset_id == "transform":
+        progress["transform_count"] = sum(
+            1
+            for event in state.get("events") or []
+            if event.get("kind") == "transform" and event.get("change_text")
+        )
+        progress["transformed_now"] = sum(
+            1
+            for resident in state.get("residents", [])
+            if resident.get("transformation")
+        )
+    return progress

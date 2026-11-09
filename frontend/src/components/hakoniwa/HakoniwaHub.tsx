@@ -2,6 +2,8 @@ import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
+  type HakoniwaRandomResident,
+  type HakoniwaTheme,
   type HakoniwaWorldSummary,
   hakoniwaMediaUrl,
 } from "../../apis/hakoniwa";
@@ -14,6 +16,8 @@ import HakoniwaCharacterAdder, {
   type HakoniwaPickedCharacter,
 } from "./HakoniwaCharacterAdder";
 import HakoniwaPortrait from "./HakoniwaPortrait";
+import HakoniwaRandomRoster from "./HakoniwaRandomRoster";
+import HakoniwaThemePicker, { normalizeTheme } from "./HakoniwaThemePicker";
 
 const WORLD_NAME_MAX = 50;
 const MIN_RESIDENTS = 2;
@@ -40,6 +44,10 @@ export default function HakoniwaHub() {
   const [name, setName] = useState("");
   const [presetIds, setPresetIds] = useState<string[] | null>(null);
   const [characters, setCharacters] = useState<HakoniwaPickedCharacter[]>([]);
+  const [randomResidents, setRandomResidents] = useState<
+    HakoniwaRandomResident[]
+  >([]);
+  const [theme, setTheme] = useState<HakoniwaTheme | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HakoniwaWorldSummary | null>(
     null,
   );
@@ -51,7 +59,15 @@ export default function HakoniwaHub() {
 
   const presets = catalog?.presets ?? [];
   const chosenPresets = presetIds ?? presets.map((preset) => preset.id);
-  const count = chosenPresets.length + characters.length;
+  const fixedCount = chosenPresets.length + characters.length;
+  const count = fixedCount + randomResidents.length;
+  // おまかせの住民と名前を重ねない(選んだプリセットとキャラクター)
+  const takenNames = [
+    ...presets
+      .filter((preset) => chosenPresets.includes(preset.id))
+      .map((preset) => preset.name),
+    ...characters.map((item) => item.name),
+  ];
   const canCreate =
     count >= MIN_RESIDENTS && count <= MAX_RESIDENTS && busy === null;
 
@@ -64,20 +80,24 @@ export default function HakoniwaHub() {
   };
 
   const handleCreate = async () => {
-    const created = await createWorld(
-      name.trim() || t("hakoniwa.hub.defaultName"),
-      presets
+    const created = await createWorld({
+      name: name.trim() || t("hakoniwa.hub.defaultName"),
+      presetIds: presets
         .map((preset) => preset.id)
         .filter((id) => chosenPresets.includes(id)),
-      characters.map((item) => ({
+      characters: characters.map((item) => ({
         character_preset_id: item.character_preset_id,
         gender: item.gender,
       })),
       dissonanceEnabled,
-    );
+      customResidents: randomResidents,
+      theme: normalizeTheme(theme),
+    });
     if (created) {
       setName("");
       setCharacters([]);
+      setRandomResidents([]);
+      setTheme(null);
       navigate(getHakoniwaWorldPath(created.id));
     }
   };
@@ -247,6 +267,19 @@ export default function HakoniwaHub() {
             onAdd={(picked) => setCharacters((current) => [...current, picked])}
             disabled={count >= MAX_RESIDENTS}
           />
+
+          <h3>{t("hakoniwa.random.heading")}</h3>
+          <p className="hakoniwa-note">{t("hakoniwa.random.lead")}</p>
+          <HakoniwaRandomRoster
+            residents={randomResidents}
+            onChange={setRandomResidents}
+            excludeNames={takenNames}
+            available={MAX_RESIDENTS - fixedCount}
+          />
+
+          <div className="hakoniwa-create__option">
+            <HakoniwaThemePicker value={theme} onChange={setTheme} />
+          </div>
 
           <div className="hakoniwa-create__option">
             <label className="hakoniwa-toggle" htmlFor={dissonanceId}>

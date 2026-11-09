@@ -31,6 +31,8 @@
 - 世界の違和感は上端バー（`HakoniwaWorldView.tsx`）と作成画面・設定タブのトグル、適応・名残・覚えていることは `HakoniwaResidentPanel.tsx`、物語の弧は年代記の行とまとめに出す。段階名と物語の題名は `hakoniwaLabels.ts` と i18n、記憶・名残の文はバックエンドが組み立てる。
 - 掟の姿・複合の姿の生成（人数を出す確認つき）と見た目の説明の入力は `HakoniwaRulesTab.tsx`、生成は `HakoniwaContext.generateLook`。
 - 明日の介入は「1日進める」の横（`HakoniwaWorldView.tsx`）、世界のメモは設定タブ、掟の相性は掟タブ、立ち絵に触れるのは `HakoniwaTouchPreview.tsx`、箱庭の中での会話は `HakoniwaChat.tsx`（ADV の枠。会話からの変身の出来事は閉じたあと部屋で再生）。
+- はじまりの案内は `HakoniwaIntro.tsx`（1日目・出来事0件の世界だけ、右パネルのタブの上。閉じたことは世界ごとに localStorage）。掟の切り替え直後の反応は `HakoniwaContext.toggleRule` が一時の場面（`kind: "reaction"`、年代記に無い）として再生の列へ入れる。
+- 作成画面のおまかせの住民は `HakoniwaRandomRoster.tsx`、実験テーマの選択は `HakoniwaThemePicker.tsx`（作成画面と設定タブで共用）。立ち絵の無い住民のまとめて生成は住民タブ（`HakoniwaContext.generateMissingAvatars`、1人ずつ順に）。まとめの実験テーマは `HakoniwaDigest.tsx`。
 - `HakoniwaStage.tsx` は Phaser 3.90.0 の `stage/roomStage.ts` を遅延読込する。座標計算は `roomLayout.ts`、クリック・Enter による台詞送りと Esc スキップは `useHakoniwaPlayback.ts` に分離する。
 - `hooks/useTransparentImages.ts` が複数画像の単色背景除去を管理する。同梱素材は `public/hakoniwa-assets/`、文言は `i18n/{ja,en}/hakoniwa.ts`。
 - ブラウザ回帰テストは `tests/e2e/hakoniwa.spec.ts`。外部生成 API は呼び出さず、モック応答と同梱画像で主要操作を確認する。

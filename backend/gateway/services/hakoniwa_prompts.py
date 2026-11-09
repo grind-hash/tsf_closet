@@ -41,6 +41,7 @@ from .hakoniwa_logic import (
     appearance_kind,
     body_gender,
     combo_tags,
+    current_transformation,
     custom_rule,
     is_feminine_transformation,
     is_male_in_feminine_form,
@@ -206,7 +207,7 @@ def is_risque_text(text: str) -> bool:
 def appearance_is_risque(state: dict[str, Any], resident: dict[str, Any]) -> bool:
     if appearance_kind(state, resident) != "transform":
         return False
-    transformation = resident.get("transformation") or {}
+    transformation = current_transformation(state, resident) or {}
     return is_risque_text(
         f"{transformation.get('tags', '')} {transformation.get('description', '')}"
     )
@@ -226,6 +227,21 @@ def memo_section(state: dict[str, Any]) -> str:
         "this world set by the player; they take precedence over the world rules, and "
         "the text you write must follow them):\n"
         f"{memo}"
+    )
+
+
+def theme_section(state: dict[str, Any]) -> str:
+    """プレイヤーが自由文で決めた実験テーマ。世界のメモと掟より下の、控えめな指示として載せる。"""
+    text = play.theme_text(state)
+    if not text:
+        return ""
+    return (
+        "\n\nThe player's experiment theme for this world (what the player wants to "
+        "watch unfold; let scenes lean toward it when it fits naturally, without "
+        "forcing it. It does not need to appear in every scene; a gradual change over "
+        "the days is better. The world rules and the player's instructions take "
+        "precedence):\n"
+        f"{text}"
     )
 
 
@@ -282,7 +298,7 @@ def current_appearance_summary(
 ) -> str | None:
     kind = appearance_kind(state, resident)
     if kind == "transform":
-        transformation = resident.get("transformation") or {}
+        transformation = current_transformation(state, resident) or {}
         description = str(transformation.get("description") or "")[
             :HAKONIWA_TRANSFORM_DESC_PROMPT_MAX
         ]
@@ -681,7 +697,9 @@ def event_user_prompt(
     arc_focus_id: str | None = None,
     arc_climax: bool = False,
     intervention: str | None = None,
+    include_theme: bool = True,
 ) -> str:
+    """出来事の生成の指示。include_theme は自由文の実験テーマを載せるか(1日1件に絞る)。"""
     names = [resident_name(resident, language) for resident in group]
     if len(group) == 1:
         lead = (
@@ -727,7 +745,7 @@ def event_user_prompt(
         f"{story_text.arc_focus_text(state, arc_focus_id, arc_climax, language)}"
         f"{focus}"
         f"{INTERVENTION_DIRECTIVES.get(str(intervention or ''), '')}"
-        f"{memo_section(state)}"
+        f"{theme_section(state) if include_theme else ''}{memo_section(state)}"
     )
 
 
@@ -751,7 +769,7 @@ def greeting_prompts(
         f"{story_text.dissonance_context_text(state)}\n"
         f"World rules:\n{active_rules_text(state, language)}"
         f"{story_text.memories_context_text(state, [resident], language)}"
-        f"{memo_section(state)}"
+        f"{theme_section(state)}{memo_section(state)}"
     )
     return system_prompt, user_prompt
 
@@ -905,7 +923,7 @@ def chat_reply_prompts(
         f"{story_text.dissonance_context_text(state)}\n"
         f"World rules:\n{active_rules_text(state, language)}"
         f"{story_text.memories_context_text(state, [resident], language)}"
-        f"{memo_section(state)}\n\n"
+        f"{theme_section(state)}{memo_section(state)}\n\n"
         f"Recent conversation:\n{history_text}\n\n"
         f"The player's latest message: {message}"
     )
@@ -1051,11 +1069,12 @@ def transform_reaction_prompts(
     target_name = resident_name(target, language)
     extra = ""
     confused = resident_gender(target) == "male" and (
-        body_gender(state, target) == "female" or is_feminine_transformation(target)
+        body_gender(state, target) == "female"
+        or is_feminine_transformation(state, target)
     )
     if confused:
         extra += male_confusion_guidance(state, target, target_name) + "\n"
-    transformation = target.get("transformation") or {}
+    transformation = current_transformation(state, target) or {}
     if is_risque_text(f"{transformation.get('tags', '')} {change_text}"):
         extra += RISQUE_REACTION_GUIDANCE.format(name=target_name) + "\n"
         if confused:
@@ -1136,3 +1155,58 @@ def scene_tags_prompts(
         f"Lines:\n{lines or '(none)'}"
     )
     return system_prompt, user_prompt
+
+
+def random_residents_prompts(
+    count: int, language: str, exclude_names: list[str]
+) -> tuple[str, str]:
+    """おまかせの住民(ランダムな住民構成)を作るプロンプト。出力言語の文と英語のタグを対で返させる。"""
+    lang = response_language(language)
+    name_rule = (
+        "Write full names in Japanese (family name, a half-width space, given name), "
+        "for example '佐倉 美咲'. Write the job as a natural Japanese job title "
+        "(for example システムエンジニア, 花屋の店主). Call the boarding house 下宿 "
+        "in Japanese."
+        if language == "ja"
+        else "Write full names as 'Given Family' in English, for example 'Misaki Sakura'."
+    )
+    pronoun_rule = (
+        "pronoun is the resident's first-person pronoun in Japanese (for example "
+        "私, わたし, あたし, 僕, 俺)."
+        if language == "ja"
+        else "pronoun is always 'I'."
+    )
+    avoid = (
+        f" Never use these names, or names that look the same: {', '.join(exclude_names)}."
+        if exclude_names
+        else ""
+    )
+    chinese_rule = (
+        " Write natural Japanese only and never mix in simplified Chinese characters."
+        if language == "ja"
+        else ""
+    )
+    age_example = "20代後半" if language == "ja" else "late 20s"
+    system_prompt = (
+        "You are a character designer for a life simulation set in a small boarding "
+        "house. Design new residents.\n"
+        "Conditions: every resident is an adult (20s to 50s). Mix female and male "
+        f"residents. {name_rule} Every name must be different.{avoid} The job fits "
+        "someone who lives in a boarding house. The personality is one or two concrete "
+        "sentences that show who they are, written in the third person as a "
+        "description (never speak as the resident). appearance is one sentence "
+        "describing the "
+        "hair style, hair color, eye color and everyday clothes. appearance_tags are "
+        "English Danbooru-style tags for exactly that appearance: start with the "
+        "gender token (1girl or 1boy), then solo, the age, hair, eyes and clothes, "
+        f"at most {HAKONIWA_TAGS_MAX_COUNT} tags, modest everyday clothing. "
+        f"{pronoun_rule}\n"
+        f"Write name, age, job, personality, pronoun and appearance in {lang}; "
+        f"appearance_tags are always English.{chinese_rule}\n"
+        "Output only this JSON, with no explanation or code fence:\n"
+        '{"residents": [{"name": "...", "gender": "female", '
+        f'"age": "{age_example}", '
+        '"job": "...", "personality": "...", "pronoun": "...", "appearance": "...", '
+        '"appearance_tags": "1girl, solo, ..."}]}'
+    )
+    return system_prompt, f"Design {count} residents."

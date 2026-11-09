@@ -323,3 +323,62 @@ CHAT_TRANSFORM_FALLBACK = {
     "ja": "……姿が変わったみたい。どうかな、似合ってる？",
     "en": "...Looks like I've changed. How do I look?",
 }
+
+# --- 掟の即時反応(切り替え直後の短い反応。年代記には残さない定型文) ---
+# {partner} は相手の名前、{pronoun} は話す住民の一人称、{rule} は自作の掟の名前。
+RULE_REACTION_TEMPLATES = {
+    "swap_start_male": {
+        "ja": "……え？ この姿、{partner}……？ 声まで{partner}だ。なんで{pronoun}がこんなことに……",
+        "en": "...Huh? This body is {partner}... Even the voice is {partner}. Why is this happening to me...",
+    },
+    "swap_start": {
+        "ja": "待って、{pronoun}の声が{partner}になってる……。鏡、鏡を見せて！",
+        "en": "Wait, my voice sounds just like {partner}... A mirror, someone get me a mirror!",
+    },
+    "swap_end_male": {
+        "ja": "やっと……やっと自分の体に戻った！",
+        "en": "Finally... finally back in my own body!",
+    },
+    "swap_end_first": {
+        "ja": "戻った……！ 自分の体だ、間違いない！",
+        "en": "I am back...! This is my own body, no doubt about it!",
+    },
+    "swap_end_second": {
+        "ja": "もう片方の体にも慣れかけていたから、少し変な感じ",
+        "en": "I was getting used to the other body, so this feels a little strange.",
+    },
+    "dress_male": {
+        "ja": "……{pronoun}もドレスなのか。その、スカートは落ち着かないんだが",
+        "en": "...A dress for me too? Skirts are, well, not exactly comfortable.",
+    },
+    "dress_female": {
+        "ja": "今日はみんなドレスなのね。なんだか華やかで嬉しい！",
+        "en": "Everyone is in dresses today. It feels so festive!",
+    },
+    "ojousama": {
+        "ja": "まあ、今日からは皆さまお嬢様言葉で過ごすのね。ごきげんよう",
+        "en": "Oh my, from today we all speak like refined young ladies. Good day to you.",
+    },
+    "custom_look": {
+        "ja": "『{rule}』の掟が始まったみたい。……この姿、少し恥ずかしいかも",
+        "en": "The rule '{rule}' seems to have started... This look is a little embarrassing.",
+    },
+    "custom": {
+        "ja": "『{rule}』の掟が始まったみたい。気をつけて過ごさないと",
+        "en": "The rule '{rule}' seems to have started. I should be careful.",
+    },
+    "other_start": {
+        "ja": "何だか今日から様子が変わりそう。……気のせいかな",
+        "en": "Something feels different from today on... Or is it just me?",
+    },
+    "other_end": {
+        "ja": "ふう、いつもの日常に戻った感じがする",
+        "en": "Phew, it feels like everyday life is back.",
+    },
+}
+
+# --- 実験テーマ(世界ごとの「今回の実験」。進み具合は1日のまとめに出す) ---
+# プリセットはプレイヤーの目標なので生成には渡さない。自由文だけを控えめな指示として渡す
+HAKONIWA_THEME_PRESETS = ("swap", "dress", "dissonance", "transform", "free")
+HAKONIWA_THEME_TEXT_MAX = 100
+HAKONIWA_THEME_DRESS_TARGET_DAYS = 7

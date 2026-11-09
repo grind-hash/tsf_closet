@@ -56,7 +56,36 @@ function resident(id: string, name: string): HakoniwaResident {
   };
 }
 
-async function mockHakoniwa(page: Page, enabled = true, dissonance = 0) {
+async function mockHakoniwa(
+  page: Page,
+  enabled = true,
+  dissonance = 0,
+  options: {
+    reactions?: boolean;
+    /** 送られた本文を記録する(世界の作成・設定) */
+    recorded?: { create?: Record<string, unknown>; settings: unknown[] };
+  } = {},
+) {
+  // おまかせの住民の候補(組むたびに先頭から使う)
+  const randomPool = [
+    "藤原 楓",
+    "森 紬",
+    "水野 澪",
+    "佐倉 湊",
+    "中村 光",
+    "木村 遥",
+    "松本 健",
+  ];
+  const randomResident = (name: string, index: number) => ({
+    name,
+    gender: index % 2 === 0 ? ("female" as const) : ("male" as const),
+    age: "20代後半",
+    job: "花屋の店主",
+    personality: `${name}は穏やかで聞き上手。`,
+    pronoun: "私",
+    appearance_text: "栗色のロングヘア。",
+    base_tags: "1girl, solo, long hair",
+  });
   const world: HakoniwaWorld = {
     id: "test-world",
     name: "検証用の星屑荘",
@@ -156,10 +185,52 @@ async function mockHakoniwa(page: Page, enabled = true, dissonance = 0) {
       });
       return;
     }
+    if (path.endsWith("/random-residents")) {
+      const body = route.request().postDataJSON();
+      const names = randomPool.splice(0, body.count);
+      await route.fulfill({
+        json: {
+          residents: names.map(randomResident),
+          source: "llm",
+          cost_usd: null,
+        },
+      });
+      return;
+    }
     if (path.endsWith("/worlds")) {
+      if (route.request().method() === "POST") {
+        const body = route.request().postDataJSON();
+        if (options.recorded) options.recorded.create = body;
+        for (const [index, item] of (body.custom_residents ?? []).entries()) {
+          const base = resident(`custom_${index}`, item.name);
+          world.residents.push({
+            ...base,
+            source: "custom",
+            preset_id: null,
+            gender: item.gender,
+            body_gender: item.gender,
+            avatar_url: null,
+            display_avatar_url: null,
+            own_avatar_url: null,
+            dress_avatar_url: null,
+          });
+        }
+        world.experiment_theme = body.experiment_theme ?? null;
+      }
       await route.fulfill({
         json: route.request().method() === "POST" ? world : { worlds: [] },
       });
+      return;
+    }
+    if (path.endsWith("/avatar")) {
+      const id = path.split("/").at(-2);
+      const target = world.residents.find((item) => item.id === id);
+      if (target) {
+        target.avatar_url = "/hakoniwa-assets/avatar_aoi.png";
+        target.display_avatar_url = target.avatar_url;
+        target.own_avatar_url = target.avatar_url;
+      }
+      await route.fulfill({ json: { world, cost_usd: null } });
       return;
     }
     if (path.endsWith("/day")) {
@@ -194,6 +265,16 @@ async function mockHakoniwa(page: Page, enabled = true, dissonance = 0) {
         },
         changes: [{ type: "mood", id: "aoi", delta: 9, mood: 59 }],
         hint: { type: "no_rules" },
+        theme: world.experiment_theme
+          ? {
+              preset_id: world.experiment_theme.preset_id,
+              text: world.experiment_theme.text,
+              day: 1,
+              events: 3,
+              dress_days: 1,
+              dress_target: 7,
+            }
+          : null,
       };
       await route.fulfill({
         json: {
@@ -332,6 +413,14 @@ async function mockHakoniwa(page: Page, enabled = true, dissonance = 0) {
     }
     if (path.endsWith("/settings")) {
       const body = route.request().postDataJSON();
+      options.recorded?.settings.push(body);
+      if (body.experiment_theme) {
+        const theme = body.experiment_theme;
+        world.experiment_theme =
+          theme.text || theme.preset_id
+            ? { preset_id: theme.preset_id, text: theme.text }
+            : null;
+      }
       if (typeof body.world_memo === "string")
         world.world_memo = body.world_memo;
       if (typeof body.dissonance_enabled === "boolean") {
@@ -424,8 +513,21 @@ async function mockHakoniwa(page: Page, enabled = true, dissonance = 0) {
               total: world.residents.length,
             }
           : null;
+      // 切り替え直後の住民の反応(年代記には入らない)
+      const body = route.request().postDataJSON();
+      const reaction = options.reactions
+        ? {
+            card_id: id,
+            active: body.active,
+            area: body.area_id ?? "living",
+            lines: [
+              { resident_id: "ren", text: "……俺もドレスなのか。" },
+              { resident_id: "aoi", text: "今日はみんなドレスなのね。" },
+            ],
+          }
+        : null;
       await route.fulfill({
-        json: { world, new_events: newEvents, cost_usd: null },
+        json: { world, new_events: newEvents, reaction, cost_usd: null },
       });
       return;
     }
@@ -444,6 +546,17 @@ async function mockHakoniwa(page: Page, enabled = true, dissonance = 0) {
   });
   return world;
 }
+
+// 部屋の描画(Phaser)の例外は画面のエラー表示に出ないため、各テストの最後に
+// ページに未捕捉の例外が出ていないことを確かめる
+let pageErrors: string[] = [];
+test.beforeEach(({ page }) => {
+  pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+});
+test.afterEach(() => {
+  expect(pageErrors).toEqual([]);
+});
 
 test("機能OFFでは通常プレイへ戻る", async ({ page }) => {
   await mockHakoniwa(page, false);
@@ -615,11 +728,21 @@ test("場所の切り替え・家具・1日のまとめ・ADV で読む", async 
   // 場所のチップ: 住民の人数が出て、押すと表示する場所が替わる
   const living = page.getByRole("tab", { name: /^リビング/ });
   const garden = page.getByRole("tab", { name: /^庭/ });
+  const study = page.getByRole("tab", { name: /^書斎/ });
   await expect(living).toHaveAttribute("aria-selected", "true");
   await expect(living).toContainText("2人");
+  // 表示中の背景の読み込みを終えてから切り替える(読み込み中の新しい背景を待つ間も
+  // 古い背景を描き続けられること。以前は古いテクスチャを先に破棄して描画が止まった)
+  await page.waitForLoadState("networkidle");
   await garden.click();
   await expect(garden).toHaveAttribute("aria-selected", "true");
   await expect(garden).toContainText("0人");
+  await page.waitForLoadState("networkidle");
+  await study.click();
+  await expect(study).toHaveAttribute("aria-selected", "true");
+  await page.waitForLoadState("networkidle");
+  await garden.click();
+  await expect(garden).toHaveAttribute("aria-selected", "true");
 
   // 家具は1点物: 別の場所へ置くと移る
   await page.getByRole("tab", { name: "家具", exact: true }).click();
@@ -842,4 +965,140 @@ test("明日の介入・世界のメモ・立ち絵に触れる・箱庭の中�
   await expect(page.locator(".hakoniwa-caption__title")).toHaveText(
     "高瀬 葵の変身",
   );
+});
+
+test("はじまりの案内と、掟を切り替えた直後の住民の反応", async ({ page }) => {
+  await mockHakoniwa(page, true, 0, { reactions: true });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
+
+  // 1日目・出来事0件の世界には、右パネルのタブの上に案内が出る
+  const intro = page.getByTestId("hakoniwa-intro");
+  await expect(intro).toContainText("見えない書き手です");
+  await expect(intro).toContainText("書き換えを重ねるほど");
+  await intro.getByRole("button", { name: "掟を見てみる" }).click();
+  await expect(
+    page.getByRole("tab", { name: "掟", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await intro.getByRole("button", { name: "畳む" }).click();
+  const strip = page.getByRole("region", { name: "はじまりの案内" });
+  await expect(strip).toBeVisible();
+  await strip.getByRole("button", { name: "開く" }).click();
+  await expect(page.getByTestId("hakoniwa-intro")).toBeVisible();
+
+  // 掟を切り替えると、反応が一時の場面として部屋で再生される
+  await page.getByRole("checkbox", { name: "ドレスの掟を有効にする" }).click();
+  const caption = page.locator(".hakoniwa-caption");
+  await expect(caption.locator(".hakoniwa-caption__title")).toHaveText(
+    "掟の切り替え: ドレスの掟",
+  );
+  await expect(caption).toContainText("「ドレスの掟」が有効になった。");
+  // 再生中は案内の「さっそく1日進める」も押せない
+  await expect(
+    page.getByRole("button", { name: "さっそく1日進める" }),
+  ).toBeDisabled();
+  await caption.getByRole("button", { name: "次へ" }).click();
+  await expect(page.locator(".hakoniwa-bubble")).toContainText(
+    "……俺もドレスなのか。",
+  );
+  await caption.getByRole("button", { name: "次へ" }).click();
+  await expect(page.locator(".hakoniwa-bubble")).toContainText(
+    "今日はみんなドレスなのね。",
+  );
+  await caption.getByRole("button", { name: "次へ" }).click();
+  await expect(caption).toHaveCount(0);
+
+  // 反応は年代記に残らず、未読の数も付かない
+  await page.getByRole("tab", { name: "年代記", exact: true }).click();
+  await expect(page.locator(".hakoniwa-event")).toHaveCount(0);
+
+  // 帯の ✕ で閉じると、その世界では出さない
+  await page
+    .getByTestId("hakoniwa-intro")
+    .getByRole("button", { name: "畳む" })
+    .click();
+  await strip.getByRole("button", { name: "案内を閉じる" }).click();
+  await expect(strip).toHaveCount(0);
+  await expect(page.getByTestId("hakoniwa-intro")).toHaveCount(0);
+  await page.getByRole("button", { name: /世界の一覧へ/ }).click();
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
+  await expect(page.getByTestId("hakoniwa-intro")).toHaveCount(0);
+});
+
+test("おまかせの住民・実験テーマ・立ち絵のまとめて生成", async ({ page }) => {
+  const recorded: { create?: Record<string, unknown>; settings: unknown[] } = {
+    settings: [],
+  };
+  await mockHakoniwa(page, true, 0, { recorded });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+
+  // 人数を選んで組み、1人を入れ替え、1人を外す
+  await page.getByLabel("人数").selectOption("2");
+  await page.getByRole("button", { name: "おまかせで組む" }).click();
+  const items = page.locator(".hakoniwa-random__item");
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText("藤原 楓");
+  await expect(items.nth(1)).toContainText("森 紬");
+  await items
+    .nth(0)
+    .getByRole("button", { name: "この住民を入れ替える" })
+    .click();
+  await expect(items.nth(0)).toContainText("水野 澪");
+  await items.nth(1).getByRole("button", { name: "外す" }).click();
+  await expect(items).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "組み直す" })).toBeVisible();
+
+  // 実験テーマ: プリセットを選ぶと説明が出る
+  await page.getByLabel("実験テーマ").selectOption("dress");
+  await expect(
+    page.getByText("ドレスの掟を7日間続けて、装いの変化を観察します。"),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
+  expect(recorded.create?.experiment_theme).toEqual({
+    preset_id: "dress",
+    text: "",
+  });
+  const created = recorded.create ?? {};
+  expect(
+    (created.custom_residents as { name: string }[]).map((item) => item.name),
+  ).toEqual(["水野 澪"]);
+
+  // 立ち絵の無い住民の姿をまとめて生成(確認してから1人ずつ)
+  await page.getByRole("tab", { name: "住民", exact: true }).click();
+  await page
+    .getByRole("button", { name: "立ち絵の無い住民の姿をまとめて生成（1人）" })
+    .click();
+  await expect(page.getByRole("dialog")).toContainText("水野 澪の通常の姿");
+  await page.getByRole("button", { name: "1人分を生成" }).click();
+  await expect(
+    page.getByRole("button", { name: /立ち絵の無い住民の姿をまとめて生成/ }),
+  ).toHaveCount(0);
+
+  // 1日のまとめに実験テーマの進み具合が出る
+  await page.getByRole("button", { name: "1日進める", exact: true }).click();
+  await expect(page.locator(".hakoniwa-caption")).toBeVisible();
+  await page.keyboard.press("Escape");
+  const digest = page.locator(".hakoniwa-digest--overlay");
+  await expect(digest).toContainText("実験テーマ");
+  await expect(digest).toContainText(
+    "ドレスの掟の1週間 — ドレスの掟が有効だった日: 1日 / 目標7日。あと6日。",
+  );
+
+  // 設定タブで自分で書くテーマに変えて保存する
+  await page.getByRole("tab", { name: "設定", exact: true }).click();
+  await page.getByLabel("実験テーマ").selectOption("custom");
+  await page.getByLabel("テーマ（100文字まで）").fill("みんなが猫好きになる");
+  await page.getByRole("button", { name: "テーマを保存" }).click();
+  await expect(
+    page.getByRole("button", { name: "テーマを保存" }),
+  ).toBeDisabled();
+  expect(recorded.settings.at(-1)).toMatchObject({
+    experiment_theme: { preset_id: null, text: "みんなが猫好きになる" },
+  });
 });

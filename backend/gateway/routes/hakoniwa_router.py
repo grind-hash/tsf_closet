@@ -31,6 +31,8 @@ from ..schemas.hakoniwa import (
     HakoniwaLanguageRequest,
     HakoniwaLookRequest,
     HakoniwaLookResponse,
+    HakoniwaRandomResidentsRequest,
+    HakoniwaRandomResidentsResponse,
     HakoniwaReapplyRequest,
     HakoniwaResidentChangeResponse,
     HakoniwaResidentRequest,
@@ -121,9 +123,37 @@ async def create_world(request: HakoniwaCreateRequest) -> HakoniwaWorldResponse:
             [item.model_dump() for item in request.characters],
             request.language,
             dissonance_enabled=request.dissonance_enabled,
+            custom_residents=[item.model_dump() for item in request.custom_residents],
+            experiment_theme=(
+                request.experiment_theme.model_dump()
+                if request.experiment_theme
+                else None
+            ),
         )
     )
     return HakoniwaWorldResponse(**world)
+
+
+@router.post(
+    "/random-residents",
+    response_model=HakoniwaRandomResidentsResponse,
+    summary="おまかせの住民を組む",
+    description=(
+        "世界を作る前の住民構成をランダムに組む(状態は変えない)。テキストモデルで作り、"
+        "作れなければ語彙の組み合わせで組み立てる。1人の入れ替えは count=1 と、"
+        "ほかの住民の名前を exclude_names で渡す"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def random_residents(
+    request: HakoniwaRandomResidentsRequest,
+) -> HakoniwaRandomResidentsResponse:
+    result = await _call(
+        hakoniwa_service.random_residents(
+            request.count, request.exclude_names, request.language
+        )
+    )
+    return HakoniwaRandomResidentsResponse(**result)
 
 
 @router.get(
@@ -165,6 +195,11 @@ async def update_settings(
             image_model=request.image_model,
             dissonance_enabled=request.dissonance_enabled,
             world_memo=request.world_memo,
+            experiment_theme=(
+                request.experiment_theme.model_dump()
+                if request.experiment_theme is not None
+                else None
+            ),
             language=request.language,
         )
     )
@@ -199,7 +234,13 @@ async def toggle_rule(
     world_id: str, card_id: str, request: HakoniwaRuleToggleRequest
 ) -> HakoniwaDayResponse:
     result = await _call(
-        hakoniwa_service.set_rule(world_id, card_id, request.active, request.language)
+        hakoniwa_service.set_rule(
+            world_id,
+            card_id,
+            request.active,
+            request.language,
+            area_id=request.area_id,
+        )
     )
     return HakoniwaDayResponse(**result)
 

@@ -13,6 +13,7 @@ import HakoniwaAdv from "./HakoniwaAdv";
 import HakoniwaChat from "./HakoniwaChat";
 import HakoniwaChronicle from "./HakoniwaChronicle";
 import HakoniwaFurnitureTab from "./HakoniwaFurnitureTab";
+import HakoniwaIntro from "./HakoniwaIntro";
 import HakoniwaResidentsTab from "./HakoniwaResidentsTab";
 import HakoniwaRulesTab from "./HakoniwaRulesTab";
 import HakoniwaSettingsTab from "./HakoniwaSettingsTab";
@@ -245,6 +246,7 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
           </section>
 
           <aside className="hakoniwa-world__panel">
+            <HakoniwaIntro />
             <div
               className="hakoniwa-tabs"
               role="tablist"
