@@ -21,6 +21,7 @@ import { favorites } from "./favorites";
 import { gallery } from "./gallery";
 import { gameplay } from "./gameplay";
 import { guide } from "./guide";
+import { hakoniwa } from "./hakoniwa";
 import { imagePreview } from "./imagePreview";
 import { inpaint } from "./inpaint";
 import { layout } from "./layout";
@@ -63,4 +64,5 @@ export const en = {
   characters,
   promptExpander,
   salon,
+  hakoniwa,
 };

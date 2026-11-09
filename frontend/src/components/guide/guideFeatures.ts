@@ -122,6 +122,13 @@ export const GUIDE_FEATURES: readonly GuideFeature[] = [
     settingKeys: ["experimentalSalonEnabled"],
   },
   {
+    key: "hakoniwa",
+    section: "features",
+    icon: "🏠",
+    menuIds: ["hakoniwa"],
+    settingKeys: ["experimentalHakoniwaEnabled"],
+  },
+  {
     key: "voice",
     section: "features",
     icon: "🔊",

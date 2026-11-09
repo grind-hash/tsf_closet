@@ -153,6 +153,7 @@ describe("getItemIdsIn", () => {
     expect(getItemIdsIn("experimental", "classic")).toEqual([
       "promptExpander",
       "salon",
+      "hakoniwa",
       "surroundings",
       "surroundingsPeople",
       "clothingColor",
@@ -170,6 +171,7 @@ describe("getItemIdsIn", () => {
     expect(getItemIdsIn("experimental", "v2")).toEqual([
       "promptExpander",
       "salon",
+      "hakoniwa",
       "playMemory",
     ]);
     // キャラチャットは v0.11.0 で Experimental から独立した節へ移した

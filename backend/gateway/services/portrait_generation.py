@@ -125,6 +125,8 @@ async def generate_portrait_bytes(
     extra_negative: str = "",
     seed: int | None = None,
     use_character_reference: bool = False,
+    transparent_background: bool = False,
+    raw_prompt: bool = False,
 ) -> bytes:
     """タグから単独の全身立ち絵を 1 枚生成して PNG bytes を返す。
 
@@ -134,6 +136,10 @@ async def generate_portrait_bytes(
     OpenRouter / ComfyUI は参照画像があれば編集元にして同一性を保ち、無ければ
     txt2img で新規に描く(ComfyUI の txt2img はワークフローテンプレートが必要)。
     料金は cost_tracker に記録する。
+    transparent_background が真なら、V5 系の NovelAI ではアルファ透過で生成する
+    (他のモデル・プロバイダは白背景のままで、表示側の透過処理に任せる)。
+    raw_prompt が真なら、NovelAI へタグだけを送り、分割・重複を避ける英文の接尾辞を
+    正のプロンプトへ足さない(重複を避ける語はネガティブ側にだけ置く)。
     """
     provider_name = str(provider)
     prompt = build_portrait_prompt(tags, image_model, nsfw_mode=nsfw_mode)
@@ -167,6 +173,8 @@ async def generate_portrait_bytes(
             seed=seed,
             size_override="portrait",
             novelai_model_override=image_model,
+            transparent_background=transparent_background,
+            raw_prompt=raw_prompt,
         )
     else:
         instruction = REDRAW_REFERENCE_INSTRUCTION if reference_bytes else ""

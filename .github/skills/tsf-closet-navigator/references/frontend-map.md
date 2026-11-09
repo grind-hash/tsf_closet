@@ -22,6 +22,15 @@
 
 ## Context
 
+### AI箱庭（2026-11-08 追加）
+
+- `/hakoniwa` と `/hakoniwa/:worldId` は `experimentalHakoniwaEnabled`（既定 OFF）で有効化し、`App.tsx` 内で専用の `HakoniwaProvider` を提供する。
+- `contexts/HakoniwaContext.tsx` が世界・住民・掟・再生キュー・生成料金・V5 使用量確認を管理し、`apis/hakoniwa.ts` が API を呼び出す。
+- `components/hakoniwa/HakoniwaHub.tsx` が世界一覧と作成、`HakoniwaWorldView.tsx` が部屋と年代記・住民・掟・設定タブを担当する。
+- `HakoniwaStage.tsx` は Phaser 3.90.0 の `stage/roomStage.ts` を遅延読込する。座標計算は `roomLayout.ts`、クリック・Enter による台詞送りと Esc スキップは `useHakoniwaPlayback.ts` に分離する。
+- `hooks/useTransparentImages.ts` が複数画像の単色背景除去を管理する。同梱素材は `public/hakoniwa-assets/`、文言は `i18n/{ja,en}/hakoniwa.ts`。
+- ブラウザ回帰テストは `tests/e2e/hakoniwa.spec.ts`。外部生成 API は呼び出さず、モック応答と同梱画像で主要操作を確認する。
+
 ### 全体Provider
 
 `SettingsContext` / `GameContext` / `ChatContext` の Provider value は `useMemo` で包み、Provider の再描画で消費者全員が再描画されないようにしている（新しい関数や値を value に足すときは依存配列にも加える。Biome の `useExhaustiveDependencies` が検査する）。

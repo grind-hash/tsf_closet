@@ -4,6 +4,14 @@
 
 ## FastAPI 構成
 
+### AI箱庭（2026-11-08 追加）
+
+- `/api/hakoniwa`: `routes/hakoniwa_router.py`、`schemas/hakoniwa.py`、`services/hakoniwa_service.py`。
+- `hakoniwa_logic.py` は状態・掟・住民・変身・年代記の純関数、`hakoniwa_prompts.py` と `hakoniwa_generation.py` は設定中のテキストプロバイダによる生成と定型へのフォールバックを担当する。
+- `hakoniwa_images.py` は世界ごとの画像保存・登録キャラクター立ち絵の複製を担当する。`portrait_generation.py` の透過指定は NovelAI V5 のみで有効になる。
+- 永続化は `HakoniwaWorld` / `hakoniwa_worlds.state_json` と migration `038_add_hakoniwa_worlds.py`。状態変更は世界単位のロックで直列化する。
+- 検証: `tests/unit/test_hakoniwa_*.py`、`test_novelai_transparent_background.py`。DB テストは `isolated_db` を使用する。
+
 - エントリーポイント: `backend/gateway/app.py`
 - APIモデル（Pydantic）: `backend/gateway/schemas/`（ドメイン別。下表）
 - 内部状態モデル（dataclass）: `backend/gateway/models.py`（難易度プリセット、臨界点、`SessionStats`、`Character`、`PersistedHistory` / `PersistedSession` など）

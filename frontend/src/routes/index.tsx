@@ -60,6 +60,9 @@ export const ROUTES = {
   SALON: "/salon",
   SALON_RUN: "/salon/:runId",
   SALON_VISIT: "/salon/:runId/visits/:visitId",
+  // AI箱庭(世界の一覧と作成 → 世界の画面)
+  HAKONIWA: "/hakoniwa",
+  HAKONIWA_WORLD: "/hakoniwa/:worldId",
 } as const;
 
 // セッションID付きのゲームURLを生成するヘルパー
@@ -70,6 +73,9 @@ export const getSalonRunPath = (runId: string): string => `/salon/${runId}`;
 
 export const getSalonVisitPath = (runId: string, visitId: string): string =>
   `/salon/${runId}/visits/${visitId}`;
+
+export const getHakoniwaWorldPath = (worldId: string): string =>
+  `/hakoniwa/${worldId}`;
 
 // 画面コンポーネントのエクスポート（App.tsxで使用）
 export { AchievementsScreen, EndingsScreen, GalleryScreen, SettingsScreen };

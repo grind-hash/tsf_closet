@@ -307,6 +307,14 @@ export const SETTINGS_ITEMS = [
     ],
   },
   {
+    id: "hakoniwa",
+    category: "experimental",
+    searchKeys: [
+      "settings.experimentalHakoniwa",
+      "settings.experimentalHakoniwaDesc",
+    ],
+  },
+  {
     id: "surroundings",
     category: "image",
     section: "experimental",

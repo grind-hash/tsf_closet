@@ -56,6 +56,29 @@ def _comfy_size(size: str | None) -> tuple[int, int]:
     return _COMFY_SIZE_PRESETS.get(key, _COMFY_SIZE_PRESETS["landscape"])
 
 
+# VAE デコード由来の微小なアルファ(縁の滲み)を 0 に丸める閾値。
+# これ未満は見た目には完全な透過で、背景の四隅に残る 1 程度の値を消す
+ALPHA_SNAP_THRESHOLD = 8
+
+
+def _normalize_alpha_image(image: Image.Image) -> Image.Image:
+    """アルファ付きの画像を PNG に保存できる RGBA にそろえる。
+
+    PIL は PA モードを PNG に書けないため RGBA へ変換し、微小なアルファは 0 に丸める。
+    アルファの無い画像はそのまま返す。
+    """
+    mode = getattr(image, "mode", None)
+    if mode in ("LA", "PA"):
+        image = image.convert("RGBA")
+        mode = "RGBA"
+    if mode != "RGBA":
+        return image
+    alpha = image.getchannel("A")
+    table = [0 if value < ALPHA_SNAP_THRESHOLD else value for value in range(256)]
+    image.putalpha(alpha.point(table))
+    return image
+
+
 @dataclass
 class UsageInfo:
     """API使用量情報"""
@@ -476,8 +499,13 @@ class NovelAIImageClient:
         size_override: str | None = None,
         model_override: str | None = None,
         raw_prompt: bool = False,
+        transparent_background: bool = False,
     ) -> ImageGenerationResult:
-        """画像生成 / 画像変換 (i2i)"""
+        """画像生成 / 画像変換 (i2i)
+
+        transparent_background が真で V5 系モデルなら、NovelAI のアルファ透過で
+        生成する(RGBA の PNG を返す)。V5 以外のモデルでは無視する。
+        """
         client = await self._get_client()
 
         # i2i強度の決定:
@@ -685,6 +713,11 @@ class NovelAIImageClient:
             # ここでモデルとアクションを上書きする（リクエスト直前）
             req.model = model_to_use
             req.action = action_to_use
+            if transparent_background and model_info.is_v5 and not use_inpaint:
+                # SDK の入力検証は V5 のモデル名でないと透過指定を拒むため、
+                # ベースモデル名で組み立てた変換後のリクエストへ直接設定する
+                req.parameters.straight_alpha = True
+                req.parameters.tag_hint_transparent_background = True
             if characters and all(c.get("fixed_position") for c in characters):
                 # SDK は常に AI's Choice（use_coords=False）で送るため、登録した
                 # 立ち位置を使う手番だけ Custom 配置（座標指定）に切り替える
@@ -724,7 +757,7 @@ class NovelAIImageClient:
         image_bytes_list: list[bytes] = []
         for img in images:
             buf = BytesIO()
-            img.save(buf, format="PNG")
+            _normalize_alpha_image(img).save(buf, format="PNG")
             image_bytes_list.append(buf.getvalue())
 
         return ImageGenerationResult(
@@ -808,7 +841,7 @@ class NovelAIImageClient:
         image_bytes_list: list[bytes] = []
         for img in images:
             buf = BytesIO()
-            img.save(buf, format="PNG")
+            _normalize_alpha_image(img).save(buf, format="PNG")
             image_bytes_list.append(buf.getvalue())
 
         return ImageGenerationResult(
@@ -888,6 +921,7 @@ class ImageGenerationService:
         size_override: str | None = None,
         novelai_model_override: str | None = None,
         raw_prompt: bool = False,
+        transparent_background: bool = False,
         **comfy_kwargs: Any,
     ) -> ImageGenerationResult:
         """画像を生成する
@@ -955,6 +989,7 @@ class ImageGenerationService:
                     size_override=size_override,
                     model_override=novelai_model_override,
                     raw_prompt=raw_prompt,
+                    transparent_background=transparent_background,
                 )
         else:
             # セルフホスト (ComfyUI)

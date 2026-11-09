@@ -108,6 +108,7 @@ export default function SettingsScreen() {
     setExperimentalPromptExpanderEnabled,
     setCharacterChatEnabled,
     setExperimentalSalonEnabled,
+    setExperimentalHakoniwaEnabled,
     setAdventureEnableCompositeScene,
     setPlayMemoryEnabled,
     setEnableSurroundingsImage,
@@ -747,6 +748,34 @@ export default function SettingsScreen() {
             type="checkbox"
             checked={state.experimentalSalonEnabled}
             onChange={(e) => setExperimentalSalonEnabled(e.target.checked)}
+            className="settings-screen__toggle-input"
+          />
+          <span className="settings-screen__toggle-switch" />
+        </label>
+      </div>
+    ),
+    hakoniwa: (
+      <div className="settings-screen__item">
+        <label className="settings-screen__toggle">
+          <div className="settings-screen__toggle-info">
+            <span className="settings-screen__item-label">
+              {t("settings.experimentalHakoniwa")}
+              <span
+                className="feature-chip-experimental"
+                data-feature-version="v0.12.0"
+                style={{ marginLeft: "0.5rem" }}
+              >
+                Experimental
+              </span>
+            </span>
+            <span className="settings-screen__item-desc">
+              {t("settings.experimentalHakoniwaDesc")}
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            checked={state.experimentalHakoniwaEnabled}
+            onChange={(e) => setExperimentalHakoniwaEnabled(e.target.checked)}
             className="settings-screen__toggle-input"
           />
           <span className="settings-screen__toggle-switch" />

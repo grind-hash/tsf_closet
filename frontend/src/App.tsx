@@ -14,6 +14,7 @@ import GamePlayScreen from "./components/GamePlayScreen";
 // 007-chat-interactive-ux: ルートベースの画面コンポーネント
 import GalleryScreen from "./components/gallery/GalleryScreen";
 import GuideScreen from "./components/guide/GuideScreen";
+import HakoniwaScreen from "./components/hakoniwa/HakoniwaScreen";
 import NovelaiAccountModals, {
   NovelaiAccountCheckOnOpen,
 } from "./components/NovelaiAccountModals";
@@ -24,6 +25,7 @@ import SalonScreen from "./components/salon/SalonScreen";
 import SettingsScreen from "./components/settings/SettingsScreen";
 import { AdventureProvider } from "./contexts/AdventureContext";
 import { CharacterChatProvider } from "./contexts/CharacterChatContext";
+import { HakoniwaProvider } from "./contexts/HakoniwaContext";
 import { PromptExpanderProvider } from "./contexts/PromptExpanderContext";
 import { SalonProvider } from "./contexts/SalonContext";
 import { useSettings } from "./contexts/SettingsContext";
@@ -142,6 +144,21 @@ function AppRoutes() {
         <SalonScreen />
         <NovelaiAccountCheckOnOpen />
       </SalonProvider>
+    );
+  }
+  // AI箱庭（実験機能）。/hakoniwa・/hakoniwa/:worldId
+  if (
+    location.pathname === "/hakoniwa" ||
+    location.pathname.startsWith("/hakoniwa/")
+  ) {
+    if (!settingsState.experimentalHakoniwaEnabled) {
+      return <Navigate to="/play/new" replace />;
+    }
+    return (
+      <HakoniwaProvider>
+        <HakoniwaScreen />
+        <NovelaiAccountCheckOnOpen />
+      </HakoniwaProvider>
     );
   }
   // Prompt Expander（実験機能）。ゲートは設定画面のトグルで切り替える

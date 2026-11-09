@@ -24,7 +24,7 @@ const keyAsLabel = ((key: string) => key) as unknown as TFunction;
 
 describe("遊び方ガイドの網羅", () => {
   it("サイドメニューのすべての項目に、ガイドの項目がある", () => {
-    const menuIds = getMenuItems(keyAsLabel, true, true, true, true).map(
+    const menuIds = getMenuItems(keyAsLabel, true, true, true, true, true).map(
       (item) => item.id,
     );
     const covered = new Set([
@@ -69,7 +69,9 @@ describe("遊び方ガイドの網羅", () => {
 
   it("menuIds と settingKeys は実在する値だけを指す", () => {
     const menuIds = new Set(
-      getMenuItems(keyAsLabel, true, true, true, true).map((item) => item.id),
+      getMenuItems(keyAsLabel, true, true, true, true, true).map(
+        (item) => item.id,
+      ),
     );
     for (const feature of GUIDE_FEATURES) {
       for (const id of feature.menuIds) expect(menuIds).toContain(id);

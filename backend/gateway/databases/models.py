@@ -1147,3 +1147,32 @@ class CharacterChatMessage(Base):
     __table_args__ = (
         Index("idx_character_chat_messages_thread_created", "thread_id", "created_at"),
     )
+
+
+class HakoniwaWorld(Base):
+    """AI箱庭モードの世界1つ(住民・掟・年代記)。
+
+    住民・掟・出来事は state_json にまとめて持つ。day は一覧の表示用に state と同じ値を写す。
+    """
+
+    __tablename__ = "hakoniwa_worlds"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    day: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    state_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("idx_hakoniwa_worlds_user_updated", "user_id", "updated_at"),
+    )

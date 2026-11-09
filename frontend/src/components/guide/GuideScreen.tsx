@@ -75,6 +75,7 @@ export default function GuideScreen() {
     setExperimentalPromptExpanderEnabled,
     setCharacterChatEnabled,
     setExperimentalSalonEnabled,
+    setExperimentalHakoniwaEnabled,
     setPlayMemoryEnabled,
   } = useSettings();
 
@@ -293,6 +294,35 @@ export default function GuideScreen() {
                 onClick={() => navigate(ROUTES.SALON)}
               >
                 {t("guide.salon.open")}
+              </button>
+            )}
+          </GuideCard>
+
+          <GuideCard
+            icon={guideIcon("hakoniwa")}
+            title={t("guide.hakoniwa.title")}
+            desc={t("guide.hakoniwa.desc")}
+            note={t("guide.hakoniwa.note")}
+          >
+            <div className="guide-screen__card-status">
+              <GuideToggle
+                label={t("guide.enable")}
+                checked={state.experimentalHakoniwaEnabled}
+                onChange={setExperimentalHakoniwaEnabled}
+              />
+              {state.experimentalHakoniwaEnabled && (
+                <span className="guide-screen__added" role="status">
+                  {t("guide.addedToMenu")}
+                </span>
+              )}
+            </div>
+            {state.experimentalHakoniwaEnabled && (
+              <button
+                type="button"
+                className="guide-screen__cta"
+                onClick={() => navigate(ROUTES.HAKONIWA)}
+              >
+                {t("guide.hakoniwa.open")}
               </button>
             )}
           </GuideCard>

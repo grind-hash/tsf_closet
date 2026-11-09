@@ -16,6 +16,8 @@ export const menu = {
   characterChatDesc: "シナリオを経由せずキャラクターと1対1で会話",
   salon: "サロン経営",
   salonDesc: "お客様を着せ替えて、4週か12週のサロン経営に挑む",
+  hakoniwa: "AI箱庭",
+  hakoniwaDesc: "住民たちが暮らす下宿に掟を差し込み、1日ずつ眺める",
   endings: "エンディング",
   endingsDesc: "達成したエンディングを確認",
   guide: "遊び方ガイド",

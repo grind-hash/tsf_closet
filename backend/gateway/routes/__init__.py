@@ -8,6 +8,7 @@ from .favorite_prompts_router import router as favorite_prompts_router
 from .favorites_router import router as favorites_router
 from .gallery_router import router as gallery_router
 from .game_router import router as game_router
+from .hakoniwa_router import router as hakoniwa_router
 from .history_router import router as history_router
 from .memory_router import router as memory_router
 from .novelai_router import router as novelai_router
@@ -28,6 +29,7 @@ __all__ = [
     "favorites_router",
     "gallery_router",
     "game_router",
+    "hakoniwa_router",
     "history_router",
     "memory_router",
     "novelai_router",

@@ -1,0 +1,1235 @@
+/* AI箱庭: 夜の下宿をイメージした、木の色と灯りの琥珀色の配色 */
+
+.hakoniwa-page,
+.hakoniwa-world {
+  --hk-bg: #1d1916;
+  --hk-surface: #27211d;
+  --hk-surface-2: #312923;
+  --hk-border: #4a3f36;
+  --hk-border-strong: #6b5a4b;
+  --hk-text: #f1e8da;
+  --hk-muted: #b9aa96;
+  --hk-accent: #e3a95f;
+  --hk-accent-strong: #f0bd76;
+  --hk-on-accent: #2b1f12;
+  --hk-paper: #fffaf1;
+  --hk-ink: #3d3630;
+  --hk-warning: #f1c27d;
+  --hk-danger: #e88a7d;
+  color: var(--hk-text);
+  background:
+    radial-gradient(
+      120% 70% at 50% -10%,
+      rgb(227 169 95 / 0.12),
+      transparent 60%
+    ),
+    var(--hk-bg);
+}
+
+.hakoniwa-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 28px clamp(16px, 4vw, 52px) 52px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.hakoniwa-page > * {
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+.hakoniwa-page__header h1 {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 1.8rem;
+}
+
+.hakoniwa-page__lead {
+  color: var(--hk-muted);
+  line-height: 1.7;
+}
+
+.hakoniwa-eyebrow {
+  margin: 0;
+  letter-spacing: 0.24em;
+  font-size: 0.75rem;
+  color: var(--hk-accent);
+}
+
+.hakoniwa-card {
+  margin-top: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--hk-border);
+  border-radius: 14px;
+  background: var(--hk-surface);
+}
+
+.hakoniwa-card h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+}
+
+.hakoniwa-card h3 {
+  margin: 20px 0 4px;
+  font-size: 1rem;
+}
+
+.hakoniwa-note {
+  margin: 4px 0;
+  color: var(--hk-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.hakoniwa-note--warning {
+  color: var(--hk-warning);
+}
+
+.hakoniwa-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px auto;
+  padding: 10px 14px;
+  border: 1px solid var(--hk-danger);
+  border-radius: 10px;
+  color: var(--hk-danger);
+  background: rgb(232 138 125 / 0.08);
+}
+
+.hakoniwa-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--hk-muted);
+}
+
+/* --- ボタン・入力 --- */
+
+.hakoniwa-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.hakoniwa-button:hover:not(:disabled) {
+  border-color: var(--hk-accent);
+}
+
+.hakoniwa-button:focus-visible,
+.hakoniwa-tabs__chip:focus-visible,
+.hakoniwa-roster__item:focus-visible,
+.hakoniwa-resident-row:focus-visible {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: 2px;
+}
+
+.hakoniwa-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hakoniwa-button--primary {
+  border-color: var(--hk-accent);
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
+  font-weight: 600;
+}
+
+.hakoniwa-button--primary:hover:not(:disabled) {
+  background: var(--hk-accent-strong);
+}
+
+.hakoniwa-button--ghost {
+  background: transparent;
+}
+
+.hakoniwa-button--large {
+  padding: 12px 26px;
+  font-size: 1.05rem;
+}
+
+.hakoniwa-icon-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--hk-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--hk-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hakoniwa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+  font-size: 0.9rem;
+}
+
+.hakoniwa-field input,
+.hakoniwa-field textarea,
+.hakoniwa-field select,
+.hakoniwa-resident__block textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+}
+
+.hakoniwa-segments {
+  display: inline-flex;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.hakoniwa-segments button {
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--hk-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+
+.hakoniwa-segments button.is-active {
+  background: var(--hk-accent, #e3a95f);
+  color: var(--hk-on-accent, #2b1f12);
+}
+
+/* ON/OFF のトグルスイッチ */
+.hakoniwa-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.hakoniwa-toggle__input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.hakoniwa-toggle__switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--hk-border-strong);
+  transition: background-color 0.2s;
+}
+
+.hakoniwa-toggle__switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.hakoniwa-toggle__input:checked + .hakoniwa-toggle__switch {
+  background: var(--hk-accent);
+}
+
+.hakoniwa-toggle__input:checked + .hakoniwa-toggle__switch::after {
+  transform: translateX(20px);
+}
+
+.hakoniwa-toggle__input:focus-visible + .hakoniwa-toggle__switch {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: 2px;
+}
+
+.hakoniwa-toggle__input:disabled + .hakoniwa-toggle__switch {
+  opacity: 0.45;
+}
+
+.hakoniwa-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  color: var(--hk-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.hakoniwa-badge--accent {
+  border-color: var(--hk-accent);
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: hakoniwa-spin 0.8s linear infinite;
+}
+
+@keyframes hakoniwa-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hakoniwa-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* --- 一覧と作成 --- */
+
+.hakoniwa-worlds {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-worlds__item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-worlds__faces {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.hakoniwa-worlds__face {
+  width: 38px;
+  height: 52px;
+  margin-right: -10px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.hakoniwa-worlds__face--empty {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--hk-border);
+}
+
+.hakoniwa-worlds__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 10px;
+}
+
+.hakoniwa-worlds__text span {
+  color: var(--hk-muted);
+  font-size: 0.85rem;
+}
+
+.hakoniwa-worlds__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hakoniwa-roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-roster__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 8px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    opacity 0.15s,
+    border-color 0.15s;
+}
+
+.hakoniwa-roster__item.is-chosen {
+  border-color: var(--hk-accent);
+  opacity: 1;
+}
+
+.hakoniwa-roster__portrait {
+  height: 150px;
+  object-fit: contain;
+}
+
+.hakoniwa-roster__name {
+  font-weight: 600;
+}
+
+.hakoniwa-roster__meta {
+  color: var(--hk-accent-strong);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-roster__desc {
+  color: var(--hk-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.hakoniwa-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 4px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 999px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-chip__face {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top;
+  background: var(--hk-paper);
+}
+
+.hakoniwa-chip__meta {
+  color: var(--hk-muted);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-chip__remove {
+  border: none;
+  background: transparent;
+  color: var(--hk-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.hakoniwa-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.hakoniwa-create__count.is-invalid {
+  color: var(--hk-warning);
+}
+
+/* --- 世界の画面 --- */
+
+.hakoniwa-world {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 12px clamp(12px, 2vw, 24px) 16px;
+  overflow: hidden;
+}
+
+.hakoniwa-world__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding-bottom: 10px;
+}
+
+.hakoniwa-world__name {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.hakoniwa-world__day {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.hakoniwa-world__rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-world__rule {
+  padding: 2px 10px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 999px;
+  color: var(--hk-accent-strong);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-world__rule.is-empty {
+  border-color: var(--hk-border);
+  color: var(--hk-muted);
+}
+
+.hakoniwa-world__body {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  gap: 16px;
+  min-height: 0;
+}
+
+.hakoniwa-world__stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hakoniwa-world__advance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.hakoniwa-world__panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--hk-border);
+  border-radius: 14px;
+  background: var(--hk-surface);
+}
+
+.hakoniwa-world__tabpanel {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px 14px 18px;
+  overflow-y: auto;
+}
+
+.hakoniwa-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px 0;
+  border-bottom: 1px solid var(--hk-border);
+}
+
+.hakoniwa-tabs__chip {
+  position: relative;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--hk-muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.hakoniwa-tabs__chip.is-active {
+  border-color: var(--hk-border);
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font-weight: 600;
+}
+
+.hakoniwa-tabs__badge {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+@media (max-width: 960px) {
+  .hakoniwa-world {
+    overflow-y: auto;
+  }
+
+  /* 1列のときは中身の高さで伸ばし、画面全体をスクロールさせる */
+  .hakoniwa-world__body {
+    flex: none;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hakoniwa-world__stage {
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .hakoniwa-world__panel {
+    min-height: 420px;
+  }
+}
+
+/* --- 部屋(ステージ) --- */
+
+.hakoniwa-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hakoniwa-stage__room {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1216 / 832;
+  overflow: hidden;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 14px;
+  background: #f3e7cf;
+  user-select: none;
+}
+
+.hakoniwa-stage__room--playing {
+  cursor: pointer;
+}
+
+.hakoniwa-stage__canvas,
+.hakoniwa-stage__fallback {
+  position: absolute;
+  inset: 0;
+}
+
+.hakoniwa-stage__canvas canvas {
+  display: block;
+}
+
+.hakoniwa-stage__fallback {
+  background-size: cover;
+  background-position: center;
+}
+
+.hakoniwa-stage__fallback-avatar {
+  position: absolute;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  height: 55%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  transform: translate(-50%, -100%);
+  cursor: pointer;
+}
+
+.hakoniwa-stage__fallback-avatar img {
+  height: 100%;
+  object-fit: contain;
+}
+
+.hakoniwa-stage__fallback-avatar.is-selected img {
+  filter: drop-shadow(0 0 6px var(--hk-accent));
+}
+
+.hakoniwa-stage__fallback-initial {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 120px;
+  border: 3px dashed #b08968;
+  background: #efe3cd;
+  color: #8c6a4f;
+  font-size: 2.6rem;
+  font-weight: 700;
+}
+
+.hakoniwa-stage__fallback-name {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgb(255 253 248 / 0.88);
+  color: var(--hk-ink);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-stage__loading,
+.hakoniwa-stage__hint {
+  position: absolute;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(29 25 22 / 0.78);
+  color: var(--hk-text);
+  font-size: 0.85rem;
+}
+
+.hakoniwa-stage__loading {
+  top: 12px;
+}
+
+.hakoniwa-stage__hint {
+  bottom: 12px;
+}
+
+/* 吹き出し(住民の頭上に追従する) */
+.hakoniwa-bubble {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(46%, 360px);
+  padding: 10px 14px;
+  border: 2px solid #c9b79f;
+  border-radius: 16px;
+  background: var(--hk-paper);
+  color: var(--hk-ink);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+.hakoniwa-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -11px;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  border-right: 2px solid #c9b79f;
+  border-bottom: 2px solid #c9b79f;
+  background: var(--hk-paper);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.hakoniwa-bubble__name {
+  color: #9a6b3a;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.hakoniwa-bubble__text {
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+/* お嬢様言葉の掟: 金色の枠と明朝体 */
+.hakoniwa-bubble--ojousama {
+  border-color: #c99a2e;
+  background: #fffdf4;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+}
+
+.hakoniwa-bubble--ojousama::after {
+  border-color: #c99a2e;
+  background: #fffdf4;
+}
+
+/* キャプション(地の文と再生の操作) */
+.hakoniwa-caption {
+  padding: 12px 16px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 12px;
+  background: var(--hk-surface);
+}
+
+.hakoniwa-caption__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hakoniwa-caption__title {
+  font-weight: 700;
+}
+
+.hakoniwa-caption__progress {
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.hakoniwa-caption__narration {
+  margin: 6px 0 10px;
+  line-height: 1.75;
+}
+
+.hakoniwa-caption__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* --- 年代記 --- */
+
+.hakoniwa-chronicle__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-event {
+  padding: 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-event__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.hakoniwa-event__day {
+  color: var(--hk-accent-strong);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-event__title {
+  flex: 1;
+}
+
+.hakoniwa-event__star {
+  border: none;
+  background: transparent;
+  color: var(--hk-muted);
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+
+.hakoniwa-event__star.is-on {
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-event__participants {
+  margin: 4px 0;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-event__narration {
+  margin: 6px 0;
+  line-height: 1.7;
+  font-size: 0.9rem;
+}
+
+.hakoniwa-event__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.88rem;
+}
+
+.hakoniwa-event__lines li {
+  display: flex;
+  gap: 8px;
+  line-height: 1.6;
+}
+
+.hakoniwa-event__speaker {
+  flex-shrink: 0;
+  color: var(--hk-accent-strong);
+  font-weight: 600;
+}
+
+.hakoniwa-event__replay {
+  margin-top: 4px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+/* --- 住民 --- */
+
+.hakoniwa-residents__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--hk-border);
+  border-radius: 10px;
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakoniwa-resident-row.is-selected {
+  border-color: var(--hk-accent);
+}
+
+.hakoniwa-resident-row__face {
+  width: 36px;
+  height: 48px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.hakoniwa-resident-row__face--empty {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--hk-border);
+}
+
+.hakoniwa-resident-row__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hakoniwa-resident-row__text span {
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-residents__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hakoniwa-resident {
+  padding: 12px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-resident__head {
+  display: flex;
+  gap: 12px;
+}
+
+.hakoniwa-resident__portrait {
+  width: 110px;
+  height: 160px;
+  border-radius: 10px;
+  background: linear-gradient(#f6eddc, #e9dcc3);
+  object-fit: contain;
+  object-position: bottom;
+}
+
+.hakoniwa-resident__portrait--empty {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  box-sizing: border-box;
+  color: var(--hk-ink);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.hakoniwa-resident__summary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hakoniwa-resident__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.hakoniwa-resident__title h3 {
+  margin: 0;
+}
+
+.hakoniwa-resident__meta {
+  margin: 0;
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+}
+
+.hakoniwa-resident__states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident__details {
+  margin: 10px 0 0;
+  font-size: 0.86rem;
+}
+
+.hakoniwa-resident__details dt {
+  margin-top: 6px;
+  color: var(--hk-accent-strong);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-resident__details dd {
+  margin: 2px 0 0;
+  line-height: 1.6;
+}
+
+.hakoniwa-resident__relations {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident__relations li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hakoniwa-resident__relation-level {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-resident__block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hk-border);
+}
+
+.hakoniwa-resident__block textarea {
+  resize: vertical;
+}
+
+.hakoniwa-resident__current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.hakoniwa-resident__current p {
+  margin: 0;
+}
+
+.hakoniwa-resident__subheading {
+  margin: 6px 0 0;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-resident__history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident__history li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hakoniwa-resident__history-face {
+  width: 34px;
+  height: 46px;
+  border-radius: 6px;
+  background: #f6eddc;
+  object-fit: contain;
+}
+
+.hakoniwa-resident__history-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.hakoniwa-resident__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* --- 掟 --- */
+
+.hakoniwa-rules__count {
+  margin: 6px 0;
+  color: var(--hk-accent-strong);
+  font-size: 0.85rem;
+}
+
+.hakoniwa-rules__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-rule {
+  padding: 10px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 10px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-rule.is-active {
+  border-color: var(--hk-accent);
+}
+
+.hakoniwa-rule__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hakoniwa-rule__name {
+  font-weight: 600;
+}
+
+.hakoniwa-rule__desc {
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.hakoniwa-rule__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hakoniwa-rule__actions .hakoniwa-button {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+/* --- 設定 --- */
+
+.hakoniwa-settings__section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.hakoniwa-settings__section .hakoniwa-field {
+  width: 100%;
+}
+
+/* --- フォームのダイアログ --- */
+
+.hakoniwa-form-dialog {
+  max-width: min(560px, 94vw);
+}
+
+.hakoniwa-form {
+  text-align: left;
+}
+
+.hakoniwa-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
+.hakoniwa-tags code {
+  overflow-wrap: anywhere;
+}
