@@ -1,7 +1,7 @@
 """AI箱庭の生成プロンプト。
 
-実装済みの掟・入れ替わり・衣装・変身・気分・親密度のみを扱い、
-英語の指示の末尾で出力言語を指定する。
+実装済みの掟・入れ替わり・衣装・変身・気分・親密度・場所と家具・記憶・適応と名残・
+物語の弧・世界の違和感のみを扱い、英語の指示の末尾で出力言語を指定する。
 """
 
 from __future__ import annotations
@@ -18,18 +18,33 @@ from ..consts.hakoniwa import (
     HAKONIWA_PERSONALITY_PROMPT_MAX,
     HAKONIWA_RECENT_EVENTS_CONTEXT,
     HAKONIWA_RECENT_NARRATION_SNIPPET,
+    HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT,
     HAKONIWA_RULE_MAP,
     HAKONIWA_TAGS_MAX_COUNT,
     HAKONIWA_TRANSFORM_DESC_PROMPT_MAX,
     RULE_PRIORITY_NOTE,
     WORLD_BRIEF,
 )
+from ..consts.hakoniwa_play import (
+    HAKONIWA_CHAT_HISTORY_CONTEXT,
+    HAKONIWA_CHAT_REPLY_MAX,
+    INTERVENTION_DIRECTIVES,
+    TOUCH_PART_PROMPTS,
+    TOUCH_TOLERANT_MOOD,
+)
+from ..consts.hakoniwa_story import CONFRONTATION_SYSTEM
+from . import hakoniwa_play as play
+from . import hakoniwa_story_text as story_text
 from .hakoniwa_logic import (
+    active_combo,
     active_custom_rules,
     appearance_kind,
     body_gender,
+    combo_tags,
+    custom_rule,
     is_feminine_transformation,
     is_male_in_feminine_form,
+    look_rule_ids,
     resident_gender,
     resident_name,
     resident_text,
@@ -70,7 +85,12 @@ MALE_OUTFIT_GUIDANCE = (
 def male_confusion_guidance(
     state: dict[str, Any], resident: dict[str, Any], name: str
 ) -> str:
-    """本来は男性の住民への戸惑いの指示。体が女性になっているか、服だけかで書き分ける。"""
+    """本来は男性の住民への戸惑いの指示。体が女性になっているか、服だけかで書き分ける。
+
+    適応が「慣れかけ」以上に進んでいれば、和らいだ戸惑いの指示にする。
+    """
+    if story_text.male_guidance_is_softened(state, resident):
+        return story_text.adapted_male_guidance(name)
     if body_gender(state, resident) == "female":
         return MALE_CONFUSION_GUIDANCE.format(name=name)
     return MALE_OUTFIT_GUIDANCE.format(name=name)
@@ -196,6 +216,19 @@ def _gender_label(gender: str) -> str:
     return "man" if gender == "male" else "woman"
 
 
+def memo_section(state: dict[str, Any]) -> str:
+    """プレイヤーの「世界のメモ」。掟より優先する指示として載せる(空なら何も載せない)。"""
+    memo = play.world_memo(state)
+    if not memo:
+        return ""
+    return (
+        "\n\nHighest-priority instructions from the player (the style and facts of "
+        "this world set by the player; they take precedence over the world rules, and "
+        "the text you write must follow them):\n"
+        f"{memo}"
+    )
+
+
 def world_brief(state: dict[str, Any]) -> str:
     brief = WORLD_BRIEF
     if state.get("active_rules"):
@@ -230,6 +263,10 @@ def active_rules_text(state: dict[str, Any], language: str) -> str:
         lines.append(f"- {text}")
     if not lines:
         return "(No rules are active right now.)"
+    synergies = play.active_synergies(state)
+    if synergies:
+        lines.append("Rule combinations in effect:")
+        lines.extend(f"- {synergy['prompt']}" for synergy in synergies)
     if has_custom:
         lines.append(
             "(Player-written rules are absolute laws of this world and every "
@@ -250,9 +287,51 @@ def current_appearance_summary(
             :HAKONIWA_TRANSFORM_DESC_PROMPT_MAX
         ]
         return f"a look transformed into: '{description}'"
+    if kind == "combo":
+        combo = active_combo(state) or {"rule_ids": [], "includes_dress": False}
+        names = " and ".join(f"'{rule['name']}'" for rule in _look_rules(state, kind))
+        dress = " plus the dress rule" if combo["includes_dress"] else ""
+        tags = combo_tags(state, combo["rule_ids"])[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX]
+        return f"a combined look set by the rules {names}{dress} ({tags})"
+    if kind == "rule":
+        rules = _look_rules(state, kind)
+        if rules:
+            tags = str(rules[-1].get("appearance_tags") or "")
+            return (
+                f"a look set by the rule '{rules[-1]['name']}' "
+                f"({tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX]})"
+            )
     if kind == "dress":
         return "wearing a dress"
     return None
+
+
+def _look_rules(state: dict[str, Any], kind: str | None) -> list[dict[str, Any]]:
+    """いまの掟の姿(combo / rule)を決めている自作の掟。"""
+    if kind == "combo":
+        combo = active_combo(state)
+        ids = combo["rule_ids"] if combo else []
+    elif kind == "rule":
+        ids = look_rule_ids(state)[-1:]
+    else:
+        ids = []
+    rules = [custom_rule(state, rule_id) for rule_id in ids]
+    return [rule for rule in rules if rule is not None]
+
+
+def look_rule_link_text(state: dict[str, Any], kind: str | None) -> str:
+    """掟の姿を、その姿を定めた掟の本文に結びつける一文(掟の姿でなければ空)。"""
+    rules = _look_rules(state, kind)
+    if not rules:
+        return ""
+    texts = "; ".join(
+        f"'{rule['name']}': {str(rule['text'])[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX]}"
+        for rule in rules
+    )
+    return (
+        f" These looks are set by the world rules ({texts}); describe the look as "
+        "something the rule brought about."
+    )
 
 
 def appearance_note(state: dict[str, Any], resident: dict[str, Any]) -> str:
@@ -284,6 +363,14 @@ def _swap_note(state: dict[str, Any], resident: dict[str, Any], language: str) -
         resident_gender(resident) == "female" and body_gender(state, resident) == "male"
     ):
         note += " Originally a woman, now in a man's body."
+    own = resident_text(resident, language)["pronoun"]
+    theirs = resident_text(partner, language)["pronoun"]
+    if own and theirs and own != theirs:
+        # 体に合わせて一人称を変えてしまう癖があるので、使う語と使わない語を名指しする
+        note += (
+            f" Still says their own first person '{own}', never "
+            f"{resident_name(partner, language)}'s '{theirs}'."
+        )
     return note
 
 
@@ -306,6 +393,7 @@ def residents_text(state: dict[str, Any], language: str) -> str:
             f"Mood {resident['mood']}/100. {affinities}."
             f"{_swap_note(state, resident, language)}"
             f"{appearance_note(state, resident)}"
+            f"{story_text.story_notes(state, resident, language)}"
         )
     return "\n".join(lines)
 
@@ -376,9 +464,14 @@ def swap_focus_text(
             resident_gender(resident) == "male"
             and body_gender(state, resident) == "female"
         ):
-            text += "\n" + MALE_CONFUSION_GUIDANCE.format(
-                name=resident_name(resident, language)
+            text += "\n" + male_confusion_guidance(
+                state, resident, resident_name(resident, language)
             )
+    if any(story_text.adaptation_stage(state, item) for item in (a, b)):
+        text += (
+            "\nHow strongly they react follows each one's adaptation stage given "
+            "below; once they are used to it, show familiarity rather than shock."
+        )
     return text
 
 
@@ -417,6 +510,7 @@ def appearance_focus_text(
         "\n\n[Important: always include reactions to the current look]\n"
         f"Among the main characters, {', '.join(targets)} look different from usual. "
         f"Do not write the day as if the look did not exist. {clause}"
+        f"{look_rule_link_text(state, appearance_kind(state, group[0]))}"
     )
     for resident, name in confused:
         text += "\n" + male_confusion_guidance(state, resident, name)
@@ -584,6 +678,9 @@ def event_user_prompt(
     rule_focus_rule_id: str | None = None,
     others_today: list[list[str]] | None = None,
     area_id: str | None = None,
+    arc_focus_id: str | None = None,
+    arc_climax: bool = False,
+    intervention: str | None = None,
 ) -> str:
     names = [resident_name(resident, language) for resident in group]
     if len(group) == 1:
@@ -611,23 +708,58 @@ def event_user_prompt(
     return (
         f"Today is day {state['day']} at Stardust House.\n"
         f"{lead}\n"
-        f"{place_text(state, area_id)}\n\n"
+        f"{place_text(state, area_id)}"
+        f"{story_text.dissonance_context_text(state)}\n\n"
         f"World rules:\n{active_rules_text(state, language)}\n\n"
         f"Residents:\n{residents_text(state, language)}\n\n"
-        f"Recent events:\n{recent_events_text(state)}\n"
+        f"Recent events:\n{recent_events_text(state)}"
+        f"{story_text.memories_context_text(state, group, language)}"
+        f"{story_text.arcs_context_text(state, language)}\n"
         f"{others}"
         "Avoid topics and developments similar to the recent events, and make the "
         "event feel like part of their accumulating relationship."
         f"{swap_focus_text(state, group, language)}"
         f"{appearance_focus_text(state, group, language)}"
+        f"{story_text.adaptation_focus_text(state, group, language)}"
+        f"{story_text.world_adaptation_focus_text(state, group, language)}"
         f"{risque_focus_text(state, group, language)}"
+        f"{story_text.investigation_focus_text(state, group, language)}"
+        f"{story_text.arc_focus_text(state, arc_focus_id, arc_climax, language)}"
         f"{focus}"
+        f"{INTERVENTION_DIRECTIVES.get(str(intervention or ''), '')}"
+        f"{memo_section(state)}"
     )
 
 
 def greeting_prompts(
     state: dict[str, Any], resident: dict[str, Any], language: str, *, nsfw: bool
 ) -> tuple[str, str]:
+    system_prompt = (
+        f"{WORLD_BRIEF}\n"
+        "You are this resident of the miniature world. The player has just said hello. "
+        "Reply with one short line in character (1-2 sentences, at most 60 Japanese "
+        "characters or 30 English words). Output only the spoken words: no narration, "
+        "headings, quotation marks or explanations. If rules are active, always reflect "
+        "their speech style and premise.\n"
+        f"{gender_address_rules(language)}\n"
+        f"{content_rule(nsfw)}\n"
+        f"Reply in {response_language(language)}."
+    )
+    user_prompt = (
+        f"{resident_profile_text(state, resident, language)}"
+        f"{look_hint(state, resident)}"
+        f"{story_text.dissonance_context_text(state)}\n"
+        f"World rules:\n{active_rules_text(state, language)}"
+        f"{story_text.memories_context_text(state, [resident], language)}"
+        f"{memo_section(state)}"
+    )
+    return system_prompt, user_prompt
+
+
+def resident_profile_text(
+    state: dict[str, Any], resident: dict[str, Any], language: str
+) -> str:
+    """一言・タッチ・会話で使う「あなたは〜」の住民の説明(性格・気分・関係・場所・姿)。"""
     names = {item["id"]: resident_name(item, language) for item in state["residents"]}
     text = resident_text(resident, language)
     top_affinity = ""
@@ -639,6 +771,20 @@ def greeting_prompts(
             f" The relationship that stands out is with {names.get(other_id, other_id)} "
             f"(affinity {value})."
         )
+    pronoun = f" First-person pronoun: {text['pronoun']}." if text["pronoun"] else ""
+    return (
+        f"You are {text['name']} ({_gender_label(resident_gender(resident))}, "
+        f"{text['age']}, {text['job']}). Personality: "
+        f"{str(text['personality'])[:HAKONIWA_PERSONALITY_PROMPT_MAX]}{pronoun} "
+        f"Mood {resident['mood']}/100.{top_affinity} "
+        f"Currently in the {area_name(resident.get('current_area'), 'en').lower()}."
+        f"{_swap_note(state, resident, language)}{appearance_note(state, resident)}"
+        f"{story_text.story_notes(state, resident, language)}"
+    )
+
+
+def look_hint(state: dict[str, Any], resident: dict[str, Any]) -> str:
+    """いまの姿に触れてよい旨と、男性の戸惑い・際どい姿の羞恥の指示。"""
     hint = ""
     if appearance_kind(state, resident) or swap_partner_id(state, resident["id"]):
         hint = " The line may touch on the character's current look."
@@ -658,27 +804,130 @@ def greeting_prompts(
                 " The look is revealing; embarrassment or restless self-awareness of "
                 "being looked at may show."
             )
-    pronoun = f" First-person pronoun: {text['pronoun']}." if text["pronoun"] else ""
+    return hint
+
+
+def touch_prompts(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    part: str,
+    language: str,
+    *,
+    nsfw: bool,
+) -> tuple[str, str]:
+    """プレイヤーに体を触られた住民の、その場の一言。"""
+    hints = []
+    if part == "head":
+        hints.append("React to having your head patted, with embarrassment or relief.")
+    else:
+        hints.append(
+            "React to being touched suddenly, in character: surprise, embarrassment, a "
+            "rebuke, or, depending on the mood, a shy acceptance."
+        )
+    if appearance_is_risque(state, resident):
+        hints.append(
+            "Your look is revealing and daring; let the embarrassment and the extra "
+            "awareness of being looked at and touched show."
+        )
+    if is_male_in_feminine_form(state, resident):
+        hints.append(
+            "You are originally a man in a feminine form; let bewilderment, confusion "
+            "and embarrassment at being touched in this form show strongly."
+        )
+    mood = int(resident.get("mood") or 50)
+    if mood >= TOUCH_TOLERANT_MOOD:
+        hints.append("Your mood is good, so you can take it lightly or jokingly.")
+    elif mood < 40:
+        hints.append("Your mood is not good, so the reaction tends to be prickly.")
     system_prompt = (
-        f"{WORLD_BRIEF}\n"
-        "You are this resident of the miniature world. The player has just said hello. "
-        "Reply with one short line in character (1-2 sentences, at most 60 Japanese "
-        "characters or 30 English words). Output only the spoken words: no narration, "
-        "headings, quotation marks or explanations. If rules are active, always reflect "
-        "their speech style and premise.\n"
+        f"{world_brief(state)}\n"
+        "You are this resident of the miniature world. The player (the one who watches "
+        "over and rewrites this world) has just touched you. Reply with one line of "
+        "dialogue in character (1-2 sentences, at most 80 Japanese characters or 40 "
+        "English words). Output only the spoken words: no narration, headings, "
+        "quotation marks or explanations. If rules are active, reflect their premise.\n"
         f"{gender_address_rules(language)}\n"
         f"{content_rule(nsfw)}\n"
         f"Reply in {response_language(language)}."
     )
     user_prompt = (
-        f"You are {text['name']} ({_gender_label(resident_gender(resident))}, "
-        f"{text['age']}, {text['job']}). Personality: "
-        f"{str(text['personality'])[:HAKONIWA_PERSONALITY_PROMPT_MAX]}{pronoun} "
-        f"Mood {resident['mood']}/100.{top_affinity} "
-        f"Currently in the {area_name(resident.get('current_area'), 'en').lower()}."
-        f"{_swap_note(state, resident, language)}{appearance_note(state, resident)}"
-        f"{hint}\n"
+        f"{resident_profile_text(state, resident, language)}\n"
+        f"Just now, you {TOUCH_PART_PROMPTS[part]}. {' '.join(hints)}"
+        f"{story_text.dissonance_context_text(state)}\n"
         f"World rules:\n{active_rules_text(state, language)}"
+        f"{memo_section(state)}"
+    )
+    return system_prompt, user_prompt
+
+
+def chat_reply_prompts(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    history: list[dict[str, Any]],
+    message: str,
+    language: str,
+    *,
+    nsfw: bool,
+) -> tuple[str, str]:
+    """箱庭の中で、住民本人としてプレイヤーと会話する。"""
+    name = resident_name(resident, language)
+    lines = []
+    for entry in history[-HAKONIWA_CHAT_HISTORY_CONTEXT:]:
+        role = entry.get("role")
+        if role == "player":
+            speaker = "Player"
+        elif role == "resident":
+            speaker = name
+        else:
+            speaker = "(system)"
+        lines.append(f"{speaker}: {str(entry.get('text') or '')[:300]}")
+    history_text = "\n".join(lines) if lines else "(no conversation yet)"
+    limit = (
+        HAKONIWA_CHAT_REPLY_MAX // 2 if language == "ja" else HAKONIWA_CHAT_REPLY_MAX
+    )
+    system_prompt = (
+        f"{world_brief(state)}\n"
+        "You are this resident of the miniature world, talking freely with the player "
+        "(the one who watches over and rewrites this world). Reply to the player's "
+        "latest message with a natural reply in character, 1-3 sentences "
+        f"(at most {limit} characters). Output only the spoken words: no narration, "
+        "headings, quotation marks, lists or meta explanations. Reflect the active "
+        "rules, your current look, mood and relationships, and continue the flow of the "
+        "recent conversation. Do not pretend to know things you do not know; keep the "
+        "everyday feel of a resident.\n"
+        f"{gender_address_rules(language)}\n"
+        f"{content_rule(nsfw)}\n"
+        f"Reply in {response_language(language)}."
+    )
+    user_prompt = (
+        f"{resident_profile_text(state, resident, language)}"
+        f"{look_hint(state, resident)}"
+        f"{story_text.dissonance_context_text(state)}\n"
+        f"World rules:\n{active_rules_text(state, language)}"
+        f"{story_text.memories_context_text(state, [resident], language)}"
+        f"{memo_section(state)}\n\n"
+        f"Recent conversation:\n{history_text}\n\n"
+        f"The player's latest message: {message}"
+    )
+    return system_prompt, user_prompt
+
+
+def alteration_prompts(
+    message: str, resident_label: str, current_look: str
+) -> tuple[str, str]:
+    """会話文が、姿をその場で変える(または元に戻す)指示かどうかを分類させる。"""
+    system_prompt = (
+        "You are an input classifier for a game. Decide whether the player's message "
+        "to a resident is an instruction to change that resident's look or clothing "
+        "on the spot, and output only one JSON object: "
+        '{"action": "transform" | "clear" | "none", "instruction": "the change to make"}.\n'
+        "Impressions, questions, wishes and mentioning clothes as a topic are none. "
+        "Only imperative instructions that change the look or outfit are transform; an "
+        "instruction to go back to the usual look is clear. No explanation."
+    )
+    user_prompt = (
+        f"Resident: {resident_label}. Current look: {current_look}.\n"
+        f"Player's message: {message}"
     )
     return system_prompt, user_prompt
 
@@ -701,6 +950,41 @@ def transform_tags_prompts(instruction: str, base_tags: str) -> tuple[str, str]:
     )
     user_prompt = f"Current tags: {base_tags}\nInstruction: {instruction}"
     return system_prompt, user_prompt
+
+
+def rule_look_tags_prompts(name: str, text: str, description: str) -> tuple[str, str]:
+    """自作の掟が住民の見た目に与える変化を、服装・装いのタグにさせる。"""
+    system_prompt = (
+        "You design tags for image generation. From a world rule of a miniature "
+        "world (its name, its text and, if given, a description of the look), create "
+        "Danbooru-style tags that describe how the rule changes every resident's "
+        "appearance: clothing, accessories and items, or visible additions such as "
+        "animal ears. If a look description is given, follow it first.\n"
+        "Do not include tags about a person's own features (hair, eyes, face, body "
+        "type, age, sex, gender, number of people such as 1girl or 1boy), because "
+        "each resident keeps their own. Output at most "
+        f"{HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT} tags, comma-separated, on a single line, "
+        "in English only. No Japanese, explanation, preface or code fence."
+    )
+    user_prompt = f"Rule name: {name}\nRule text: {text}"
+    if description:
+        user_prompt += f"\nLook description: {description}"
+    return system_prompt, user_prompt
+
+
+def rule_look_instruction(look_tags: str, *, dress: bool = False) -> str:
+    """住民のいまのタグを、掟の姿のタグへ書き換えさせる指示(変身と同じ変換に使う)。"""
+    instruction = (
+        f"Apply the look that a world rule sets for everyone: {look_tags}. Replace the "
+        "clothing that conflicts with it and keep the person's own face, hair, body "
+        "and gender as they are unless these tags change them."
+    )
+    if dress:
+        instruction += (
+            " The rule of dresses is also active, so the outfit stays an elegant dress "
+            "combined with these looks."
+        )
+    return instruction
 
 
 def appearance_tags_prompts(
@@ -783,9 +1067,46 @@ def transform_reaction_prompts(
     user_prompt = (
         f'Transformed resident: {target_name}. The instruction: "{change_text}".\n'
         f"Involved residents: {involved_text}.\n"
-        f"{place_text(state, target.get('current_area'))}\n"
+        f"{place_text(state, target.get('current_area'))}"
+        f"{story_text.dissonance_context_text(state)}\n"
         f"{extra}"
         f"World rules:\n{active_rules_text(state, language)}"
+        f"{memo_section(state)}"
+    )
+    return system_prompt, user_prompt
+
+
+def confrontation_prompts(
+    state: dict[str, Any],
+    pair: tuple[dict[str, Any], dict[str, Any]],
+    language: str,
+    *,
+    nsfw: bool,
+) -> tuple[str, str]:
+    """世界の違和感が到達点に達したとき、住民が書き手へ呼びかける出来事。"""
+    a_name, b_name = (resident_name(resident, language) for resident in pair)
+    system_prompt = (
+        f"{world_brief(state)}\n"
+        f"{CONFRONTATION_SYSTEM}\n"
+        f"{DIALOGUE_CRAFT_GUIDANCE}\n"
+        "Narration must not contain dialogue in quotation marks. Speakers and "
+        "participants must be written exactly as the names given.\n"
+        f"{gender_address_rules(language)}\n"
+        f"{NO_MALE_ROMANCE_RULE}\n"
+        f"{content_rule(nsfw)}\n"
+        "Output only one JSON object in this format, with no preface or code fence:\n"
+        f"{_event_schema(pair, language)}\n"
+        f"Write the title, narration and lines in {response_language(language)}."
+    )
+    user_prompt = (
+        f"Today is day {state['day']} at Stardust House.\n"
+        f"Main characters: {a_name} and {b_name}.\n"
+        f"{place_text(state, pair[0].get('current_area'))}\n\n"
+        f"World rules:\n{active_rules_text(state, language)}\n\n"
+        f"Residents:\n{residents_text(state, language)}\n\n"
+        f"Recent events:\n{recent_events_text(state)}"
+        f"{story_text.memories_context_text(state, pair, language)}"
+        f"{memo_section(state)}"
     )
     return system_prompt, user_prompt
 

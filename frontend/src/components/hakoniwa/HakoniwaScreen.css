@@ -219,8 +219,12 @@
   color: var(--hk-on-accent, #2b1f12);
 }
 
-/* ON/OFF のトグルスイッチ */
+/*
+ * ON/OFF のトグルスイッチ。隠した checkbox の基準をラベルにして、スクロールする
+ * 右パネルの外(ページ全体)へはみ出させない。
+ */
 .hakoniwa-toggle {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -480,6 +484,14 @@
   color: var(--hk-warning);
 }
 
+.hakoniwa-create__option {
+  margin-top: 18px;
+}
+
+.hakoniwa-create__option .hakoniwa-note {
+  margin: 4px 0 0;
+}
+
 /* --- 世界の画面 --- */
 
 .hakoniwa-world {
@@ -536,6 +548,34 @@
   color: var(--hk-muted);
 }
 
+/* 世界の違和感: 掟のチップと同じ行・同じ形。段階が上がるほど色を強める */
+.hakoniwa-world__dissonance {
+  padding: 2px 10px;
+  border: 1px dashed var(--hk-border-strong);
+  border-radius: 999px;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.hakoniwa-world__dissonance.is-stirring {
+  border-color: var(--hk-warning);
+  color: var(--hk-warning);
+}
+
+.hakoniwa-world__dissonance.is-probing,
+.hakoniwa-world__dissonance.is-confrontation {
+  border-style: solid;
+  border-color: var(--hk-danger);
+  color: var(--hk-danger);
+}
+
+.hakoniwa-world__dissonance.is-acknowledged {
+  border-style: solid;
+  border-color: var(--hk-accent);
+  color: var(--hk-accent-strong);
+}
+
 .hakoniwa-world__body {
   display: grid;
   flex: 1 1 auto;
@@ -552,12 +592,26 @@
   overflow-y: auto;
 }
 
+/* 左に明日の介入と説明、右下に「1日進める」。狭くて並ばないときはボタンだけ次の行の右端へ */
 .hakoniwa-world__advance {
   display: flex;
   flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+}
+
+.hakoniwa-world__advance-options {
+  display: flex;
+  flex: 1 1 280px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.hakoniwa-world__advance-button {
+  flex: none;
+  margin-left: auto;
 }
 
 .hakoniwa-world__panel {
@@ -576,12 +630,18 @@
   overflow-y: auto;
 }
 
-/* タブが増えても文字を折り返さず、入りきらない幅では横にスクロールさせる */
+/*
+ * タブが増えても文字を折り返さず、入りきらない幅では横にスクロールさせる。
+ * overflow を指定すると flex の最小の高さが 0 になり、下の中身が長いタブで帯が縦に
+ * 押しつぶされるため、高さは縮めない(flex: none)。
+ */
 .hakoniwa-tabs {
   display: flex;
+  flex: none;
   gap: 6px;
   padding: 10px 12px 0;
   overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid var(--hk-border);
   scrollbar-width: thin;
 }
@@ -945,6 +1005,17 @@
 .hakoniwa-event__place {
   margin-left: 10px;
   color: var(--hk-accent-strong);
+}
+
+.hakoniwa-event__arc {
+  margin: 2px 0 4px;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-event__arc.is-climax {
+  color: var(--hk-accent-strong);
+  font-weight: 600;
 }
 
 .hakoniwa-event__actions {
@@ -1433,6 +1504,27 @@
   color: var(--hk-muted);
 }
 
+.hakoniwa-resident__memories {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident__memories li {
+  display: flex;
+  gap: 8px;
+  line-height: 1.55;
+}
+
+.hakoniwa-resident__memory-day {
+  flex-shrink: 0;
+  color: var(--hk-accent-strong);
+  font-size: 0.78rem;
+}
+
 .hakoniwa-resident__block {
   display: flex;
   flex-direction: column;
@@ -1560,6 +1652,69 @@
   font-size: 0.8rem;
 }
 
+/* 掟の姿: 見た目の説明(プレイヤーの文)と、そこから作ったタグを分けて出す */
+.hakoniwa-rule__appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--hk-border);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-rule__appearance-text {
+  color: var(--hk-text);
+  line-height: 1.5;
+}
+
+.hakoniwa-rule__appearance-tags {
+  color: var(--hk-muted);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.hakoniwa-rule__look {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+
+.hakoniwa-rule__look-status {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-rule__look .hakoniwa-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.hakoniwa-rules__combo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 10px;
+  background: var(--hk-surface-2);
+  font-size: 0.85rem;
+}
+
+.hakoniwa-rules__combo-names {
+  margin: 0;
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-rules__combo .hakoniwa-note {
+  margin: 0;
+}
+
 /* --- 設定 --- */
 
 .hakoniwa-settings__section {
@@ -1570,7 +1725,8 @@
   margin-bottom: 18px;
 }
 
-.hakoniwa-settings__section .hakoniwa-field {
+.hakoniwa-settings__section .hakoniwa-field,
+.hakoniwa-settings__section .hakoniwa-toggle {
   width: 100%;
 }
 
@@ -1621,4 +1777,259 @@
     background: var(--hk-surface);
     box-shadow: none;
   }
+}
+
+/* --- 明日の介入(「1日進める」の横) --- */
+
+.hakoniwa-intervention {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.hakoniwa-intervention__label {
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+}
+
+.hakoniwa-intervention .hakoniwa-segments button {
+  padding: 5px 12px;
+  font-size: 0.82rem;
+}
+
+.hakoniwa-intervention .hakoniwa-segments button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* --- 世界のメモ・掟の相性 --- */
+
+.hakoniwa-settings__memo-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.hakoniwa-rule__synergies {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+}
+
+.hakoniwa-rule__synergies li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--hk-muted);
+  line-height: 1.5;
+}
+
+.hakoniwa-rule__synergies li.is-active {
+  color: var(--hk-accent-strong);
+}
+
+/* --- 立ち絵に触れる --- */
+
+.hakoniwa-resident__portrait-button {
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+}
+
+.hakoniwa-resident__portrait-button:focus-visible {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: 2px;
+}
+
+.hakoniwa-touch {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.6);
+}
+
+.hakoniwa-touch__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: min(480px, 100%);
+  max-height: 100%;
+  padding: 14px 16px;
+  overflow-y: auto;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 14px;
+  background: var(--hk-surface);
+  color: var(--hk-text);
+}
+
+.hakoniwa-touch__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.hakoniwa-touch__panel .hakoniwa-note {
+  margin: 0;
+}
+
+.hakoniwa-touch__figure {
+  display: block;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(#f6eddc, #e9dcc3);
+  line-height: 0;
+  cursor: pointer;
+}
+
+.hakoniwa-touch__figure:focus-visible {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: 2px;
+}
+
+.hakoniwa-touch__image {
+  display: block;
+  height: min(56vh, 520px);
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.hakoniwa-touch__reaction {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3.2em;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--hk-paper);
+  color: var(--hk-ink);
+  line-height: 1.6;
+}
+
+.hakoniwa-touch__reaction .hakoniwa-note {
+  color: #7a6d5f;
+}
+
+.hakoniwa-touch__part {
+  margin-right: 8px;
+  color: #9a6b3a;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* --- 箱庭の中での会話(ADV と同じ枠) --- */
+
+.hakoniwa-chat {
+  cursor: default;
+}
+
+.hakoniwa-chat__window {
+  max-height: 58%;
+}
+
+.hakoniwa-chat__thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--hk-muted);
+}
+
+.hakoniwa-chat__form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hakoniwa-chat__label {
+  color: var(--hk-muted);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-chat__form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.hakoniwa-chat__hint {
+  margin: 6px 0 0;
+  font-size: 0.74rem;
+}
+
+.hakoniwa-chat__log {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* 広い画面では、中央のメッセージ窓(最大 1100px)の右の余白に収める */
+  width: min(360px, calc(100% - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 14px;
+  background: rgb(29 25 22 / 0.96);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+}
+
+.hakoniwa-chat__log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.hakoniwa-chat__log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.hakoniwa-chat__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hakoniwa-chat__entry-speaker {
+  color: var(--hk-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.hakoniwa-chat__entry.is-player .hakoniwa-chat__entry-speaker {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-chat__entry.is-system {
+  color: var(--hk-muted);
 }

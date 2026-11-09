@@ -10,6 +10,9 @@
 - `hakoniwa_logic.py` は状態・掟・住民・変身・年代記の純関数、`hakoniwa_prompts.py` と `hakoniwa_generation.py` は設定中のテキストプロバイダによる生成と定型へのフォールバックを担当する。
 - `consts/hakoniwa.py` に場所（living / garden / study、背景・家具スロット・英語の情景文）と家具の一覧がある。場所と家具の状態は `hakoniwa_logic.py`（`current_area`・`furniture_layout`・`pick_event_area`・`place_furniture`）。
 - `hakoniwa_digest.py` は1日のまとめ（山場・変化・明日の予感）を種類と数値で組み立てる純関数、`hakoniwa_scene.py` は場面絵の提案（`scene_suggestion`）と NovelAI のキャラクター枠つき要求（`scene_request`）を組み立てる。
+- 物語の厚み: `hakoniwa_story.py`（世界の違和感と対面・本人と世界の適応・名残・住民の記憶・物語の弧の純関数）、`hakoniwa_story_text.py`（記憶・名残の文とプロンプトの指示ブロック）、定数と文面は `consts/hakoniwa_story.py`。状態は種類と参照で保存し、文は表示・プロンプトのときに言語ごとに組み立てる。掟の切り替え API は対面の出来事を `new_events` で返す。
+- 掟の姿・複合の姿: 自作の掟の `appearance_text`(プレイヤーの文)と `appearance_tags`(派生)、住民の `rule_images` / `combo_images`。表示の優先順位は `hakoniwa_logic.own_look`(変身 → 複合 → 掟 → ドレス → 通常)、生成は `HakoniwaService.generate_rule_look` / `generate_combo_look`(住民ごとに直列)。
+- 関わり方: `hakoniwa_play.py`（世界のメモ・掟の相性・明日の介入・タッチの気分・会話の履歴と変身指示の判定の純関数）、定数と文面は `consts/hakoniwa_play.py`。会話からの変身は `HakoniwaService._apply_transform` を変身パネルと共有し、V5 の確認が要るときは `needs_confirmation` を返して実行しない。`HakoniwaError` は `hakoniwa_errors.py`。
 - `hakoniwa_images.py` は世界ごとの画像保存・登録キャラクター立ち絵の複製・姿と場面絵の生成を担当する。`portrait_generation.py` の透過指定は NovelAI V5 のみで有効になる。
 - 永続化は `HakoniwaWorld` / `hakoniwa_worlds.state_json` と migration `038_add_hakoniwa_worlds.py`。状態変更は世界単位のロックで直列化する。
 - 検証: `tests/unit/test_hakoniwa_*.py`、`test_novelai_transparent_background.py`。DB テストは `isolated_db` を使用する。

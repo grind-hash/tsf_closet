@@ -26,6 +26,9 @@ export const hakoniwa = {
     addCharacter: "Bring in a character",
     removeCharacter: "Remove",
     rosterCount: "{{count}} residents (2–10)",
+    dissonanceLabel: "World strangeness",
+    dissonanceNote:
+      "As you switch rules and transform residents, they begin to notice that someone is rewriting their world, start investigating, and finally call out to the writer. You can change this later on the Settings tab.",
     create: "Create a world with these residents",
     creating: "Creating the world…",
   },
@@ -55,6 +58,12 @@ export const hakoniwa = {
     advanceHint: "Three events happen and play out in the room.",
     activeRules: "Active rules",
     noActiveRules: "No rules",
+    dissonance: "Strangeness: {{stage}} {{value}}",
+    dissonanceTitle:
+      "World strangeness {{value}}/100. {{remaining}} more to “{{stage}}”. It rises when you switch rules or transform residents, and settles a little on days without rewrites.",
+    dissonanceAcknowledgedTitle:
+      "World strangeness {{value}}/100. The residents know the writer exists.",
+    dissonanceMaxTitle: "World strangeness {{value}}/100.",
   },
   tabs: {
     label: "Dollhouse panel",
@@ -89,6 +98,10 @@ export const hakoniwa = {
     day: "Day {{day}}",
     sourceTemplate: "Template",
     transformMark: "Transformation",
+    confrontationMark: "Confrontation",
+    arcContinue: "Continues the story “{{title}}”",
+    arcClimax: "Climax of the story “{{title}}”",
+    arcUnknown: "an ongoing story",
     participants: "With: {{names}}",
     line: "“{{text}}”",
   },
@@ -111,6 +124,8 @@ export const hakoniwa = {
     and: " and ",
     reasonTransform: "{{name}} changed shape",
     reason: {
+      confrontation: "the residents called out to the writer",
+      arc_climax: "an ongoing story reached its climax",
       movement: "a relationship moved a lot",
       trio: "three of them were together",
       center: "the event at the center of the day",
@@ -118,6 +133,28 @@ export const hakoniwa = {
     affinityChange: "{{names}}: {{delta}} (now {{value}})",
     moodUp: "{{name}} cheered up (now {{label}})",
     moodDown: "{{name}} sank a little (now {{label}})",
+    adaptations: "Adapting",
+    adaptationSelf: "{{name}}'s adaptation to the {{subject}}: now “{{stage}}”",
+    adaptationWorld: "Others, about {{names}}'s {{subject}}: now “{{stage}}”",
+    arcs: "Ongoing stories",
+    arcLine: "“{{title}}”: {{status}}",
+    arcStarted: "has begun",
+    arcRemaining: "{{remaining}} more until the climax",
+    arcNearClimax: "the climax is next",
+    arcClimax: "reached its climax and closed",
+    arcFaded: "quietly faded",
+    arcResolved: "came to a close",
+    dissonance: "World strangeness",
+    intervention: "Your intervention",
+    dissonanceChange: "{{fromStage}} {{from}} → {{toStage}} {{to}}",
+    dissonanceNext: "({{remaining}} more to “{{stage}}”)",
+    dissonanceAcknowledged: "(the residents know the writer exists)",
+    hintAcknowledged:
+      "The residents now know the writer exists. The days ahead are about how they come to terms with it.",
+    hintDissonanceNear:
+      "World strangeness is {{remaining}} away from “{{stage}}”. Keep rewriting, and the residents will start to act differently.",
+    hintArcNearClimax:
+      "The story “{{title}}” looks set to reach its climax next.",
     hintSwap:
       "{{a}} and {{b}} are still swapped. How will they spend tomorrow?",
     hintNearClose:
@@ -161,6 +198,8 @@ export const hakoniwa = {
     swappedWith: "Swapped with {{name}}",
     transformed: "Transformed",
     dressed: "In a dress",
+    ruleLook: "Rule look",
+    comboLook: "Combined look",
     noAvatar: "No look yet",
     selectHint:
       "Choose a resident in the room or in the list below to talk to them or transform them.",
@@ -171,6 +210,7 @@ export const hakoniwa = {
   panel: {
     close: "Deselect",
     talk: "Say hello",
+    chat: "Start a conversation",
     talking: "Thinking…",
     personality: "Personality",
     relations: "Relationships",
@@ -234,7 +274,38 @@ export const hakoniwa = {
     textNote:
       "While active, the text is always passed to event generation as a world rule.",
     deleteTitle: "Delete this rule?",
-    deleteBody: '"{{name}}" will be deleted. If active, it is turned off.',
+    deleteBody:
+      '"{{name}}" will be deleted. If active, it is turned off and its look is no longer used.',
+    appearance: "Look description (optional)",
+    appearancePlaceholder: "e.g. Everyone wears a maid outfit and a headdress",
+    appearanceNote:
+      "Used to generate the rule look and the combined look. If left empty, the look is worked out from the rule's name and text when generating. Japanese text is turned into image tags and saved separately (your text stays as written).",
+    appearanceTags: "Look tags",
+    appearanceShown: "Look: {{text}}",
+    appearanceFromRule: "Look: worked out from the rule text when generating",
+    lookStatus: "Looks: {{ready}} / {{total}}",
+    lookReady: "Looks: ready for everyone",
+    lookStale: "({{count}} drawn before the look changed)",
+    synergy: "Combo with “{{name}}”: {{label}} — {{hint}}",
+    synergyActive: "In effect",
+    lookGenerate: "Generate looks ({{count}})",
+    lookRedraw: "Redraw ({{count}})",
+    lookGenerating: "Generating one by one…",
+    lookLabel: "the look of the rule “{{name}}”",
+    lookConfirmTitle: "Generate looks?",
+    lookConfirm: "Generate {{count}}",
+    lookConfirmBody:
+      "Generate {{label}} for the {{count}} residents who don't have it yet, one at a time ({{count}} images). This takes a little while.",
+    lookConfirmRedraw:
+      "Redraw {{label}} for all {{count}} residents ({{count}} images). This takes a little while.",
+    lookPartial:
+      "Looks for {{count}} residents could not be generated. Press the button again to generate only the missing ones.",
+    comboHeading: "Combined look",
+    comboLabel: "the combined look ({{names}})",
+    comboJoin: " + ",
+    comboUntagged:
+      "The look of {{names}} will be worked out from the rule text when generating.",
+    quoted: "“{{name}}”",
     deleteConfirm: "Delete",
   },
   settings: {
@@ -247,8 +318,122 @@ export const hakoniwa = {
     providerNote:
       "The image model choice applies only when NovelAI is your image provider.",
     usageHeading: "V5 usage",
+    memoHeading: "World memo",
+    memoPlaceholder:
+      "e.g. Everyone speaks softly and politely / It is winter, and snow falls every night",
+    memoCount: "{{count}} / {{max}} characters",
+    memoSave: "Save memo",
+    memoNote:
+      "Passed to every generation (events, greetings, conversations, reactions) as instructions that take precedence over the rules. Nothing is passed when empty.",
+    dissonanceToggle: "Use world strangeness",
+    dissonanceNote:
+      "Switching rules and transforming residents builds up world strangeness, and the residents gradually notice the rewrites (stillness → stirring → probing → confrontation). At 80, the residents call out to the writer once. When off, the value stops and no investigation or confrontation events happen.",
     deleteHeading: "This world",
     deleteWorld: "Delete this world",
+  },
+  intervention: {
+    label: "Tomorrow's intervention",
+    choice: {
+      watch: "Watch",
+      nudge: "A gentle nudge",
+      rewrite: "Stronger rewrites",
+      arc_boost: "Push the story",
+      adaptation_care: "Support the changed",
+      dissonance_push: "Stir the strangeness",
+    },
+    note: {
+      watch: "No intervention.",
+      nudge:
+        "Next day, residents grow closer or adapt a step further more easily.",
+      rewrite:
+        "Next day, the story moves a lot and the world strangeness rises a little.",
+      arc_boost:
+        "Next day, ongoing stories get more weight and the people carrying them grow a little closer.",
+      adaptation_care:
+        "Next day, changed residents adapt a little more easily.",
+      dissonance_push:
+        "Next day, residents touch on the world's strangeness, and it rises a little.",
+    },
+    result: {
+      watch: "You did not intervene.",
+      nudge:
+        "You gave the residents a gentle nudge. Their adaptation moved along a little.",
+      rewrite:
+        "You strengthened the rewrites. The story moved a lot and the world strangeness rose a little.",
+      arc_boost:
+        "You pushed the ongoing story. The people carrying it grew a little closer.",
+      adaptation_care:
+        "You supported the changed residents. Their adaptation moved along a little.",
+      dissonance_push: "You stirred the strangeness. It rose a little.",
+    },
+  },
+  touch: {
+    open: "Enlarge the portrait to touch",
+    title: "Touch {{name}}",
+    close: "Close",
+    hint: "Press where you want to touch (head, chest, below the waist). The mood shifts a little. Nothing is added to the chronicle.",
+    figure: "Portrait of {{name}} (touches where you press)",
+    waiting: "Not touched yet.",
+    part: {
+      head: "Head",
+      chest: "Chest",
+      lower: "Below the waist",
+    },
+  },
+  chat: {
+    title: "Talk with {{name}}",
+    you: "You",
+    system: "Notice",
+    log: "Log",
+    logTitle: "Conversation log",
+    logClose: "Close the log",
+    logEmpty: "No conversation yet.",
+    thinking: "{{name}} is thinking…",
+    empty: "Say something to {{name}}.",
+    inputLabel: "Your words to {{name}}",
+    placeholder: "e.g. How was your day? / Put on a maid outfit",
+    send: "Send",
+    close: "End the conversation",
+    hint: 'Enter to send, Shift+Enter for a new line. Instructions such as "Put on ..." or "Change back" are carried out on the spot as a transformation or undoing it (a transformation generates an image and is added to the chronicle).',
+  },
+  story: {
+    dissonanceStage: {
+      stillness: "Stillness",
+      stirring: "Stirring",
+      probing: "Probing",
+      confrontation: "Confrontation",
+    },
+    acknowledged: "Acknowledged",
+    adaptationStage: {
+      bewildered: "Bewildered",
+      trial: "Trial and error",
+      used: "Getting used to it",
+      accepted: "Accepted",
+    },
+    worldStage: {
+      surprise: "Surprised",
+      used: "Getting used to it",
+      normal: "Treated as normal",
+      settled: "Settled",
+    },
+    subject: {
+      swap: "swapped body",
+      transform: "new look",
+    },
+    arcTitle: {
+      investigation: "{{a}}'s investigation: chasing the world's strangeness",
+      swap: "The swapped days of {{a}} and {{b}}",
+      transform: "Around {{a}}'s new look",
+      bond: "The distance between {{a}} and {{b}}",
+    },
+    adaptationBadge: "Self: {{stage}}",
+    adaptationTitle: "Their own adaptation to the {{subject}}",
+    worldBadge: "Others: {{stage}}",
+    worldTitle: "How used the others are to the current look",
+    remnantHeading: "Remnant",
+    remnant: "{{text}} (fades in {{days}} days)",
+    memoriesHeading: "Remembers",
+    memoriesEmpty: "No memories of big events yet.",
   },
   usage: {
     title: "Your V5 allowance is used up",
@@ -277,6 +462,16 @@ export const hakoniwa = {
     area_not_found: "Place not found.",
     invalid_slot: "That spot is not valid.",
     furniture_not_found: "Furniture not found.",
+    look_tags_failed:
+      "Could not make look tags for the rule. Edit the rule and rewrite the look description, or write it as English tags.",
+    no_combo:
+      "A combined look needs at least two active rules that change looks (your rules and the Rule of Dresses).",
+    invalid_rule_appearance: "Keep the look description within 300 characters.",
+    invalid_world_memo: "Keep the world memo within 1000 characters.",
+    invalid_intervention: "That intervention cannot be chosen right now.",
+    invalid_touch_part: "That part cannot be touched.",
+    empty_message: "Enter a message.",
+    invalid_message: "Keep the message within 500 characters.",
   },
   dismissError: "Close",
 };

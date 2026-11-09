@@ -27,6 +27,9 @@ export const hakoniwa = {
     addCharacter: "キャラクターを迎える",
     removeCharacter: "外す",
     rosterCount: "住民 {{count}} 人（2〜10人）",
+    dissonanceLabel: "世界の違和感",
+    dissonanceNote:
+      "掟の切り替えや変身を重ねると、住民たちが「誰かが世界を書き換えている」と気づき始め、調べたり、最後には書き手へ呼びかけたりします。あとから設定タブでも切り替えられます。",
     create: "この顔ぶれで世界をつくる",
     creating: "世界をつくっています…",
   },
@@ -56,6 +59,12 @@ export const hakoniwa = {
     advanceHint: "その日の出来事が3件生まれ、部屋で再生されます。",
     activeRules: "有効な掟",
     noActiveRules: "掟なし",
+    dissonance: "違和感: {{stage}} {{value}}",
+    dissonanceTitle:
+      "世界の違和感 {{value}}/100。「{{stage}}」まであと{{remaining}}。掟の切り替えや変身で高まり、書き換えの無い日は少し静まります。",
+    dissonanceAcknowledgedTitle:
+      "世界の違和感 {{value}}/100。住民たちは書き手の存在を知っています。",
+    dissonanceMaxTitle: "世界の違和感 {{value}}/100。",
   },
   tabs: {
     label: "箱庭のパネル",
@@ -90,6 +99,10 @@ export const hakoniwa = {
     day: "{{day}}日目",
     sourceTemplate: "定型",
     transformMark: "変身",
+    confrontationMark: "対面",
+    arcContinue: "物語「{{title}}」の続き",
+    arcClimax: "物語「{{title}}」の山場",
+    arcUnknown: "続いてきた物語",
     participants: "登場: {{names}}",
     line: "「{{text}}」",
   },
@@ -112,6 +125,8 @@ export const hakoniwa = {
     and: "と",
     reasonTransform: "{{name}}の姿が変わった",
     reason: {
+      confrontation: "住民たちが書き手へ呼びかけた",
+      arc_climax: "続いてきた物語が山場を迎えた",
       movement: "関係が大きく動いた",
       trio: "3人がそろった",
       center: "今日の中心になった出来事",
@@ -119,6 +134,27 @@ export const hakoniwa = {
     affinityChange: "{{names}}の仲が {{delta}}（いま {{value}}）",
     moodUp: "{{name}}の気分が上向いた（いま {{label}}）",
     moodDown: "{{name}}の気分が沈んだ（いま {{label}}）",
+    adaptations: "適応の進展",
+    adaptationSelf: "{{name}}の{{subject}}への適応が「{{stage}}」へ",
+    adaptationWorld: "周りは{{names}}の{{subject}}に「{{stage}}」",
+    arcs: "続いている物語",
+    arcLine: "「{{title}}」: {{status}}",
+    arcStarted: "始まった",
+    arcRemaining: "山場まであと{{remaining}}件",
+    arcNearClimax: "次が山場",
+    arcClimax: "山場を迎えて一区切り",
+    arcFaded: "静かに薄れていった",
+    arcResolved: "一区切りついた",
+    dissonance: "世界の違和感",
+    intervention: "介入の結果",
+    dissonanceChange: "{{fromStage}} {{from}} → {{toStage}} {{to}}",
+    dissonanceNext: "（「{{stage}}」まであと{{remaining}}）",
+    dissonanceAcknowledged: "（住民たちは書き手の存在を知っている）",
+    hintAcknowledged:
+      "住民たちは書き手の存在を知りました。これからの日々は、それをどう受け止めていくかの物語になります。",
+    hintDissonanceNear:
+      "世界の違和感は「{{stage}}」まであと{{remaining}}。書き換えを重ねると、住民たちの様子が変わっていきます。",
+    hintArcNearClimax: "物語「{{title}}」は、次が山場になりそうです。",
     hintSwap:
       "{{a}}と{{b}}はまだ入れ替わったまま。明日はどんな顔で過ごすのでしょう。",
     hintNearClose:
@@ -163,6 +199,8 @@ export const hakoniwa = {
     swappedWith: "{{name}}と入れ替わり中",
     transformed: "変身中",
     dressed: "ドレス姿",
+    ruleLook: "掟の姿",
+    comboLook: "複合の姿",
     noAvatar: "姿がまだありません",
     selectHint:
       "部屋の住民か、下の一覧から住民を選ぶと、話しかけたり変身させたりできます。",
@@ -173,6 +211,7 @@ export const hakoniwa = {
   panel: {
     close: "選択を外す",
     talk: "話しかける",
+    chat: "会話を始める",
     talking: "考えています…",
     personality: "性格",
     relations: "関係",
@@ -235,7 +274,37 @@ export const hakoniwa = {
     textPlaceholder: "例: 住民は全員、猫耳を付けて過ごす",
     textNote: "有効な間、本文は出来事の生成に「世界の掟」として必ず載ります。",
     deleteTitle: "掟を削除しますか？",
-    deleteBody: "「{{name}}」を削除します。有効なら自動で解除されます。",
+    deleteBody:
+      "「{{name}}」を削除します。有効なら自動で解除され、この掟の姿も使われなくなります。",
+    appearance: "見た目の説明（任意）",
+    appearancePlaceholder: "例: 全員がメイド服とヘッドドレス姿になる",
+    appearanceNote:
+      "掟の姿・複合の姿の生成に使います。書かなければ、生成するときに掟の名前と本文から考えます。日本語の文章は画像のタグに変換して別に保存します（書いた文章はそのまま残ります）。",
+    appearanceTags: "見た目のタグ",
+    appearanceShown: "見た目: {{text}}",
+    appearanceFromRule: "見た目: 生成するときに掟の本文から考えます",
+    lookStatus: "姿: {{ready}} / {{total}}人",
+    lookReady: "姿: 全員ぶん生成済み",
+    lookStale: "（見た目を変える前の姿が{{count}}人分）",
+    synergy: "相性:「{{name}}」と『{{label}}』— {{hint}}",
+    synergyActive: "発動中",
+    lookGenerate: "姿を生成（{{count}}人分）",
+    lookRedraw: "描き直す（{{count}}人分）",
+    lookGenerating: "1人ずつ生成しています…",
+    lookLabel: "掟「{{name}}」の姿",
+    lookConfirmTitle: "姿を生成しますか？",
+    lookConfirm: "{{count}}人分を生成",
+    lookConfirmBody:
+      "{{label}}を、まだの住民{{count}}人分、1人ずつ生成します（画像{{count}}枚）。少し時間がかかります。",
+    lookConfirmRedraw:
+      "{{label}}を、住民{{count}}人分すべて描き直します（画像{{count}}枚）。少し時間がかかります。",
+    lookPartial:
+      "{{count}}人分の姿を生成できませんでした。もう一度押すと、まだの住民の分だけ生成します。",
+    comboHeading: "複合の姿",
+    comboLabel: "複合の姿（{{names}}）",
+    comboJoin: "＋",
+    comboUntagged: "{{names}}の見た目は、生成するときに掟の本文から考えます。",
+    quoted: "「{{name}}」",
     deleteConfirm: "削除する",
   },
   settings: {
@@ -248,8 +317,117 @@ export const hakoniwa = {
     providerNote:
       "画像モデルの選択は、画像生成に NovelAI を使っているときだけ効きます。",
     usageHeading: "V5 の利用状況",
+    memoHeading: "世界のメモ",
+    memoPlaceholder:
+      "例: 全員がやわらかい敬語で話す／季節は冬で、毎晩雪が降っている",
+    memoCount: "{{count}} / {{max}}文字",
+    memoSave: "メモを保存",
+    memoNote:
+      "出来事・一言・会話・反応のすべての生成に、掟より優先する指示として載せます（空なら載せません）。",
+    dissonanceToggle: "世界の違和感を使う",
+    dissonanceNote:
+      "掟の切り替えや変身で世界の違和感が溜まり、住民たちが書き換えに気づいていきます（静けさ → ざわめき → 探り合い → 対面）。80 に達すると一度だけ、住民が書き手へ呼びかける出来事が起きます。OFF にすると値は止まり、調査や対面の出来事は起きません。",
     deleteHeading: "この世界",
     deleteWorld: "この世界を削除",
+  },
+  intervention: {
+    label: "明日の介入",
+    choice: {
+      watch: "見守る",
+      nudge: "そっと後押し",
+      rewrite: "書き換えを強める",
+      arc_boost: "物語を後押し",
+      adaptation_care: "変わった住民を支える",
+      dissonance_push: "違和感を煽る",
+    },
+    note: {
+      watch: "介入はしません。",
+      nudge: "次の日は、距離が縮まったり適応が一歩進んだりしやすくなります。",
+      rewrite: "次の日は物語が大きく動き、世界の違和感が少し高まります。",
+      arc_boost:
+        "次の日は続いている物語が厚く描かれ、担い手どうしの距離が少し縮まります。",
+      adaptation_care: "次の日は、変わった住民の適応が少し進みやすくなります。",
+      dissonance_push:
+        "次の日は住民が世界の違和感に触れる出来事が起き、違和感が少し高まります。",
+    },
+    result: {
+      watch: "介入はしませんでした。",
+      nudge: "住民たちをそっと後押ししました。適応の歩みが少し進みました。",
+      rewrite:
+        "書き換えを強めました。物語が大きく動き、世界の違和感が少し高まりました。",
+      arc_boost:
+        "続いている物語を後押ししました。担い手どうしの距離が少し縮まりました。",
+      adaptation_care: "変わった住民を支えました。適応の歩みが少し進みました。",
+      dissonance_push: "違和感を煽りました。世界の違和感が少し高まりました。",
+    },
+  },
+  touch: {
+    open: "立ち絵を拡大して触れる",
+    title: "{{name}}に触れる",
+    close: "閉じる",
+    hint: "立ち絵の触れたいところを押してください（頭・胸・腰から下）。気分が少し動きます。年代記には残りません。",
+    figure: "{{name}}の立ち絵（押した位置に触れます）",
+    waiting: "まだ触れていません。",
+    part: {
+      head: "頭",
+      chest: "胸",
+      lower: "腰から下",
+    },
+  },
+  chat: {
+    title: "{{name}}と話す",
+    you: "あなた",
+    system: "お知らせ",
+    log: "ログ",
+    logTitle: "会話のログ",
+    logClose: "ログを閉じる",
+    logEmpty: "まだ会話がありません。",
+    thinking: "{{name}}が考えています…",
+    empty: "{{name}}に話しかけてみましょう。",
+    inputLabel: "{{name}}への言葉",
+    placeholder: "例: 今日はどんな一日だった？／メイド服に着替えて",
+    send: "送る",
+    close: "会話を終える",
+    hint: "Enter で送信、Shift+Enter で改行。「〜に着替えて」「元に戻して」のような指示は、その場で変身・元に戻すとして実行します（変身は画像を生成し、年代記に残ります）。",
+  },
+  story: {
+    dissonanceStage: {
+      stillness: "静けさ",
+      stirring: "ざわめき",
+      probing: "探り合い",
+      confrontation: "対面",
+    },
+    acknowledged: "公認",
+    adaptationStage: {
+      bewildered: "戸惑い",
+      trial: "試行錯誤",
+      used: "慣れかけ",
+      accepted: "受容",
+    },
+    worldStage: {
+      surprise: "驚き",
+      used: "見慣れかけ",
+      normal: "通常扱い",
+      settled: "定着",
+    },
+    subject: {
+      swap: "入れ替わった体",
+      transform: "新しい姿",
+    },
+    arcTitle: {
+      investigation: "{{a}}たちの調査 ― 世界の違和感を追って",
+      swap: "{{a}}と{{b}}の入れ替わりの日々",
+      transform: "{{a}}の新しい姿をめぐって",
+      bond: "{{a}}と{{b}}の距離",
+    },
+    adaptationBadge: "本人: {{stage}}",
+    adaptationTitle: "{{subject}}への本人の適応",
+    worldBadge: "周り: {{stage}}",
+    worldTitle: "いまの姿への周りの慣れ具合",
+    remnantHeading: "名残",
+    remnant: "{{text}}（あと{{days}}日で薄れる）",
+    memoriesHeading: "覚えていること",
+    memoriesEmpty: "まだ大きな出来事の記憶はありません。",
   },
   usage: {
     title: "V5 の利用上限を使い切っています",
@@ -279,6 +457,16 @@ export const hakoniwa = {
     area_not_found: "場所が見つかりません。",
     invalid_slot: "置き場所が正しくありません。",
     furniture_not_found: "家具が見つかりません。",
+    look_tags_failed:
+      "掟の見た目のタグを作れませんでした。掟の編集で、見た目の説明を書き直すか英語のタグで書いてお試しください。",
+    no_combo:
+      "複合の姿には、見た目に関わる掟（自作の掟とドレスの掟）を2つ以上有効にしてください。",
+    invalid_rule_appearance: "見た目の説明は300文字以内で入力してください。",
+    invalid_world_memo: "世界のメモは1000文字以内で入力してください。",
+    invalid_intervention: "いまは選べない介入です。",
+    invalid_touch_part: "触れた部位が正しくありません。",
+    empty_message: "メッセージを入力してください。",
+    invalid_message: "メッセージは500文字以内で入力してください。",
   },
   dismissError: "閉じる",
 };

@@ -17,6 +17,9 @@ from ..schemas.hakoniwa import (
     HakoniwaAvatarRequest,
     HakoniwaCatalogResponse,
     HakoniwaCharacterResidentRequest,
+    HakoniwaChatHistoryResponse,
+    HakoniwaChatRequest,
+    HakoniwaChatResponse,
     HakoniwaCreateRequest,
     HakoniwaCustomRuleRequest,
     HakoniwaDayResponse,
@@ -24,12 +27,17 @@ from ..schemas.hakoniwa import (
     HakoniwaFurnitureRequest,
     HakoniwaGreetingResponse,
     HakoniwaImageResponse,
+    HakoniwaInterventionRequest,
     HakoniwaLanguageRequest,
+    HakoniwaLookRequest,
+    HakoniwaLookResponse,
     HakoniwaReapplyRequest,
     HakoniwaResidentChangeResponse,
     HakoniwaResidentRequest,
     HakoniwaRuleToggleRequest,
     HakoniwaSettingsRequest,
+    HakoniwaTouchRequest,
+    HakoniwaTouchResponse,
     HakoniwaTransformRequest,
     HakoniwaWorldListResponse,
     HakoniwaWorldResponse,
@@ -50,7 +58,11 @@ _NOT_FOUND_CODES = {
     "area_not_found",
     "furniture_not_found",
 }
-_UPSTREAM_CODES = {"image_generation_failed", "tag_conversion_failed"}
+_UPSTREAM_CODES = {
+    "image_generation_failed",
+    "tag_conversion_failed",
+    "look_tags_failed",
+}
 _ERROR_RESPONSES = {
     400: {"model": ErrorResponse},
     404: {"model": ErrorResponse},
@@ -108,6 +120,7 @@ async def create_world(request: HakoniwaCreateRequest) -> HakoniwaWorldResponse:
             request.preset_ids,
             [item.model_dump() for item in request.characters],
             request.language,
+            dissonance_enabled=request.dissonance_enabled,
         )
     )
     return HakoniwaWorldResponse(**world)
@@ -140,7 +153,7 @@ async def delete_world(world_id: str) -> None:
 @router.patch(
     "/worlds/{world_id}/settings",
     response_model=HakoniwaWorldResponse,
-    summary="世界の設定(アバター生成の画像モデル)",
+    summary="世界の設定(アバター生成の画像モデル・世界の違和感)",
     responses=_ERROR_RESPONSES,
 )
 async def update_settings(
@@ -148,7 +161,11 @@ async def update_settings(
 ) -> HakoniwaWorldResponse:
     world = await _call(
         hakoniwa_service.update_settings(
-            world_id, image_model=request.image_model, language=request.language
+            world_id,
+            image_model=request.image_model,
+            dissonance_enabled=request.dissonance_enabled,
+            world_memo=request.world_memo,
+            language=request.language,
         )
     )
     return HakoniwaWorldResponse(**world)
@@ -170,17 +187,21 @@ async def advance_day(
 
 @router.put(
     "/worlds/{world_id}/rules/{card_id}",
-    response_model=HakoniwaWorldResponse,
+    response_model=HakoniwaDayResponse,
     summary="掟の有効化・解除",
+    description=(
+        "掟を切り替える。世界の違和感が到達点に達したら、住民が書き手へ呼びかける"
+        "出来事(対面)を new_events で返す"
+    ),
     responses=_ERROR_RESPONSES,
 )
 async def toggle_rule(
     world_id: str, card_id: str, request: HakoniwaRuleToggleRequest
-) -> HakoniwaWorldResponse:
-    world = await _call(
+) -> HakoniwaDayResponse:
+    result = await _call(
         hakoniwa_service.set_rule(world_id, card_id, request.active, request.language)
     )
-    return HakoniwaWorldResponse(**world)
+    return HakoniwaDayResponse(**result)
 
 
 @router.post(
@@ -194,7 +215,11 @@ async def add_custom_rule(
 ) -> HakoniwaWorldResponse:
     world = await _call(
         hakoniwa_service.add_custom_rule(
-            world_id, request.name, request.text, request.language
+            world_id,
+            request.name,
+            request.text,
+            request.appearance_text,
+            request.language,
         )
     )
     return HakoniwaWorldResponse(**world)
@@ -211,10 +236,60 @@ async def update_custom_rule(
 ) -> HakoniwaWorldResponse:
     world = await _call(
         hakoniwa_service.update_custom_rule(
-            world_id, rule_id, request.name, request.text, request.language
+            world_id,
+            rule_id,
+            request.name,
+            request.text,
+            request.appearance_text,
+            request.language,
         )
     )
     return HakoniwaWorldResponse(**world)
+
+
+@router.post(
+    "/worlds/{world_id}/custom-rules/{rule_id}/look",
+    response_model=HakoniwaLookResponse,
+    summary="自作の掟の姿を生成",
+    description=(
+        "住民の人数分の姿を1人ずつ生成する。見た目のタグが無ければ掟の本文から考える。"
+        "regenerate=false なら、今の見た目でまだ生成していない住民だけ"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def generate_rule_look(
+    world_id: str, rule_id: str, request: HakoniwaLookRequest
+) -> HakoniwaLookResponse:
+    result = await _call(
+        hakoniwa_service.generate_rule_look(
+            world_id,
+            rule_id,
+            regenerate=request.regenerate,
+            language=request.language,
+        )
+    )
+    return HakoniwaLookResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/combo-look",
+    response_model=HakoniwaLookResponse,
+    summary="複合の姿を生成",
+    description=(
+        "いま重なっている見た目の掟(自作の掟とドレスの掟)を合わせた姿を、住民の人数分"
+        "1人ずつ生成する"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def generate_combo_look(
+    world_id: str, request: HakoniwaLookRequest
+) -> HakoniwaLookResponse:
+    result = await _call(
+        hakoniwa_service.generate_combo_look(
+            world_id, regenerate=request.regenerate, language=request.language
+        )
+    )
+    return HakoniwaLookResponse(**result)
 
 
 @router.delete(
@@ -302,6 +377,77 @@ async def remove_resident(
         hakoniwa_service.remove_resident(world_id, resident_id, language)
     )
     return HakoniwaWorldResponse(**world)
+
+
+@router.put(
+    "/worlds/{world_id}/intervention",
+    response_model=HakoniwaWorldResponse,
+    summary="明日の介入を選ぶ",
+    description="次の「1日進める」で効かせる介入を選ぶ。進めるまでは選び直せる",
+    responses=_ERROR_RESPONSES,
+)
+async def set_intervention(
+    world_id: str, request: HakoniwaInterventionRequest
+) -> HakoniwaWorldResponse:
+    world = await _call(
+        hakoniwa_service.set_intervention(world_id, request.choice, request.language)
+    )
+    return HakoniwaWorldResponse(**world)
+
+
+@router.post(
+    "/worlds/{world_id}/residents/{resident_id}/touch",
+    response_model=HakoniwaTouchResponse,
+    summary="住民の立ち絵に触れる",
+    description="触れた部位への住民の一言(年代記には残さない)と、気分の小さな変化",
+    responses=_ERROR_RESPONSES,
+)
+async def touch_resident(
+    world_id: str, resident_id: str, request: HakoniwaTouchRequest
+) -> HakoniwaTouchResponse:
+    result = await _call(
+        hakoniwa_service.touch(world_id, resident_id, request.part, request.language)
+    )
+    return HakoniwaTouchResponse(**result)
+
+
+@router.get(
+    "/worlds/{world_id}/residents/{resident_id}/chat",
+    response_model=HakoniwaChatHistoryResponse,
+    summary="住民との会話の履歴",
+    responses=_ERROR_RESPONSES,
+)
+async def get_chat_history(
+    world_id: str, resident_id: str
+) -> HakoniwaChatHistoryResponse:
+    result = await _call(hakoniwa_service.chat_history(world_id, resident_id))
+    return HakoniwaChatHistoryResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/residents/{resident_id}/chat",
+    response_model=HakoniwaChatResponse,
+    summary="住民と会話する",
+    description=(
+        "住民本人として返事をする。変身・元に戻す指示なら実行して、結果を会話に残す"
+        "(変身の出来事は年代記にも積む)"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def chat_with_resident(
+    world_id: str, resident_id: str, request: HakoniwaChatRequest
+) -> HakoniwaChatResponse:
+    result = await _call(
+        hakoniwa_service.chat(
+            world_id,
+            resident_id,
+            request.message,
+            allow_image=request.allow_image,
+            confirmed_instruction=request.confirmed_instruction,
+            language=request.language,
+        )
+    )
+    return HakoniwaChatResponse(**result)
 
 
 @router.post(

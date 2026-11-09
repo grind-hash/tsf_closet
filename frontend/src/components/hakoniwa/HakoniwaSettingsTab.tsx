@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
@@ -12,6 +12,7 @@ import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import ConfirmDialog from "../ui/ConfirmDialog";
 
 const DEFAULT_MODEL = "default";
+const MEMO_MAX = 1000;
 
 function modelLabel(model: string): string {
   return (
@@ -20,13 +21,29 @@ function modelLabel(model: string): string {
   );
 }
 
-/** 設定タブ: 姿を生成する画像モデル(透過のしかたの説明つき)と、世界の削除 */
+/** 設定タブ: 姿を生成する画像モデル(透過のしかたの説明つき)、世界の違和感、世界の削除 */
 export default function HakoniwaSettingsTab() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { state: settingsState } = useSettings();
-  const { world, busy, setImageModel, deleteWorld } = useHakoniwa();
+  const {
+    world,
+    busy,
+    setImageModel,
+    setDissonanceEnabled,
+    setWorldMemo,
+    deleteWorld,
+  } = useHakoniwa();
   const modelId = useId();
+  const dissonanceId = useId();
+  const memoId = useId();
+  const savedMemo = world?.world_memo ?? "";
+  const [memo, setMemo] = useState(savedMemo);
+
+  // 別の世界を開いたり保存したりしたら、欄を保存済みの内容にそろえる
+  useEffect(() => {
+    setMemo(savedMemo);
+  }, [savedMemo]);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!world) return null;
@@ -65,6 +82,55 @@ export default function HakoniwaSettingsTab() {
             : t("hakoniwa.settings.transparencyRemoval")}
         </p>
         <p className="hakoniwa-note">{t("hakoniwa.settings.providerNote")}</p>
+      </section>
+
+      <section className="hakoniwa-settings__section">
+        <label className="hakoniwa-field" htmlFor={memoId}>
+          <span>{t("hakoniwa.settings.memoHeading")}</span>
+          <textarea
+            id={memoId}
+            rows={5}
+            value={memo}
+            maxLength={MEMO_MAX}
+            placeholder={t("hakoniwa.settings.memoPlaceholder")}
+            onChange={(event) => setMemo(event.target.value)}
+          />
+        </label>
+        <div className="hakoniwa-settings__memo-actions">
+          <span className="hakoniwa-note">
+            {t("hakoniwa.settings.memoCount", {
+              count: memo.length,
+              max: MEMO_MAX,
+            })}
+          </span>
+          <button
+            type="button"
+            className="hakoniwa-button"
+            disabled={busy !== null || memo.trim() === savedMemo}
+            onClick={() => void setWorldMemo(memo.trim())}
+          >
+            {t("hakoniwa.settings.memoSave")}
+          </button>
+        </div>
+        <p className="hakoniwa-note">{t("hakoniwa.settings.memoNote")}</p>
+      </section>
+
+      <section className="hakoniwa-settings__section">
+        <label className="hakoniwa-toggle" htmlFor={dissonanceId}>
+          <span>{t("hakoniwa.settings.dissonanceToggle")}</span>
+          <input
+            id={dissonanceId}
+            type="checkbox"
+            className="hakoniwa-toggle__input"
+            checked={world.dissonance.enabled}
+            disabled={busy !== null}
+            onChange={(event) =>
+              void setDissonanceEnabled(event.target.checked)
+            }
+          />
+          <span className="hakoniwa-toggle__switch" aria-hidden />
+        </label>
+        <p className="hakoniwa-note">{t("hakoniwa.settings.dissonanceNote")}</p>
       </section>
 
       {showUsage && usage && (

@@ -4,7 +4,13 @@ import { type HakoniwaResident, hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaPortrait from "./HakoniwaPortrait";
-import { affinityLevel, moodLevel } from "./hakoniwaLabels";
+import HakoniwaTouchPreview from "./HakoniwaTouchPreview";
+import {
+  adaptationStageKey,
+  affinityLevel,
+  moodLevel,
+  worldStageKey,
+} from "./hakoniwaLabels";
 
 const TRANSFORM_MAX = 500;
 
@@ -13,7 +19,7 @@ interface HakoniwaResidentPanelProps {
   onEdit: () => void;
 }
 
-/** 選んだ住民の詳細: 話しかける・その場で変身・姿の生成・編集 */
+/** 選んだ住民の詳細: 話しかける・適応と名残・覚えていること・その場で変身・姿の生成・編集 */
 export default function HakoniwaResidentPanel({
   resident,
   onEdit,
@@ -31,7 +37,9 @@ export default function HakoniwaResidentPanel({
     removeResident,
     selectResident,
     playbackQueue,
+    openChat,
   } = useHakoniwa();
+  const [touchOpen, setTouchOpen] = useState(false);
   const transformId = useId();
   // 住民を切り替えても書きかけの指定を残す
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -61,11 +69,19 @@ export default function HakoniwaResidentPanel({
       <div className="hakoniwa-resident__head">
         <div className="hakoniwa-resident__look">
           {resident.display_avatar_url ? (
-            <HakoniwaPortrait
-              src={hakoniwaMediaUrl(resident.display_avatar_url)}
-              alt={t("hakoniwa.panel.lookPreview", { name: resident.name })}
-              className="hakoniwa-resident__portrait"
-            />
+            <button
+              type="button"
+              className="hakoniwa-resident__portrait-button"
+              onClick={() => setTouchOpen(true)}
+              disabled={locked}
+              title={t("hakoniwa.touch.open")}
+            >
+              <HakoniwaPortrait
+                src={hakoniwaMediaUrl(resident.display_avatar_url)}
+                alt={t("hakoniwa.panel.lookPreview", { name: resident.name })}
+                className="hakoniwa-resident__portrait"
+              />
+            </button>
           ) : (
             <span className="hakoniwa-resident__portrait hakoniwa-resident__portrait--empty">
               {t("hakoniwa.residents.noAvatar")}
@@ -110,6 +126,44 @@ export default function HakoniwaResidentPanel({
                 {t("hakoniwa.residents.dressed")}
               </li>
             )}
+            {resident.display_kind === "rule" && (
+              <li className="hakoniwa-badge">
+                {t("hakoniwa.residents.ruleLook")}
+              </li>
+            )}
+            {resident.display_kind === "combo" && (
+              <li className="hakoniwa-badge">
+                {t("hakoniwa.residents.comboLook")}
+              </li>
+            )}
+            {resident.adaptation && (
+              <li
+                className="hakoniwa-badge"
+                title={t("hakoniwa.story.adaptationTitle", {
+                  subject: t(
+                    `hakoniwa.story.subject.${resident.adaptation.kind}`,
+                  ),
+                })}
+              >
+                {t("hakoniwa.story.adaptationBadge", {
+                  stage: t(
+                    `hakoniwa.story.adaptationStage.${adaptationStageKey(resident.adaptation.stage)}`,
+                  ),
+                })}
+              </li>
+            )}
+            {resident.world_adaptation && (
+              <li
+                className="hakoniwa-badge"
+                title={t("hakoniwa.story.worldTitle")}
+              >
+                {t("hakoniwa.story.worldBadge", {
+                  stage: t(
+                    `hakoniwa.story.worldStage.${worldStageKey(resident.world_adaptation.stage)}`,
+                  ),
+                })}
+              </li>
+            )}
           </ul>
           <button
             type="button"
@@ -125,6 +179,14 @@ export default function HakoniwaResidentPanel({
             ) : (
               t("hakoniwa.panel.talk")
             )}
+          </button>
+          <button
+            type="button"
+            className="hakoniwa-button"
+            onClick={() => openChat(resident.id)}
+            disabled={locked}
+          >
+            {t("hakoniwa.panel.chat")}
           </button>
         </div>
       </div>
@@ -152,6 +214,39 @@ export default function HakoniwaResidentPanel({
             </dd>
           </>
         )}
+        {resident.remnant && (
+          <>
+            <dt>{t("hakoniwa.story.remnantHeading")}</dt>
+            <dd>
+              {t("hakoniwa.story.remnant", {
+                text: resident.remnant.text,
+                days: resident.remnant.days_left,
+              })}
+            </dd>
+          </>
+        )}
+        <dt>{t("hakoniwa.story.memoriesHeading")}</dt>
+        <dd>
+          {resident.memories.length === 0 ? (
+            <span className="hakoniwa-note">
+              {t("hakoniwa.story.memoriesEmpty")}
+            </span>
+          ) : (
+            <ul className="hakoniwa-resident__memories">
+              {resident.memories.map((memory, index) => (
+                <li
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 同じ日に同じ記憶が並ぶことがあり、並び順が識別子になる
+                  key={`${memory.day}:${memory.kind}:${index}`}
+                >
+                  <span className="hakoniwa-resident__memory-day">
+                    {t("hakoniwa.chronicle.day", { day: memory.day })}
+                  </span>
+                  <span>{memory.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </dd>
       </dl>
 
       <div className="hakoniwa-resident__block">
@@ -302,6 +397,12 @@ export default function HakoniwaResidentPanel({
       >
         <p>{t("hakoniwa.panel.removeBody", { name: resident.name })}</p>
       </ConfirmDialog>
+      {touchOpen && (
+        <HakoniwaTouchPreview
+          resident={resident}
+          onClose={() => setTouchOpen(false)}
+        />
+      )}
     </section>
   );
 }

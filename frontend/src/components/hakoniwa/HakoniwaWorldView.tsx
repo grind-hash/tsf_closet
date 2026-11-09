@@ -10,6 +10,7 @@ import { readStorage, writeStorage } from "../../utils/storage";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaAdv from "./HakoniwaAdv";
+import HakoniwaChat from "./HakoniwaChat";
 import HakoniwaChronicle from "./HakoniwaChronicle";
 import HakoniwaFurnitureTab from "./HakoniwaFurnitureTab";
 import HakoniwaResidentsTab from "./HakoniwaResidentsTab";
@@ -48,6 +49,7 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
     usageConfirmOpen,
     confirmUsage,
     cancelUsage,
+    setIntervention,
   } = useHakoniwa();
   const [seenEvents, setSeenEvents] = useState<number | null>(null);
   const tabRefs = useRef<Partial<Record<HakoniwaPanelTab, HTMLButtonElement>>>(
@@ -110,6 +112,18 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
     seenEvents === null ? 0 : Math.max(0, world.events.length - seenEvents);
   const activeRules = world.rule_cards.filter((card) => card.active);
   const playing = playbackQueue.length > 0;
+  const dissonance = world.dissonance;
+  const dissonanceTitle = dissonance.acknowledged
+    ? t("hakoniwa.world.dissonanceAcknowledgedTitle", {
+        value: dissonance.value,
+      })
+    : dissonance.next_stage && dissonance.remaining !== null
+      ? t("hakoniwa.world.dissonanceTitle", {
+          value: dissonance.value,
+          stage: t(`hakoniwa.story.dissonanceStage.${dissonance.next_stage}`),
+          remaining: dissonance.remaining,
+        })
+      : t("hakoniwa.world.dissonanceMaxTitle", { value: dissonance.value });
 
   return (
     <MainLayout>
@@ -142,6 +156,22 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
               ))
             )}
           </ul>
+          {dissonance.enabled && (
+            <span
+              className={`hakoniwa-world__dissonance is-${dissonance.stage}${
+                dissonance.acknowledged ? " is-acknowledged" : ""
+              }`}
+              title={dissonanceTitle}
+              data-testid="hakoniwa-dissonance"
+            >
+              {t("hakoniwa.world.dissonance", {
+                stage: dissonance.acknowledged
+                  ? t("hakoniwa.story.acknowledged")
+                  : t(`hakoniwa.story.dissonanceStage.${dissonance.stage}`),
+                value: dissonance.value,
+              })}
+            </span>
+          )}
         </header>
 
         {error && (
@@ -161,9 +191,44 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
           <section className="hakoniwa-world__stage">
             <HakoniwaStage />
             <div className="hakoniwa-world__advance">
+              <div className="hakoniwa-world__advance-options">
+                <div
+                  className="hakoniwa-intervention"
+                  role="group"
+                  aria-label={t("hakoniwa.intervention.label")}
+                >
+                  <span className="hakoniwa-intervention__label">
+                    {t("hakoniwa.intervention.label")}
+                  </span>
+                  <div className="hakoniwa-segments">
+                    {world.intervention.choices.map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        className={
+                          world.intervention.selected === choice
+                            ? "is-active"
+                            : undefined
+                        }
+                        aria-pressed={world.intervention.selected === choice}
+                        disabled={busy !== null || playing}
+                        onClick={() => void setIntervention(choice)}
+                      >
+                        {t(`hakoniwa.intervention.choice.${choice}`)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <span className="hakoniwa-note">
+                  {t("hakoniwa.world.advanceHint")}{" "}
+                  {t(
+                    `hakoniwa.intervention.note.${world.intervention.selected}`,
+                  )}
+                </span>
+              </div>
               <button
                 type="button"
-                className="hakoniwa-button hakoniwa-button--primary hakoniwa-button--large"
+                className="hakoniwa-button hakoniwa-button--primary hakoniwa-button--large hakoniwa-world__advance-button"
                 onClick={() => void advanceDay()}
                 disabled={busy !== null || playing}
               >
@@ -176,9 +241,6 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
                   t("hakoniwa.world.advanceDay")
                 )}
               </button>
-              <span className="hakoniwa-note">
-                {t("hakoniwa.world.advanceHint")}
-              </span>
             </div>
           </section>
 
@@ -230,6 +292,7 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
         </div>
       </div>
       <HakoniwaAdv />
+      <HakoniwaChat />
       <ConfirmDialog
         open={usageConfirmOpen}
         title={t("hakoniwa.usage.title")}

@@ -3,6 +3,7 @@
  *
  * 世界(住民・掟・年代記)の作成と、1日進める・掟の切り替え・住民の一言・その場で変身・
  * アバターの生成を扱う。項目名はバックエンドに合わせてスネークケースのまま扱う。
+ * 記憶・名残の文はバックエンドが言語ごとに組み立て、段階や物語の名前は表示側で組み立てる。
  */
 
 import { API_BASE } from "../utils/api";
@@ -10,7 +11,13 @@ import { jsonInit, requestJson } from "../utils/http";
 
 export type HakoniwaGender = "female" | "male";
 export type HakoniwaResidentSource = "preset" | "character" | "custom";
-export type HakoniwaLookKind = "transform" | "dress" | "base";
+/** 表示中の姿の種類(優先順位は 変身 → 複合の姿 → 掟の姿 → ドレス → 通常) */
+export type HakoniwaLookKind =
+  | "transform"
+  | "combo"
+  | "rule"
+  | "dress"
+  | "base";
 
 export interface HakoniwaLine {
   /** 話す住民の id */
@@ -39,6 +46,59 @@ export interface HakoniwaEvent {
   scene_image_url?: string | null;
   /** 場面絵をすすめる理由(生成済みなら null) */
   scene_suggestion?: HakoniwaSceneSuggestion | null;
+  /** 続きを描いた物語の弧 */
+  arc_id?: string | null;
+  arc_climax?: boolean | null;
+}
+
+export type HakoniwaAdaptationKind = "swap" | "transform";
+
+/** 変身・入れ替わりへの適応(本人は 0 戸惑い〜3 受容、世界の側は 0 驚き〜3 定着) */
+export interface HakoniwaAdaptation {
+  kind: HakoniwaAdaptationKind;
+  stage: number;
+}
+
+export interface HakoniwaRemnant {
+  kind: HakoniwaAdaptationKind;
+  text: string;
+  days_left: number;
+}
+
+export interface HakoniwaMemory {
+  day: number;
+  kind: string;
+  text: string;
+}
+
+export type HakoniwaDissonanceStage =
+  | "stillness"
+  | "stirring"
+  | "probing"
+  | "confrontation";
+
+export interface HakoniwaDissonance {
+  enabled: boolean;
+  value: number;
+  stage: HakoniwaDissonanceStage;
+  /** 対面を経て、住民が書き手の存在を知っている */
+  acknowledged: boolean;
+  next_stage: HakoniwaDissonanceStage | null;
+  remaining: number | null;
+}
+
+export type HakoniwaArcKind = "investigation" | "swap" | "transform" | "bond";
+
+export interface HakoniwaStoryArc {
+  id: string;
+  kind: HakoniwaArcKind;
+  resident_ids: string[];
+  progress: number;
+  beats_to_climax: number;
+  status: "active" | "closed";
+  started_day: number;
+  closed_day: number | null;
+  close_reason: "climax" | "resolved" | "faded" | null;
 }
 
 export interface HakoniwaSceneSuggestion {
@@ -71,11 +131,47 @@ export interface HakoniwaDigest {
   highlight: {
     event_id: string;
     title: string;
-    reason: "transform" | "movement" | "trio" | "center";
+    reason:
+      | "confrontation"
+      | "arc_climax"
+      | "transform"
+      | "movement"
+      | "trio"
+      | "center";
     participants: string[];
   } | null;
   changes: HakoniwaDigestChange[];
   hint: HakoniwaDigestHint;
+  /** 本人の適応が進んだ住民(stage は進んだ先) */
+  adaptations?: { id: string; kind: HakoniwaAdaptationKind; stage: number }[];
+  /** 周囲の適応が進んだ姿 */
+  world_adaptations?: {
+    ids: string[];
+    kind: HakoniwaAdaptationKind;
+    stage: number;
+  }[];
+  arcs?: HakoniwaDigestArc[];
+  /** その日に効かせた介入 */
+  intervention?: HakoniwaInterventionChoice | null;
+  /** 世界の違和感の変化(違和感を使わない世界では null) */
+  dissonance?: {
+    from: number;
+    to: number;
+    from_stage: HakoniwaDissonanceStage;
+    to_stage: HakoniwaDissonanceStage;
+    acknowledged: boolean;
+    next_stage: HakoniwaDissonanceStage | null;
+    remaining: number | null;
+  } | null;
+}
+
+export interface HakoniwaDigestArc {
+  id: string;
+  kind: HakoniwaArcKind;
+  ids: string[];
+  progress: number;
+  beats: number;
+  status: "started" | "active" | "climax" | "faded" | "resolved";
 }
 
 export type HakoniwaDigestChange =
@@ -83,6 +179,18 @@ export type HakoniwaDigestChange =
   | { type: "mood"; id: string; delta: number; mood: number };
 
 export type HakoniwaDigestHint =
+  | { type: "acknowledged" }
+  | {
+      type: "dissonance_near";
+      stage: HakoniwaDissonanceStage;
+      remaining: number;
+    }
+  | {
+      type: "arc_near_climax";
+      arc_id: string;
+      kind: HakoniwaArcKind;
+      ids: string[];
+    }
   | { type: "swap"; ids: string[] }
   | { type: "near_close"; ids: string[]; value: number; remaining: number }
   | { type: "no_rules" }
@@ -130,6 +238,21 @@ export interface HakoniwaResident {
   dress_avatar_url: string | null;
   /** いまいる場所(エリア id) */
   current_area: string;
+  adaptation: HakoniwaAdaptation | null;
+  /** いまの姿への周囲(世界)の適応 */
+  world_adaptation: HakoniwaAdaptation | null;
+  remnant: HakoniwaRemnant | null;
+  /** 覚えている大きな出来事(古い順) */
+  memories: HakoniwaMemory[];
+}
+
+/** 掟の姿・複合の姿の生成状況 */
+export interface HakoniwaLookStatus {
+  /** 今の見た目で生成済みの住民の数 */
+  ready: number;
+  /** 見た目を変える前に生成した姿の住民の数 */
+  stale: number;
+  total: number;
 }
 
 export interface HakoniwaRuleCard {
@@ -138,6 +261,88 @@ export interface HakoniwaRuleCard {
   description: string;
   custom: boolean;
   active: boolean;
+  /** 自作の掟の見た目の説明(プレイヤーが書いた文) */
+  appearance_text?: string | null;
+  /** 見た目の説明(空なら掟の本文)から作ったタグ */
+  appearance_tags?: string | null;
+  look?: HakoniwaLookStatus | null;
+  /** 既定の掟どうしの相性 */
+  synergies?: HakoniwaSynergy[] | null;
+}
+
+export interface HakoniwaSynergy {
+  /** 組み合わせる相手の掟 */
+  with_id: string;
+  label: string;
+  hint: string;
+  /** 両方とも有効で、相性が発動している */
+  active: boolean;
+}
+
+export type HakoniwaInterventionChoice =
+  | "watch"
+  | "nudge"
+  | "rewrite"
+  | "arc_boost"
+  | "adaptation_care"
+  | "dissonance_push";
+
+export interface HakoniwaTouchResult {
+  world: HakoniwaWorld;
+  resident_id: string;
+  part: HakoniwaTouchPart;
+  text: string;
+  source: string;
+  mood_delta: number;
+  cost_usd: number | null;
+}
+
+export type HakoniwaTouchPart = "head" | "chest" | "lower";
+
+export interface HakoniwaChatEntry {
+  role: "player" | "resident" | "system";
+  text: string;
+  kind?: string | null;
+  source?: string | null;
+}
+
+export interface HakoniwaChatResult {
+  /** 確認待ちで何も変えていないときは null */
+  world: HakoniwaWorld | null;
+  reply: HakoniwaChatEntry | null;
+  history: HakoniwaChatEntry[];
+  alteration: {
+    action: "transform" | "clear" | "none";
+    instruction: string;
+    executed: boolean;
+    /** 画像の生成の前に確認が要るので、まだ実行していない */
+    needs_confirmation: boolean;
+  };
+  /** 会話からの変身で年代記に積んだ出来事 */
+  new_events: HakoniwaEvent[];
+  cost_usd: number | null;
+}
+
+/** 見た目の掟が2つ以上重なっているときの複合の姿 */
+export interface HakoniwaComboLook extends HakoniwaLookStatus {
+  rule_ids: string[];
+  names: string[];
+  includes_dress: boolean;
+  /** 見た目のタグがまだ無い掟(生成するときに考える) */
+  untagged_names: string[];
+}
+
+export interface HakoniwaLookResult {
+  world: HakoniwaWorld;
+  generated: number;
+  failed: number;
+  cost_usd: number | null;
+}
+
+export interface HakoniwaCustomRuleInput {
+  name: string;
+  text: string;
+  appearance_text: string;
 }
 
 export interface HakoniwaWorld {
@@ -163,6 +368,18 @@ export interface HakoniwaWorld {
   areas: HakoniwaArea[];
   furniture_catalog: HakoniwaFurniture[];
   last_digest: HakoniwaDigest | null;
+  dissonance: HakoniwaDissonance;
+  /** 進行中と、最近閉じた物語の弧 */
+  story_arcs: HakoniwaStoryArc[];
+  combo_look: HakoniwaComboLook | null;
+  /** 世界のメモ(全生成に最優先の指示として載せる) */
+  world_memo: string;
+  intervention: {
+    /** 次の「1日進める」で効かせる介入 */
+    selected: HakoniwaInterventionChoice;
+    /** いま選べる介入(見守る・後押し・書き換え) */
+    choices: HakoniwaInterventionChoice[];
+  };
 }
 
 export interface HakoniwaWorldSummary {
@@ -274,6 +491,7 @@ export function createHakoniwaWorld(body: {
   preset_ids: string[];
   characters: HakoniwaCharacterEntry[];
   language: string;
+  dissonance_enabled: boolean;
 }): Promise<HakoniwaWorld> {
   return requestJson<HakoniwaWorld>(WORLDS, jsonInit("POST", body));
 }
@@ -289,14 +507,19 @@ export async function deleteHakoniwaWorld(worldId: string): Promise<void> {
   await requestJson<void>(`${WORLDS}/${worldId}`, jsonInit("DELETE"));
 }
 
+/** 世界の設定。指定しなかった項目は変えない */
 export function updateHakoniwaSettings(
   worldId: string,
-  imageModel: string,
+  changes: {
+    image_model?: string;
+    dissonance_enabled?: boolean;
+    world_memo?: string;
+  },
   language: string,
 ): Promise<HakoniwaWorld> {
   return requestJson<HakoniwaWorld>(
     `${WORLDS}/${worldId}/settings`,
-    jsonInit("PATCH", { image_model: imageModel, language }),
+    jsonInit("PATCH", { ...changes, language }),
   );
 }
 
@@ -310,13 +533,14 @@ export function advanceHakoniwaDay(
   );
 }
 
+/** 掟の切り替え。違和感が到達点に達すると、対面の出来事が new_events に入る */
 export function toggleHakoniwaRule(
   worldId: string,
   cardId: string,
   active: boolean,
   language: string,
-): Promise<HakoniwaWorld> {
-  return requestJson<HakoniwaWorld>(
+): Promise<HakoniwaDayResult> {
+  return requestJson<HakoniwaDayResult>(
     `${WORLDS}/${worldId}/rules/${encodeURIComponent(cardId)}`,
     jsonInit("PUT", { active, language }),
   );
@@ -324,7 +548,7 @@ export function toggleHakoniwaRule(
 
 export function addHakoniwaCustomRule(
   worldId: string,
-  rule: { name: string; text: string },
+  rule: HakoniwaCustomRuleInput,
   language: string,
 ): Promise<HakoniwaWorld> {
   return requestJson<HakoniwaWorld>(
@@ -336,12 +560,37 @@ export function addHakoniwaCustomRule(
 export function updateHakoniwaCustomRule(
   worldId: string,
   ruleId: string,
-  rule: { name: string; text: string },
+  rule: HakoniwaCustomRuleInput,
   language: string,
 ): Promise<HakoniwaWorld> {
   return requestJson<HakoniwaWorld>(
     `${WORLDS}/${worldId}/custom-rules/${encodeURIComponent(ruleId)}`,
     jsonInit("PATCH", { ...rule, language }),
+  );
+}
+
+/** 掟の姿を住民の人数分生成する(regenerate でなければ、まだの住民だけ) */
+export function generateHakoniwaRuleLook(
+  worldId: string,
+  ruleId: string,
+  regenerate: boolean,
+  language: string,
+): Promise<HakoniwaLookResult> {
+  return requestJson<HakoniwaLookResult>(
+    `${WORLDS}/${worldId}/custom-rules/${encodeURIComponent(ruleId)}/look`,
+    jsonInit("POST", { regenerate, language }),
+  );
+}
+
+/** いま重なっている見た目の掟を合わせた、複合の姿を住民の人数分生成する */
+export function generateHakoniwaComboLook(
+  worldId: string,
+  regenerate: boolean,
+  language: string,
+): Promise<HakoniwaLookResult> {
+  return requestJson<HakoniwaLookResult>(
+    `${WORLDS}/${worldId}/combo-look`,
+    jsonInit("POST", { regenerate, language }),
   );
 }
 
@@ -497,5 +746,60 @@ export function generateHakoniwaSceneImage(
   return requestJson<HakoniwaImageResult>(
     `${WORLDS}/${worldId}/events/${encodeURIComponent(eventId)}/scene-image`,
     jsonInit("POST", { language }),
+  );
+}
+
+/** 次の「1日進める」で効かせる介入を選ぶ(進めるまでは選び直せる) */
+export function setHakoniwaIntervention(
+  worldId: string,
+  choice: HakoniwaInterventionChoice,
+  language: string,
+): Promise<HakoniwaWorld> {
+  return requestJson<HakoniwaWorld>(
+    `${WORLDS}/${worldId}/intervention`,
+    jsonInit("PUT", { choice, language }),
+  );
+}
+
+/** 住民の立ち絵に触れる(年代記には残らない) */
+export function touchHakoniwaResident(
+  worldId: string,
+  residentId: string,
+  part: HakoniwaTouchPart,
+  language: string,
+): Promise<HakoniwaTouchResult> {
+  return requestJson<HakoniwaTouchResult>(
+    `${WORLDS}/${worldId}/residents/${encodeURIComponent(residentId)}/touch`,
+    jsonInit("POST", { part, language }),
+  );
+}
+
+export async function fetchHakoniwaChat(
+  worldId: string,
+  residentId: string,
+): Promise<HakoniwaChatEntry[]> {
+  const data = await requestJson<{ history: HakoniwaChatEntry[] }>(
+    `${WORLDS}/${worldId}/residents/${encodeURIComponent(residentId)}/chat`,
+  );
+  return data.history ?? [];
+}
+
+/**
+ * 住民と会話する。変身の指示で allowImage が偽なら実行せず needs_confirmation を返すので、
+ * 確認のあと confirmedInstruction を付けて送り直す。
+ */
+export function chatHakoniwaResident(
+  worldId: string,
+  residentId: string,
+  body: {
+    message: string;
+    allow_image: boolean;
+    confirmed_instruction?: string;
+  },
+  language: string,
+): Promise<HakoniwaChatResult> {
+  return requestJson<HakoniwaChatResult>(
+    `${WORLDS}/${worldId}/residents/${encodeURIComponent(residentId)}/chat`,
+    jsonInit("POST", { ...body, language }),
   );
 }

@@ -28,6 +28,9 @@
 - `contexts/HakoniwaContext.tsx` が世界・住民・掟・再生キュー・生成料金・V5 使用量確認を管理し、`apis/hakoniwa.ts` が API を呼び出す。
 - `components/hakoniwa/HakoniwaHub.tsx` が世界一覧と作成、`HakoniwaWorldView.tsx` が部屋と年代記・住民・掟・設定タブを担当する。
 - 部屋の上の場所チップ（`viewAreaId`）、`HakoniwaFurnitureTab.tsx`（家具タブ）、`HakoniwaDigest.tsx`（1日のまとめ。部屋の下端と年代記の先頭）、`HakoniwaAdv.tsx`（年代記の出来事を ADV 風に読む全画面表示と場面絵の生成）がある。
+- 世界の違和感は上端バー（`HakoniwaWorldView.tsx`）と作成画面・設定タブのトグル、適応・名残・覚えていることは `HakoniwaResidentPanel.tsx`、物語の弧は年代記の行とまとめに出す。段階名と物語の題名は `hakoniwaLabels.ts` と i18n、記憶・名残の文はバックエンドが組み立てる。
+- 掟の姿・複合の姿の生成（人数を出す確認つき）と見た目の説明の入力は `HakoniwaRulesTab.tsx`、生成は `HakoniwaContext.generateLook`。
+- 明日の介入は「1日進める」の横（`HakoniwaWorldView.tsx`）、世界のメモは設定タブ、掟の相性は掟タブ、立ち絵に触れるのは `HakoniwaTouchPreview.tsx`、箱庭の中での会話は `HakoniwaChat.tsx`（ADV の枠。会話からの変身の出来事は閉じたあと部屋で再生）。
 - `HakoniwaStage.tsx` は Phaser 3.90.0 の `stage/roomStage.ts` を遅延読込する。座標計算は `roomLayout.ts`、クリック・Enter による台詞送りと Esc スキップは `useHakoniwaPlayback.ts` に分離する。
 - `hooks/useTransparentImages.ts` が複数画像の単色背景除去を管理する。同梱素材は `public/hakoniwa-assets/`、文言は `i18n/{ja,en}/hakoniwa.ts`。
 - ブラウザ回帰テストは `tests/e2e/hakoniwa.spec.ts`。外部生成 API は呼び出さず、モック応答と同梱画像で主要操作を確認する。

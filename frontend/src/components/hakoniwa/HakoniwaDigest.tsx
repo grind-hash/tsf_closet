@@ -1,10 +1,17 @@
 import { useTranslation } from "react-i18next";
 import type {
+  HakoniwaDigestArc,
   HakoniwaDigestChange,
   HakoniwaDigestHint,
+  HakoniwaDissonanceStage,
 } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
-import { moodLevel } from "./hakoniwaLabels";
+import {
+  adaptationStageKey,
+  arcTitle,
+  moodLevel,
+  worldStageKey,
+} from "./hakoniwaLabels";
 
 const GENERIC_HINTS = ["furniture", "talk", "transform"] as const;
 
@@ -13,7 +20,10 @@ interface HakoniwaDigestProps {
   variant: "overlay" | "panel";
 }
 
-/** 1日のまとめ(山場・大きく動いたこと・明日の予感)。文は種類と数値から組み立てる */
+/**
+ * 1日のまとめ(山場・大きく動いたこと・適応の進展・続いている物語・世界の違和感・明日の予感)。
+ * 文は種類と数値から組み立てる。
+ */
 export default function HakoniwaDigest({ variant }: HakoniwaDigestProps) {
   const { t } = useTranslation();
   const { world, hideDigest, openAdv } = useHakoniwa();
@@ -28,6 +38,12 @@ export default function HakoniwaDigest({ variant }: HakoniwaDigestProps) {
   const highlightExists =
     highlight !== null &&
     world.events.some((event) => event.id === highlight.event_id);
+  const adaptations = digest.adaptations ?? [];
+  const worldAdaptations = digest.world_adaptations ?? [];
+  const arcs = digest.arcs ?? [];
+  const dissonance = digest.dissonance ?? null;
+  const stageName = (stage: HakoniwaDissonanceStage) =>
+    t(`hakoniwa.story.dissonanceStage.${stage}`);
 
   const changeText = (change: HakoniwaDigestChange): string => {
     if (change.type === "affinity") {
@@ -48,6 +64,17 @@ export default function HakoniwaDigest({ variant }: HakoniwaDigestProps) {
 
   const hintText = (hint: HakoniwaDigestHint): string => {
     switch (hint.type) {
+      case "acknowledged":
+        return t("hakoniwa.digest.hintAcknowledged");
+      case "dissonance_near":
+        return t("hakoniwa.digest.hintDissonanceNear", {
+          stage: stageName(hint.stage),
+          remaining: hint.remaining,
+        });
+      case "arc_near_climax":
+        return t("hakoniwa.digest.hintArcNearClimax", {
+          title: arcTitle(t, hint.kind, hint.ids, nameOf),
+        });
       case "swap":
         return t("hakoniwa.digest.hintSwap", {
           a: nameOf(hint.ids[0] ?? ""),
@@ -81,6 +108,31 @@ export default function HakoniwaDigest({ variant }: HakoniwaDigestProps) {
       });
     }
     return t(`hakoniwa.digest.reason.${highlight.reason}`);
+  };
+
+  const arcStatus = (arc: HakoniwaDigestArc): string => {
+    if (arc.status === "started") return t("hakoniwa.digest.arcStarted");
+    if (arc.status === "climax") return t("hakoniwa.digest.arcClimax");
+    if (arc.status === "faded") return t("hakoniwa.digest.arcFaded");
+    if (arc.status === "resolved") return t("hakoniwa.digest.arcResolved");
+    const remaining = Math.max(arc.beats - arc.progress, 0);
+    return remaining <= 1
+      ? t("hakoniwa.digest.arcNearClimax")
+      : t("hakoniwa.digest.arcRemaining", { remaining });
+  };
+
+  const dissonanceTail = () => {
+    if (!dissonance) return "";
+    if (dissonance.acknowledged) {
+      return ` ${t("hakoniwa.digest.dissonanceAcknowledged")}`;
+    }
+    if (dissonance.next_stage && dissonance.remaining !== null) {
+      return ` ${t("hakoniwa.digest.dissonanceNext", {
+        stage: stageName(dissonance.next_stage),
+        remaining: dissonance.remaining,
+      })}`;
+    }
+    return "";
   };
 
   return (
@@ -135,6 +187,78 @@ export default function HakoniwaDigest({ variant }: HakoniwaDigestProps) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {(adaptations.length > 0 || worldAdaptations.length > 0) && (
+        <div className="hakoniwa-digest__section">
+          <span className="hakoniwa-digest__label">
+            {t("hakoniwa.digest.adaptations")}
+          </span>
+          <ul>
+            {adaptations.map((item) => (
+              <li key={`self:${item.id}`}>
+                {t("hakoniwa.digest.adaptationSelf", {
+                  name: nameOf(item.id),
+                  subject: t(`hakoniwa.story.subject.${item.kind}`),
+                  stage: t(
+                    `hakoniwa.story.adaptationStage.${adaptationStageKey(item.stage)}`,
+                  ),
+                })}
+              </li>
+            ))}
+            {worldAdaptations.map((item) => (
+              <li key={`world:${item.ids.join(",")}`}>
+                {t("hakoniwa.digest.adaptationWorld", {
+                  names: joinNames(item.ids),
+                  subject: t(`hakoniwa.story.subject.${item.kind}`),
+                  stage: t(
+                    `hakoniwa.story.worldStage.${worldStageKey(item.stage)}`,
+                  ),
+                })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {arcs.length > 0 && (
+        <div className="hakoniwa-digest__section">
+          <span className="hakoniwa-digest__label">
+            {t("hakoniwa.digest.arcs")}
+          </span>
+          <ul>
+            {arcs.map((arc) => (
+              <li key={arc.id}>
+                {t("hakoniwa.digest.arcLine", {
+                  title: arcTitle(t, arc.kind, arc.ids, nameOf),
+                  status: arcStatus(arc),
+                })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {dissonance && (
+        <div className="hakoniwa-digest__section">
+          <span className="hakoniwa-digest__label">
+            {t("hakoniwa.digest.dissonance")}
+          </span>
+          <p>
+            {t("hakoniwa.digest.dissonanceChange", {
+              fromStage: stageName(dissonance.from_stage),
+              from: dissonance.from,
+              toStage: stageName(dissonance.to_stage),
+              to: dissonance.to,
+            })}
+            {dissonanceTail()}
+          </p>
+        </div>
+      )}
+      {digest.intervention && (
+        <div className="hakoniwa-digest__section">
+          <span className="hakoniwa-digest__label">
+            {t("hakoniwa.digest.intervention")}
+          </span>
+          <p>{t(`hakoniwa.intervention.result.${digest.intervention}`)}</p>
         </div>
       )}
       <div className="hakoniwa-digest__section">

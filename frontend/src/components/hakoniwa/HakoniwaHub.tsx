@@ -35,6 +35,8 @@ export default function HakoniwaHub() {
     deleteWorld,
   } = useHakoniwa();
   const nameId = useId();
+  const dissonanceId = useId();
+  const [dissonanceEnabled, setDissonanceEnabled] = useState(true);
   const [name, setName] = useState("");
   const [presetIds, setPresetIds] = useState<string[] | null>(null);
   const [characters, setCharacters] = useState<HakoniwaPickedCharacter[]>([]);
@@ -71,6 +73,7 @@ export default function HakoniwaHub() {
         character_preset_id: item.character_preset_id,
         gender: item.gender,
       })),
+      dissonanceEnabled,
     );
     if (created) {
       setName("");
@@ -244,6 +247,21 @@ export default function HakoniwaHub() {
             onAdd={(picked) => setCharacters((current) => [...current, picked])}
             disabled={count >= MAX_RESIDENTS}
           />
+
+          <div className="hakoniwa-create__option">
+            <label className="hakoniwa-toggle" htmlFor={dissonanceId}>
+              <span>{t("hakoniwa.hub.dissonanceLabel")}</span>
+              <input
+                id={dissonanceId}
+                type="checkbox"
+                className="hakoniwa-toggle__input"
+                checked={dissonanceEnabled}
+                onChange={(event) => setDissonanceEnabled(event.target.checked)}
+              />
+              <span className="hakoniwa-toggle__switch" aria-hidden />
+            </label>
+            <p className="hakoniwa-note">{t("hakoniwa.hub.dissonanceNote")}</p>
+          </div>
 
           <div className="hakoniwa-create">
             <span

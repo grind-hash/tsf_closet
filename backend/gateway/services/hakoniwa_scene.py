@@ -14,6 +14,7 @@ from ..consts.hakoniwa import DEFAULT_AREA_ID, HAKONIWA_AREA_MAP
 from .hakoniwa_logic import (
     ensure_gender_token,
     find_resident,
+    own_look,
     resident_gender,
     swap_partner_id,
     tags_gender,
@@ -67,6 +68,14 @@ SCENE_REASONS = {
         "ja": "参加者同士の接触や接近が描かれた出来事です",
         "en": "Residents touch or come close to each other in this event",
     },
+    "confrontation": {
+        "ja": "住民たちが書き手へ呼びかけた、物語の転機です",
+        "en": "The residents called out to the writer; a turning point of the story",
+    },
+    "arc_climax": {
+        "ja": "続いてきた物語の山場です",
+        "en": "The climax of an ongoing story",
+    },
 }
 
 # 場面のタグを作れなかったときの定型
@@ -87,6 +96,12 @@ def scene_suggestion(event: dict[str, Any], language: str) -> dict[str, str] | N
     """場面絵をすすめる出来事なら {level, reason} を返す。既に場面絵があれば None。"""
     if event.get("scene_image"):
         return None
+    key = "ja" if language == "ja" else "en"
+    # 物語の転機は強くすすめる(1人の出来事でも)
+    if event.get("kind") == "confrontation":
+        return {"level": "strong", "reason": SCENE_REASONS["confrontation"][key]}
+    if event.get("arc_climax"):
+        return {"level": "strong", "reason": SCENE_REASONS["arc_climax"][key]}
     if len(event.get("participants") or []) < 2:
         return None
     haystack = " ".join(
@@ -97,17 +112,16 @@ def scene_suggestion(event: dict[str, Any], language: str) -> dict[str, str] | N
         ]
     ).lower()
     if any(word in haystack for word in SCENE_CONTACT_WORDS):
-        key = "ja" if language == "ja" else "en"
         return {"level": "normal", "reason": SCENE_REASONS["contact"][key]}
     return None
 
 
 def look_tags(state: dict[str, Any], resident: dict[str, Any]) -> str:
-    """住民のいま見えている姿のタグ(変身 → ドレス → 通常。入れ替わり中は相手の姿)。"""
+    """住民のいま見えている姿のタグ。表示と同じく 変身 → 複合の姿 → 掟の姿 → ドレス →
+    通常の順で、入れ替わり中は相手の姿。"""
     partner_id = swap_partner_id(state, resident["id"])
     owner = find_resident(state, partner_id) if partner_id else resident
-    transformation = owner.get("transformation") or {}
-    tags = str(transformation.get("tags") or "")
+    tags = str(own_look(state, owner).get("tags") or "")
     if not tags and "dress" in state.get("active_rules", []):
         tags = str(owner.get("dress_tags") or "")
     if not tags:

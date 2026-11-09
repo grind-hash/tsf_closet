@@ -4,19 +4,23 @@
 random.Random を渡す。状態の形:
 
     {version, day, image_model, active_rules[], swap_pair, last_pair,
-     custom_rules: [{id, name, text}],
+     custom_rules: [{id, name, text, appearance_text, appearance_tags}],
      residents: [{id, source, preset_id?, character_preset_id?, name, gender, age, job,
                   personality, pronoun, speech_style, appearance_text, base_tags,
                   dress_text, dress_tags, avatar_image, dress_image, mood, affinities,
-                  transformation, transformation_history}],
+                  transformation, transformation_history,
+                  rule_images: {掟 id: {image, tags, source_tags}},
+                  combo_images: {組み合わせ: {image, tags, source_tags}}}],
      events: [{id, day, title, narration, lines, participants, mood_delta,
                affinity_delta, source, kind?, change_text?, favorite}]}
 
 プリセット住民の名前・性格などは、状態に値が無ければ consts の ja / en から言語で引く。
+世界の違和感・適応と名残・記憶・物語の弧の項目は hakoniwa_story を参照。
 """
 
 from __future__ import annotations
 
+import hashlib
 import random
 import re
 import uuid
@@ -52,6 +56,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_PRESET_MAP,
     HAKONIWA_RESIDENT_AREA_MOVE_CHANCE,
     HAKONIWA_RESIDENT_NAME_MAX,
+    HAKONIWA_RULE_APPEARANCE_TEXT_MAX,
     HAKONIWA_RULE_MAP,
     HAKONIWA_SOLO_GROUP_CHANCE,
     HAKONIWA_TRANSFORM_TEXT_MAX,
@@ -59,18 +64,15 @@ from ..consts.hakoniwa import (
     HAKONIWA_TRIO_GROUP_CHANCE,
     ROMANCE_RULE_IDS,
 )
+from . import hakoniwa_play as play
+from . import hakoniwa_story as story
+from .hakoniwa_errors import HakoniwaError
+
+__all__ = ["HakoniwaError"]
 
 STATE_VERSION = 1
 # 出来事に付いていれば年代記へそのまま写す項目
-EVENT_EXTRA_KEYS = ("kind", "change_text", "scene_image")
-
-
-class HakoniwaError(Exception):
-    """箱庭の操作を受け付けられないときの例外。code は API のエラーコード。"""
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
+EVENT_EXTRA_KEYS = ("kind", "change_text", "scene_image", "arc_id", "arc_climax")
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -172,9 +174,16 @@ def body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
 
 
 def appearance_kind(state: dict[str, Any], resident: dict[str, Any]) -> str | None:
-    """物語に効く目立つ姿の種類: transform / dress / None(素材の有無は見ない)。"""
+    """物語に効く目立つ姿の種類: transform / combo / rule / dress / None。
+
+    表示と同じ優先順位。文章の文脈に使うので、画像の有無は見ない(掟の見た目のタグで決める)。
+    """
     if resident.get("transformation"):
         return "transform"
+    if active_combo(state) is not None:
+        return "combo"
+    if look_rule_ids(state):
+        return "rule"
     if "dress" in state.get("active_rules", []):
         return "dress"
     return None
@@ -191,6 +200,8 @@ def is_male_in_feminine_form(state: dict[str, Any], resident: dict[str, Any]) ->
         return True
     if kind == "transform":
         return is_feminine_transformation(resident)
+    if kind in ("combo", "rule"):
+        return has_feminine_marker(look_rules_tags(state, kind))
     return False
 
 
@@ -209,12 +220,147 @@ _FEMININE_MARKERS = (
 )
 
 
+def has_feminine_marker(text: str) -> bool:
+    haystack = str(text or "").lower()
+    return any(marker in haystack for marker in _FEMININE_MARKERS)
+
+
 def is_feminine_transformation(resident: dict[str, Any]) -> bool:
     transformation = resident.get("transformation") or {}
-    haystack = (
+    return has_feminine_marker(
         f"{transformation.get('tags', '')} {transformation.get('description', '')}"
-    ).lower()
-    return any(marker in haystack for marker in _FEMININE_MARKERS)
+    )
+
+
+# --- 掟の姿と複合の姿 ---
+
+
+def custom_rule(state: dict[str, Any], rule_id: str) -> dict[str, Any] | None:
+    return next(
+        (rule for rule in state.get("custom_rules", []) if rule["id"] == rule_id), None
+    )
+
+
+def active_custom_rule_ids(state: dict[str, Any]) -> list[str]:
+    """有効な自作の掟の id(有効にした順)。"""
+    ids = set(custom_rule_ids(state))
+    return [rule_id for rule_id in state.get("active_rules", []) if rule_id in ids]
+
+
+def look_rule_ids(state: dict[str, Any]) -> list[str]:
+    """見た目のタグを持つ、有効な自作の掟の id(有効にした順)。"""
+    return [
+        rule_id
+        for rule_id in active_custom_rule_ids(state)
+        if str((custom_rule(state, rule_id) or {}).get("appearance_tags") or "").strip()
+    ]
+
+
+def combo_digest(rule_ids: list[str], includes_dress: bool) -> str:
+    components = sorted([*rule_ids, *(["dress"] if includes_dress else [])])
+    return hashlib.sha1(",".join(components).encode("utf-8")).hexdigest()[:10]
+
+
+def active_combo(
+    state: dict[str, Any], *, require_tags: bool = True
+) -> dict[str, Any] | None:
+    """いま重なっている見た目の掟の組み合わせ(複合の姿の対象)。
+
+    自作の掟が1つ以上あり、ドレスの掟と合わせて2つ以上のときだけ。require_tags なら
+    見た目のタグを持つ掟だけを数える(生成の入口では、タグの無い掟も数えて後で考える)。
+    """
+    rule_ids = look_rule_ids(state) if require_tags else active_custom_rule_ids(state)
+    includes_dress = "dress" in state.get("active_rules", [])
+    if not rule_ids or len(rule_ids) + (1 if includes_dress else 0) < 2:
+        return None
+    return {
+        "digest": combo_digest(rule_ids, includes_dress),
+        "rule_ids": rule_ids,
+        "includes_dress": includes_dress,
+    }
+
+
+def combo_tags(state: dict[str, Any], rule_ids: list[str]) -> str:
+    """組み合わせの掟の見た目のタグを、有効にした順につなげる。"""
+    return ", ".join(
+        str((custom_rule(state, rule_id) or {}).get("appearance_tags") or "").strip()
+        for rule_id in rule_ids
+        if str((custom_rule(state, rule_id) or {}).get("appearance_tags") or "").strip()
+    )
+
+
+def look_rules_tags(state: dict[str, Any], kind: str) -> str:
+    """いまの掟の姿(combo / rule)を決めている見た目のタグ。"""
+    if kind == "combo":
+        combo = active_combo(state)
+        if combo is None:
+            return ""
+        tags = combo_tags(state, combo["rule_ids"])
+        return f"{tags}, dress" if combo["includes_dress"] else tags
+    ids = look_rule_ids(state)
+    return combo_tags(state, ids[-1:]) if ids else ""
+
+
+def rule_look_status(state: dict[str, Any], rule_id: str) -> dict[str, int]:
+    """掟の姿の生成状況。ready は今の見た目で生成済み、stale は見た目を変える前の姿。"""
+    tags = str((custom_rule(state, rule_id) or {}).get("appearance_tags") or "")
+    ready = stale = 0
+    for resident in state["residents"]:
+        entry = (resident.get("rule_images") or {}).get(rule_id)
+        if not entry or not entry.get("image"):
+            continue
+        if tags and entry.get("source_tags") == tags:
+            ready += 1
+        else:
+            stale += 1
+    return {"ready": ready, "stale": stale, "total": len(state["residents"])}
+
+
+def combo_look_status(state: dict[str, Any], combo: dict[str, Any]) -> dict[str, int]:
+    tags = combo_tags(state, combo["rule_ids"])
+    ready = stale = 0
+    for resident in state["residents"]:
+        entry = (resident.get("combo_images") or {}).get(combo["digest"])
+        if not entry or not entry.get("image"):
+            continue
+        if tags and entry.get("source_tags") == tags:
+            ready += 1
+        else:
+            stale += 1
+    return {"ready": ready, "stale": stale, "total": len(state["residents"])}
+
+
+def set_rule_appearance_tags(
+    state: dict[str, Any], rule_id: str, tags: str
+) -> dict[str, Any]:
+    new_state = deepcopy(state)
+    target = custom_rule(new_state, rule_id)
+    if target is None:
+        raise HakoniwaError("rule_not_found", "掟が見つかりません")
+    target["appearance_tags"] = str(tags or "")
+    return new_state
+
+
+def set_look_image(
+    state: dict[str, Any],
+    resident_id: str,
+    *,
+    kind: str,
+    key: str,
+    entry: dict[str, Any],
+) -> dict[str, Any]:
+    """住民の掟の姿(kind=rule, key=掟 id)か複合の姿(kind=combo, key=組み合わせ)を設定する。"""
+    new_state = deepcopy(state)
+    target = find_resident(new_state, resident_id)
+    field = "rule_images" if kind == "rule" else "combo_images"
+    images = dict(target.get(field) or {})
+    images[key] = {
+        "image": str(entry["image"]),
+        "tags": str(entry.get("tags") or ""),
+        "source_tags": str(entry.get("source_tags") or ""),
+    }
+    target[field] = images
+    return new_state
 
 
 # --- 表示する姿 ---
@@ -223,12 +369,39 @@ def is_feminine_transformation(resident: dict[str, Any]) -> bool:
 def own_look(state: dict[str, Any], resident: dict[str, Any]) -> dict[str, Any]:
     """入れ替わりを考えない、本人の今の姿。
 
-    戻り値 {kind: transform | dress | base, file: 世界フォルダの画像名 | None,
-    bundled: 同梱素材を使うか}。優先順位は 変身 → ドレス(掟が有効で画像あり) → 通常。
+    戻り値 {kind: transform | combo | rule | dress | base, file: 世界フォルダの画像名 | None,
+    bundled: 同梱素材を使うか, tags?: その姿のタグ}。優先順位は 変身 → 複合の姿 →
+    掟の姿(後から有効にした掟が勝つ) → ドレス(掟が有効で画像あり) → 通常。
+    複合の姿・掟の姿は、その住民の画像が生成済みのときだけ。
     """
     transformation = resident.get("transformation") or {}
     if transformation.get("image"):
-        return {"kind": "transform", "file": transformation["image"], "bundled": False}
+        return {
+            "kind": "transform",
+            "file": transformation["image"],
+            "bundled": False,
+            "tags": str(transformation.get("tags") or ""),
+        }
+    combo = active_combo(state)
+    if combo is not None:
+        entry = (resident.get("combo_images") or {}).get(combo["digest"])
+        if entry and entry.get("image"):
+            return {
+                "kind": "combo",
+                "file": entry["image"],
+                "bundled": False,
+                "tags": str(entry.get("tags") or ""),
+            }
+    for rule_id in reversed(active_custom_rule_ids(state)):
+        entry = (resident.get("rule_images") or {}).get(rule_id)
+        if entry and entry.get("image"):
+            return {
+                "kind": "rule",
+                "file": entry["image"],
+                "bundled": False,
+                "tags": str(entry.get("tags") or ""),
+                "rule_id": rule_id,
+            }
     is_preset = resident.get("source") == "preset"
     if "dress" in state.get("active_rules", []):
         if resident.get("dress_image"):
@@ -282,7 +455,11 @@ def _base_resident(**fields: Any) -> dict[str, Any]:
         "affinities": {},
         "transformation": None,
         "transformation_history": [],
+        "rule_images": {},
+        "combo_images": {},
         "current_area": DEFAULT_AREA_ID,
+        "adaptation": None,
+        "remnant": None,
     }
     resident.update(fields)
     return resident
@@ -399,8 +576,13 @@ def custom_resident(
     )
 
 
-def new_world_state(residents: list[dict[str, Any]]) -> dict[str, Any]:
-    """住民の一覧から新しい世界を作る。プリセット同士は初期の好感度、他は 0 で結ぶ。"""
+def new_world_state(
+    residents: list[dict[str, Any]], *, dissonance_enabled: bool = True
+) -> dict[str, Any]:
+    """住民の一覧から新しい世界を作る。プリセット同士は初期の好感度、他は 0 で結ぶ。
+
+    dissonance_enabled は「世界の違和感」を使うか(世界ごと、既定 ON)。
+    """
     if len(residents) < HAKONIWA_MIN_RESIDENTS:
         raise HakoniwaError(
             "too_few_residents", f"住民は{HAKONIWA_MIN_RESIDENTS}人以上必要です"
@@ -431,6 +613,8 @@ def new_world_state(residents: list[dict[str, Any]]) -> dict[str, Any]:
         "events": [],
         "furniture_layout": empty_furniture_layout(),
         "last_digest": None,
+        **story.initial_story_state(dissonance_enabled=dissonance_enabled),
+        **play.initial_play_state(),
     }
 
 
@@ -462,7 +646,10 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         "active_rules": list(state.get("active_rules") or []),
         "swap_pair": list(state["swap_pair"]) if state.get("swap_pair") else None,
         "last_pair": list(state["last_pair"]) if state.get("last_pair") else None,
-        "custom_rules": [dict(rule) for rule in state.get("custom_rules") or []],
+        "custom_rules": [
+            {"appearance_text": "", "appearance_tags": "", **dict(rule)}
+            for rule in state.get("custom_rules") or []
+        ],
         "residents": [],
         "events": [dict(event) for event in state.get("events") or []],
         "furniture_layout": _normalize_furniture_layout(state.get("furniture_layout")),
@@ -481,10 +668,19 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         entry["transformation_history"] = list(
             resident.get("transformation_history") or []
         )
+        for field in ("rule_images", "combo_images"):
+            images = resident.get(field)
+            entry[field] = {
+                str(key): dict(value)
+                for key, value in (images.items() if isinstance(images, dict) else [])
+                if isinstance(value, dict) and value.get("image")
+            }
         normalized["residents"].append(entry)
     ids = {resident["id"] for resident in normalized["residents"]}
     if normalized["swap_pair"] and not set(normalized["swap_pair"]) <= ids:
         normalized["swap_pair"] = None
+    story.normalize_story(state, normalized)
+    play.normalize_play(state, normalized)
     return normalized
 
 
@@ -515,15 +711,31 @@ def set_rule(
         if card_id == "swap":
             ids = [resident["id"] for resident in new_state["residents"]]
             new_state["swap_pair"] = rng.sample(ids, 2)
+            # 入れ替わった二人は、新しい体への適応を始める
+            for resident in new_state["residents"]:
+                if resident["id"] in new_state["swap_pair"]:
+                    story.start_adaptation(resident, "swap", int(new_state["day"]))
     else:
         if card_id in rules:
             rules.remove(card_id)
         if card_id == "swap":
+            former = list(state.get("swap_pair") or [])
             new_state["swap_pair"] = None
+            # 入れ替わりが解けた二人には、適応の進み具合に応じた名残が残る
+            for resident in new_state["residents"]:
+                if resident["id"] in former:
+                    partner = next(
+                        (pid for pid in former if pid != resident["id"]), None
+                    )
+                    story.end_adaptation(
+                        resident, "swap", int(new_state["day"]), partner
+                    )
     return new_state
 
 
-def validate_custom_rule(name: Any, text: Any) -> dict[str, str]:
+def validate_custom_rule(
+    name: Any, text: Any, appearance_text: Any = ""
+) -> dict[str, str]:
     return {
         "name": _clean_text(
             name, HAKONIWA_CUSTOM_RULE_NAME_MAX, required=True, code="invalid_rule_name"
@@ -531,17 +743,30 @@ def validate_custom_rule(name: Any, text: Any) -> dict[str, str]:
         "text": _clean_text(
             text, HAKONIWA_CUSTOM_RULE_TEXT_MAX, required=True, code="invalid_rule_text"
         ),
+        "appearance_text": _clean_text(
+            appearance_text,
+            HAKONIWA_RULE_APPEARANCE_TEXT_MAX,
+            required=False,
+            code="invalid_rule_appearance",
+        ),
     }
 
 
-def add_custom_rule(state: dict[str, Any], name: Any, text: Any) -> dict[str, Any]:
+def add_custom_rule(
+    state: dict[str, Any],
+    name: Any,
+    text: Any,
+    appearance_text: Any = "",
+    appearance_tags: str = "",
+) -> dict[str, Any]:
     if len(state.get("custom_rules", [])) >= HAKONIWA_CUSTOM_RULES_MAX:
         raise HakoniwaError(
             "too_many_custom_rules", f"自作の掟は{HAKONIWA_CUSTOM_RULES_MAX}個までです"
         )
     rule = {
         "id": "custom_rule_" + uuid.uuid4().hex[:10],
-        **validate_custom_rule(name, text),
+        **validate_custom_rule(name, text, appearance_text),
+        "appearance_tags": str(appearance_tags or ""),
     }
     new_state = deepcopy(state)
     new_state["custom_rules"].append(rule)
@@ -549,15 +774,21 @@ def add_custom_rule(state: dict[str, Any], name: Any, text: Any) -> dict[str, An
 
 
 def update_custom_rule(
-    state: dict[str, Any], rule_id: str, name: Any, text: Any
+    state: dict[str, Any],
+    rule_id: str,
+    name: Any,
+    text: Any,
+    appearance_text: Any = "",
+    appearance_tags: str | None = None,
 ) -> dict[str, Any]:
+    """自作の掟を書き換える。appearance_tags が None なら見た目のタグは変えない。"""
     new_state = deepcopy(state)
-    target = next(
-        (rule for rule in new_state["custom_rules"] if rule["id"] == rule_id), None
-    )
+    target = custom_rule(new_state, rule_id)
     if target is None:
         raise HakoniwaError("rule_not_found", "掟が見つかりません")
-    target.update(validate_custom_rule(name, text))
+    target.update(validate_custom_rule(name, text, appearance_text))
+    if appearance_tags is not None:
+        target["appearance_tags"] = str(appearance_tags)
     return new_state
 
 
@@ -571,6 +802,9 @@ def delete_custom_rule(state: dict[str, Any], rule_id: str) -> dict[str, Any]:
     new_state["active_rules"] = [
         card_id for card_id in new_state["active_rules"] if card_id != rule_id
     ]
+    # 消した掟の姿は使われなくなる(複合の姿は組み合わせが変わるので自然に外れる)
+    for resident in new_state["residents"]:
+        (resident.get("rule_images") or {}).pop(rule_id, None)
     return new_state
 
 
@@ -681,7 +915,7 @@ def remove_resident(state: dict[str, Any], resident_id: str) -> dict[str, Any]:
         ]
     if new_state.get("last_pair") and resident_id in new_state["last_pair"]:
         new_state["last_pair"] = None
-    return new_state
+    return play.forget_chat(story.forget_resident(new_state, resident_id), resident_id)
 
 
 # --- 主役の組の選出 ---
@@ -842,7 +1076,8 @@ def choose_groups(
         if solo is None:
             break
         chosen.append(solo)
-    return chosen
+    # 違和感が「探り合い」以上なら、調べ役がどこかの組に入るよう寄せる
+    return story.ensure_investigator(state, chosen)
 
 
 def custom_rule_focus_assignments(
@@ -942,7 +1177,8 @@ def apply_event(
             record[key] = event[key]
     new_state["events"].append(record)
     new_state["events"] = trim_events(new_state["events"])
-    return new_state
+    # 大きな出来事(変身・対面・関係の大きな動き)は参加者の記憶に残る
+    return story.record_event_memories(new_state, record)
 
 
 def trim_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1079,6 +1315,7 @@ def set_transformation(
     ]
     history.append(dict(entry))
     target["transformation_history"] = history[-HAKONIWA_TRANSFORMATION_HISTORY_MAX:]
+    story.start_adaptation(target, "transform", int(new_state["day"]))
     return new_state
 
 
@@ -1088,6 +1325,7 @@ def clear_transformation(state: dict[str, Any], resident_id: str) -> dict[str, A
     if not target.get("transformation"):
         raise HakoniwaError("not_transformed", "変身していません")
     target["transformation"] = None
+    story.end_adaptation(target, "transform", int(new_state["day"]))
     return new_state
 
 
@@ -1108,6 +1346,7 @@ def reapply_transformation(
     if entry is None:
         raise HakoniwaError("transformation_not_found", "変身の履歴が見つかりません")
     target["transformation"] = dict(entry)
+    story.start_adaptation(target, "transform", int(new_state["day"]))
     return new_state
 
 

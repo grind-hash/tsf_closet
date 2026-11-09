@@ -20,6 +20,9 @@ HAKONIWA_PERSONALITY_MAX = 300
 HAKONIWA_APPEARANCE_TEXT_MAX = 300
 HAKONIWA_CUSTOM_RULE_NAME_MAX = 20
 HAKONIWA_CUSTOM_RULE_TEXT_MAX = 200
+# 自作の掟の見た目の説明(任意)と、そこから作る見た目のタグの数
+HAKONIWA_RULE_APPEARANCE_TEXT_MAX = 300
+HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT = 10
 HAKONIWA_CUSTOM_RULES_MAX = 20
 HAKONIWA_TRANSFORM_TEXT_MAX = 500
 HAKONIWA_TRANSFORMATION_HISTORY_MAX = 10
@@ -929,6 +932,72 @@ HAKONIWA_TEMPLATES: dict[str, dict[str, list[dict[str, Any]]]] = {
                 "affinity_delta": 3,
             },
         ],
+        "investigation": [
+            {
+                "title": "変化の記録",
+                "narration": (
+                    "{a}がノートを広げて、これまでの世界の変化を書き並べていた。"
+                    "掟が変わった日、誰かの姿が変わった日。{b}も覗き込み、"
+                    "偶然にしては出来すぎている、と二人は顔を見合わせた。"
+                ),
+                "lines": [
+                    ("a", "ほら、ここ。変わるときは、いつも一瞬なんだ"),
+                    ("b", "誰かが、まとめて書き換えてるみたいだね……"),
+                    ("a", "日付を並べると、決まった間隔があるわけでもない"),
+                    ("b", "気まぐれ、なのかな。それとも、何か見てるのかな"),
+                ],
+                "mood_delta": {"a": 2, "b": 1},
+                "affinity_delta": 3,
+            },
+            {
+                "title": "書き手の噂",
+                "narration": (
+                    "夕食の後、{a}と{b}は「この世界を書き換えている誰か」の噂話になった。"
+                    "笑い話のつもりが、互いの目撃談が妙に符合して、最後は二人とも黙り込んだ。"
+                ),
+                "lines": [
+                    ("b", "ねえ、本当にいるのかな。……書き換えてる誰か"),
+                    ("a", "いるなら、一度でいいから理由を聞いてみたい"),
+                    ("b", "聞いたら、答えてくれるのかな"),
+                    ("a", "さあね。でも、黙って書き換えられるだけよりはいい"),
+                ],
+                "mood_delta": {"a": 1, "b": 2},
+                "affinity_delta": 2,
+            },
+            {
+                "title": "張り込みの夜",
+                "narration": (
+                    "掟が変わる瞬間を見届けようと、{a}と{b}は廊下の隅で夜更かしをした。"
+                    "結局その夜は何も起きなかったが、空が明ける頃には、"
+                    "二人とも「次こそは」という顔をしていた。"
+                ),
+                "lines": [
+                    ("a", "今夜は外れか……。でも、絶対に尻尾を掴んでみせる"),
+                    ("b", "付き合うよ。もう気になって仕方ないんだ"),
+                    ("a", "次は、変わる前の様子をメモしておこう"),
+                ],
+                "mood_delta": {"a": 3, "b": 3},
+                "affinity_delta": 4,
+            },
+        ],
+        "confrontation": [
+            {
+                "title": "書き手への呼びかけ",
+                "narration": (
+                    "その夕方、{a}と{b}は部屋の真ん中に立って、誰もいないはずの"
+                    "天井へ向かって声を上げた。掟が変わること、姿が変わること、その全部に"
+                    "誰かの意志があるのなら、聞いてほしいことがあるのだ、と。"
+                    "返事はなかった。けれど二人は、確かに「聞かれている」気がしていた。"
+                ),
+                "lines": [
+                    ("a", "聞こえますか。この世界を書き換えている、あなたへ"),
+                    ("b", "怒ってるんじゃないんです。ただ……理由が知りたいんです"),
+                    ("a", "これからも変えるなら、せめて、時々は気配を見せてください"),
+                ],
+                "mood_delta": {"a": 4, "b": 4},
+                "affinity_delta": 3,
+            },
+        ],
         "reaction": [
             {
                 "title": "新しい姿を囲んで",
@@ -1335,6 +1404,83 @@ HAKONIWA_TEMPLATES: dict[str, dict[str, list[dict[str, Any]]]] = {
                     ("a", "At least the stakes are peaceful. Okay, last round."),
                 ],
                 "mood_delta": {"a": 6, "b": 3, "c": 6},
+                "affinity_delta": 3,
+            },
+        ],
+        "investigation": [
+            {
+                "title": "A Record of Changes",
+                "narration": (
+                    "{a} spread out a notebook listing every change the world had gone "
+                    "through: the day a rule changed, the day someone's look changed. {b} "
+                    "leaned in, and the two exchanged a look: it was too neat to be chance."
+                ),
+                "lines": [
+                    (
+                        "a",
+                        "Look here. Whenever things change, it happens in an instant.",
+                    ),
+                    ("b", "It's like someone is rewriting everything at once..."),
+                    ("a", "Line up the dates and there's no fixed interval either."),
+                    ("b", "A whim, maybe? Or is someone watching?"),
+                ],
+                "mood_delta": {"a": 2, "b": 1},
+                "affinity_delta": 3,
+            },
+            {
+                "title": "Rumors of the Writer",
+                "narration": (
+                    "After dinner, {a} and {b} drifted into rumors about someone rewriting "
+                    "this world. It started as a joke, but their sightings matched too well, "
+                    "and in the end both fell silent."
+                ),
+                "lines": [
+                    (
+                        "b",
+                        "Hey, do you think they really exist? Whoever is rewriting things?",
+                    ),
+                    ("a", "If they do, I'd like to ask why. Just once."),
+                    ("b", "Would they even answer?"),
+                    ("a", "Who knows. Still better than being rewritten in silence."),
+                ],
+                "mood_delta": {"a": 1, "b": 2},
+                "affinity_delta": 2,
+            },
+            {
+                "title": "The Stakeout",
+                "narration": (
+                    "Hoping to witness the moment a rule changed, {a} and {b} stayed up in "
+                    "a corner of the hallway. Nothing happened that night, but by dawn both "
+                    "wore the same look: next time for sure."
+                ),
+                "lines": [
+                    ("a", "Nothing tonight... but I'll catch them in the act."),
+                    ("b", "Count me in. I can't stop thinking about it now."),
+                    ("a", "Next time, let's note how things look before they change."),
+                ],
+                "mood_delta": {"a": 3, "b": 3},
+                "affinity_delta": 4,
+            },
+        ],
+        "confrontation": [
+            {
+                "title": "Calling Out to the Writer",
+                "narration": (
+                    "That evening, {a} and {b} stood in the middle of the room and raised "
+                    "their voices toward a ceiling where no one should be. If someone willed "
+                    "every changed rule and every changed look, there was something they "
+                    "wanted that someone to hear. No answer came. Yet both were sure they "
+                    "were being heard."
+                ),
+                "lines": [
+                    ("a", "Can you hear us? You, the one rewriting this world."),
+                    ("b", "We're not angry. We just... want to know why."),
+                    (
+                        "a",
+                        "If you keep changing things, at least let us sense you now and then.",
+                    ),
+                ],
+                "mood_delta": {"a": 4, "b": 4},
                 "affinity_delta": 3,
             },
         ],

@@ -2,6 +2,7 @@ import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import HakoniwaDigest from "./HakoniwaDigest";
+import { arcTitle } from "./hakoniwaLabels";
 
 /** 年代記: 出来事を新しい順に並べる。お気に入りと、部屋での再生ができる */
 export default function HakoniwaChronicle() {
@@ -30,6 +31,10 @@ export default function HakoniwaChronicle() {
   const nameOf = (id: string) => names[id] ?? "?";
   const areaName = (id: string) =>
     world.areas.find((area) => area.id === id)?.name ?? "";
+  const arcName = (id: string) => {
+    const arc = world.story_arcs.find((item) => item.id === id);
+    return arc ? arcTitle(t, arc.kind, arc.resident_ids, nameOf) : "";
+  };
 
   return (
     <div className="hakoniwa-chronicle">
@@ -68,6 +73,12 @@ export default function HakoniwaChronicle() {
                     {t("hakoniwa.chronicle.transformMark")}
                   </span>
                 )}
+                {event.kind === "confrontation" && (
+                  <span className="hakoniwa-badge hakoniwa-badge--accent">
+                    {t("hakoniwa.chronicle.confrontationMark")}
+                  </span>
+                )}
+
                 {event.source === "template" && (
                   <span className="hakoniwa-badge">
                     {t("hakoniwa.chronicle.sourceTemplate")}
@@ -100,6 +111,22 @@ export default function HakoniwaChronicle() {
                   {areaName(event.area)}
                 </span>
               </p>
+              {event.arc_id && (
+                <p
+                  className={`hakoniwa-event__arc${event.arc_climax ? " is-climax" : ""}`}
+                >
+                  {t(
+                    event.arc_climax
+                      ? "hakoniwa.chronicle.arcClimax"
+                      : "hakoniwa.chronicle.arcContinue",
+                    {
+                      title:
+                        arcName(event.arc_id) ||
+                        t("hakoniwa.chronicle.arcUnknown"),
+                    },
+                  )}
+                </p>
+              )}
               <p className="hakoniwa-event__narration">{event.narration}</p>
               {event.lines.length > 0 && (
                 <ul className="hakoniwa-event__lines">

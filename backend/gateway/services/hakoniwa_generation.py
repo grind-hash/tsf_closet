@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import re
@@ -22,22 +23,40 @@ from ..consts.hakoniwa import (
     HAKONIWA_EVENT_TITLE_MAX,
     HAKONIWA_GREETING_MAX,
     HAKONIWA_RECENT_EVENTS_CONTEXT,
+    HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT,
     HAKONIWA_TAGS_MAX_COUNT,
     HAKONIWA_TAGS_MAX_LENGTH,
     HAKONIWA_TEMPLATES,
 )
+from ..consts.hakoniwa_play import (
+    CHAT_FALLBACKS,
+    HAKONIWA_CHAT_MESSAGE_MAX,
+    HAKONIWA_CHAT_REPLY_MAX,
+    TOUCH_REACTION_TEMPLATES,
+    TOUCH_TOLERANT_MOOD,
+)
+from . import hakoniwa_play as play
+from . import hakoniwa_story as story
 from .cost_tracker import record_cost
-from .hakoniwa_logic import resident_name, resident_text
+from .hakoniwa_logic import is_male_in_feminine_form, resident_name, resident_text
 from .hakoniwa_prompts import (
     RULE_FOCUS_RETRY_NOTE,
+    alteration_prompts,
+    appearance_is_risque,
     appearance_tags_prompts,
+    chat_reply_prompts,
+    confrontation_prompts,
+    current_appearance_summary,
     event_system_prompt,
     event_user_prompt,
     greeting_prompts,
+    rule_look_tags_prompts,
     scene_tags_prompts,
+    touch_prompts,
     transform_reaction_prompts,
     transform_tags_prompts,
 )
+from .hakoniwa_text import normalize_output
 from .llm_json import generate_validated
 from .llm_service import llm_service
 
@@ -135,12 +154,18 @@ def _event_from_output(
         if _norm_name(name) in id_by_name
     }
     return {
-        "title": output.title.strip()[:HAKONIWA_EVENT_TITLE_MAX],
-        "narration": output.narration.strip()[:HAKONIWA_EVENT_NARRATION_MAX],
+        "title": normalize_output(output.title.strip(), language)[
+            :HAKONIWA_EVENT_TITLE_MAX
+        ],
+        "narration": normalize_output(output.narration.strip(), language)[
+            :HAKONIWA_EVENT_NARRATION_MAX
+        ],
         "lines": [
             {
                 "speaker": id_by_name[_norm_name(line.speaker)],
-                "text": line.text.strip()[:HAKONIWA_EVENT_LINE_TEXT_MAX],
+                "text": normalize_output(line.text.strip(), language)[
+                    :HAKONIWA_EVENT_LINE_TEXT_MAX
+                ],
             }
             for line in output.lines
         ],
@@ -217,6 +242,9 @@ def template_event(
         if is_swap_group(state, group):
             candidates = list(templates["swap"]) + candidates
             weights = [3.0] * len(templates["swap"]) + weights
+        if story.is_investigation_group(state, group):
+            candidates = list(templates["investigation"]) + candidates
+            weights = [3.0] * len(templates["investigation"]) + weights
     if recent_titles:
         filtered = [
             (item, weight)
@@ -227,6 +255,12 @@ def template_event(
             candidates = [item for item, _ in filtered]
             weights = [weight for _, weight in filtered]
     template = rng.choices(candidates, weights=weights, k=1)[0]
+    if template in templates.get("investigation", []):
+        # 調査の定型は調べ役を {a} にする
+        lead = story.investigator(state)
+        group = tuple(
+            sorted(group, key=lambda item: item["id"] != (lead or {}).get("id"))
+        )
     keys = dict(zip(("a", "b", "c"), group, strict=False))
     return _instantiate(template, keys, language)
 
@@ -259,6 +293,9 @@ async def generate_event(
     others_today: list[list[str]] | None = None,
     recent_titles: set[str] | None = None,
     area_id: str | None = None,
+    arc_focus_id: str | None = None,
+    arc_climax: bool = False,
+    intervention: str | None = None,
 ) -> dict[str, Any]:
     """出来事を1件生成する。失敗したら定型の出来事にする(例外は投げない)。
 
@@ -274,6 +311,9 @@ async def generate_event(
         rule_focus_rule_id=rule_focus_rule_id,
         others_today=others_today,
         area_id=area_id,
+        arc_focus_id=arc_focus_id,
+        arc_climax=arc_climax,
+        intervention=intervention,
     )
 
     async def generate(system: str, user: str) -> str:
@@ -346,7 +386,7 @@ async def generate_greeting(
         )
         cleaned = _clean_greeting(raw)
         if cleaned:
-            return {"text": cleaned, "source": "llm"}
+            return {"text": normalize_output(cleaned, language), "source": "llm"}
     except Exception as error:
         logger.warning(
             "Hakoniwa greeting generation failed: %s: %s", type(error).__name__, error
@@ -396,6 +436,45 @@ async def convert_change_to_tags(
             )
             continue
         tags = clean_tags(raw)
+        if tags:
+            return tags
+    return None
+
+
+# 掟の見た目のタグから外す、人物そのものの性別・人数のタグ
+_PERSON_TAG = re.compile(
+    r"^(?:\d*\+?(?:girl|boy)s?|solo|multiple (?:girls|boys)|woman|man|female|male)$",
+    re.IGNORECASE,
+)
+
+
+def clean_look_tags(raw: str) -> str | None:
+    """掟の見た目のタグを整える(英語のタグだけ・人物の性別と人数のタグは外す)。"""
+    tags = clean_tags(raw)
+    if not tags:
+        return None
+    kept = [
+        tag.strip() for tag in tags.split(",") if not _PERSON_TAG.match(tag.strip())
+    ]
+    return ", ".join(kept[:HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT]) or None
+
+
+async def generate_rule_look_tags(
+    name: str, text: str, description: str, *, novelai_model: str | None
+) -> str | None:
+    """自作の掟(と見た目の説明)から、見た目のタグを作る。失敗したら None。"""
+    system_prompt, user_prompt = rule_look_tags_prompts(name, text, description)
+    for _ in range(HAKONIWA_CONVERT_TAGS_MAX_ATTEMPTS):
+        try:
+            raw = await _generate_text(
+                system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=200
+            )
+        except Exception as error:
+            logger.warning(
+                "Hakoniwa rule look tags failed: %s: %s", type(error).__name__, error
+            )
+            continue
+        tags = clean_look_tags(raw)
         if tags:
             return tags
     return None
@@ -460,6 +539,45 @@ async def generate_transform_reaction(
     return transform_reaction_template(target, bystanders, language)
 
 
+async def generate_confrontation_event(
+    state: dict[str, Any],
+    language: str,
+    *,
+    novelai_model: str | None,
+    nsfw: bool,
+) -> dict[str, Any] | None:
+    """住民が書き手へ呼びかける対面の出来事。失敗したら定型。住民が2人未満なら None。"""
+    pair = story.confrontation_pair(state)
+    if pair is None:
+        return None
+    names = [resident_name(resident, language) for resident in pair]
+    system_prompt, user_prompt = confrontation_prompts(state, pair, language, nsfw=nsfw)
+
+    async def generate(system: str, user: str) -> str:
+        return await _generate_text(system, user, novelai_model=novelai_model)
+
+    try:
+        output = await generate_validated(
+            EventOutput,
+            generate=generate,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            context={"names": names},
+        )
+        event = _event_from_output(output, pair, language)
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa confrontation generation failed: %s: %s",
+            type(error).__name__,
+            error,
+        )
+        template = HAKONIWA_TEMPLATES[_lang(language)]["confrontation"][0]
+        event = _instantiate(template, {"a": pair[0], "b": pair[1]}, language)
+    event["kind"] = "confrontation"
+    event["area"] = pair[0].get("current_area")
+    return event
+
+
 # 場面のタグの個数の上限
 SCENE_TAGS_MAX_COUNT = 12
 
@@ -486,3 +604,172 @@ async def convert_scene_to_tags(
     if not tags:
         return None
     return ", ".join(tags.split(", ")[:SCENE_TAGS_MAX_COUNT])
+
+
+# --- タッチ ---
+
+
+def touch_tone(state: dict[str, Any], resident: dict[str, Any], part: str) -> str:
+    """定型の反応の調子。胸・腰は 男性の戸惑い → 際どい姿 → 機嫌が良い → 通常 の順。"""
+    if part != "head":
+        if is_male_in_feminine_form(state, resident):
+            return "confused"
+        if appearance_is_risque(state, resident):
+            return "risque"
+        if int(resident.get("mood") or 50) >= TOUCH_TOLERANT_MOOD:
+            return "tolerant"
+        return "standard"
+    return "confused" if is_male_in_feminine_form(state, resident) else "standard"
+
+
+def touch_reaction_template(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    part: str,
+    language: str,
+    rng: random.Random,
+) -> str:
+    pools = TOUCH_REACTION_TEMPLATES[_lang(language)]
+    pool = (
+        pools.get((part, touch_tone(state, resident, part)))
+        or pools[(part, "standard")]
+    )
+    return rng.choice(pool)
+
+
+async def generate_touch_reaction(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    part: str,
+    language: str,
+    rng: random.Random,
+    *,
+    novelai_model: str | None,
+    nsfw: bool,
+) -> dict[str, str]:
+    """触られた住民のその場の一言。失敗したら定型。"""
+    system_prompt, user_prompt = touch_prompts(
+        state, resident, part, language, nsfw=nsfw
+    )
+    try:
+        raw = await _generate_text(
+            system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=300
+        )
+        cleaned = _clean_greeting(raw)
+        if cleaned:
+            return {"text": normalize_output(cleaned, language), "source": "llm"}
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa touch reaction failed: %s: %s", type(error).__name__, error
+        )
+    return {
+        "text": touch_reaction_template(state, resident, part, language, rng),
+        "source": "template",
+    }
+
+
+# --- 会話 ---
+
+
+def _clean_chat_reply(raw: str) -> str | None:
+    text = re.sub(r"^```\w*\s*|\s*```$", "", str(raw or "").strip()).strip()
+    if not text or text.startswith(("{", "[")):
+        return None
+    if text[0] in '「“"' and text[-1] in '」”"':
+        text = text[1:-1].strip()
+    if not text or len(text) > HAKONIWA_CHAT_REPLY_MAX:
+        return None
+    return text
+
+
+def chat_fallback(resident: dict[str, Any], language: str, rng: random.Random) -> str:
+    if rng.random() < 0.5:
+        return greeting_fallback(resident, language, rng)
+    return rng.choice(CHAT_FALLBACKS[_lang(language)])
+
+
+async def generate_chat_reply(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    history: list[dict[str, Any]],
+    message: str,
+    language: str,
+    rng: random.Random,
+    *,
+    novelai_model: str | None,
+    nsfw: bool,
+) -> dict[str, str]:
+    """住民本人としての会話の返事。失敗したら定型の相槌。"""
+    system_prompt, user_prompt = chat_reply_prompts(
+        state, resident, history, message, language, nsfw=nsfw
+    )
+    try:
+        raw = await _generate_text(
+            system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=600
+        )
+        cleaned = _clean_chat_reply(raw)
+        if cleaned:
+            return {"text": normalize_output(cleaned, language), "source": "llm"}
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa chat reply failed: %s: %s", type(error).__name__, error
+        )
+    return {"text": chat_fallback(resident, language, rng), "source": "template"}
+
+
+def _parse_alteration(raw: str, message: str) -> dict[str, str] | None:
+    match = re.search(r"\{.*\}", str(raw or ""), flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or data.get("action") not in (
+        "transform",
+        "clear",
+        "none",
+    ):
+        return None
+    instruction = str(data.get("instruction") or "").strip() or message
+    if data["action"] == "none":
+        return {"action": "none", "instruction": ""}
+    return {
+        "action": str(data["action"]),
+        "instruction": instruction[:HAKONIWA_CHAT_MESSAGE_MAX],
+    }
+
+
+async def classify_chat_alteration(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    message: str,
+    language: str,
+    *,
+    novelai_model: str | None,
+) -> dict[str, str]:
+    """会話文が変身・元に戻す指示かを判定する。
+
+    はっきりした言い回しは規則で決め、姿や服に触れているのに決まらない文だけを、
+    同じプロバイダで分類させる。分類できなければ通常の会話として扱う(誤って画像を
+    生成しないため)。
+    """
+    detected = play.detect_chat_alteration(message)
+    if detected["action"] != "none" or not play.alteration_candidate(message):
+        return detected
+    look = current_appearance_summary(state, resident) or "the usual look"
+    system_prompt, user_prompt = alteration_prompts(
+        message, resident_name(resident, language), look
+    )
+    try:
+        raw = await _generate_text(
+            system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=200
+        )
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa alteration classification failed: %s: %s",
+            type(error).__name__,
+            error,
+        )
+        return {"action": "none", "instruction": ""}
+    return _parse_alteration(raw, message) or {"action": "none", "instruction": ""}

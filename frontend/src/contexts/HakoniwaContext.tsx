@@ -22,28 +22,38 @@ import {
   addHakoniwaCustomRule,
   addHakoniwaResident,
   advanceHakoniwaDay,
+  chatHakoniwaResident,
   clearHakoniwaTransform,
   createHakoniwaWorld,
   deleteHakoniwaCustomRule,
   deleteHakoniwaWorld,
   fetchHakoniwaCatalog,
+  fetchHakoniwaChat,
   fetchHakoniwaWorld,
   fetchHakoniwaWorlds,
   generateHakoniwaAvatar,
+  generateHakoniwaComboLook,
+  generateHakoniwaRuleLook,
   generateHakoniwaSceneImage,
   greetHakoniwaResident,
   type HakoniwaCatalog,
   type HakoniwaCharacterEntry,
+  type HakoniwaChatEntry,
+  type HakoniwaCustomRuleInput,
   type HakoniwaEvent,
+  type HakoniwaInterventionChoice,
   type HakoniwaResidentChange,
   type HakoniwaResidentInput,
+  type HakoniwaTouchPart,
   type HakoniwaWorld,
   type HakoniwaWorldSummary,
   placeHakoniwaFurniture,
   reapplyHakoniwaTransform,
   removeHakoniwaResident,
   setHakoniwaFavorite,
+  setHakoniwaIntervention,
   toggleHakoniwaRule,
+  touchHakoniwaResident,
   transformHakoniwaResident,
   updateHakoniwaCustomRule,
   updateHakoniwaResident,
@@ -71,6 +81,9 @@ export type HakoniwaBusy =
   | "settings"
   | "furniture"
   | "scene"
+  | "look"
+  | "touch"
+  | "chat"
   | null;
 
 /** 右パネルのタブ */
@@ -101,11 +114,27 @@ export const HAKONIWA_ERROR_CODES = [
   "area_not_found",
   "invalid_slot",
   "furniture_not_found",
+  "look_tags_failed",
+  "no_combo",
+  "invalid_rule_appearance",
+  "invalid_world_memo",
+  "invalid_intervention",
+  "invalid_touch_part",
+  "empty_message",
+  "invalid_message",
 ] as const;
 type HakoniwaErrorCode = (typeof HAKONIWA_ERROR_CODES)[number];
 
 function isKnownErrorCode(code: string): code is HakoniwaErrorCode {
   return (HAKONIWA_ERROR_CODES as readonly string[]).includes(code);
+}
+
+export interface HakoniwaTouchReaction {
+  residentId: string;
+  part: HakoniwaTouchPart;
+  text: string;
+  /** 同じ部位に続けて触れたときも出し直すための番号 */
+  key: number;
 }
 
 export interface HakoniwaGreetingBubble {
@@ -144,14 +173,19 @@ interface HakoniwaContextValue {
     name: string,
     presetIds: string[],
     characters: HakoniwaCharacterEntry[],
+    dissonanceEnabled: boolean,
   ) => Promise<HakoniwaWorld | null>;
   deleteWorld: (worldId: string) => Promise<void>;
   advanceDay: () => Promise<void>;
   toggleRule: (cardId: string, active: boolean) => Promise<void>;
   saveCustomRule: (
-    rule: { name: string; text: string },
+    rule: HakoniwaCustomRuleInput,
     ruleId?: string,
   ) => Promise<boolean>;
+  /** 掟の姿(ruleId)か複合の姿("combo")を住民の人数分生成する */
+  generateLook: (target: string, regenerate: boolean) => void;
+  /** 生成中の掟の姿("combo" は複合の姿) */
+  lookTarget: string | null;
   deleteCustomRule: (ruleId: string) => Promise<void>;
   saveResident: (
     input: HakoniwaResidentInput,
@@ -167,6 +201,24 @@ interface HakoniwaContextValue {
   generateAvatar: (residentId: string, variant: "base" | "dress") => void;
   setFavorite: (eventId: string, favorite: boolean) => Promise<void>;
   setImageModel: (imageModel: string) => Promise<void>;
+  /** 世界の違和感(住民が書き換えに気づいていく)を使うか */
+  setDissonanceEnabled: (enabled: boolean) => Promise<void>;
+  /** 世界のメモ(全生成に最優先の指示として載せる) */
+  setWorldMemo: (memo: string) => Promise<boolean>;
+  /** 次の「1日進める」で効かせる介入 */
+  setIntervention: (choice: HakoniwaInterventionChoice) => Promise<void>;
+  /** 立ち絵に触れたときの住民の一言(拡大表示に出す) */
+  touchReaction: HakoniwaTouchReaction | null;
+  touchResident: (residentId: string, part: HakoniwaTouchPart) => Promise<void>;
+  clearTouchReaction: () => void;
+  /** 会話している住民と、その会話の履歴 */
+  chatResidentId: string | null;
+  chatHistory: HakoniwaChatEntry[];
+  openChat: (residentId: string) => void;
+  /** 会話を閉じる(会話からの変身の出来事は、閉じたあと部屋で再生する) */
+  closeChat: () => void;
+  /** 送れたら true(画像の確認待ちも含む) */
+  sendChat: (message: string) => Promise<boolean>;
   /** 再生を終えた出来事を待ち行列から外す */
   finishPlayback: () => void;
   /** 年代記の出来事を部屋でもう一度再生する */
@@ -203,6 +255,12 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const [worlds, setWorlds] = useState<HakoniwaWorldSummary[]>([]);
   const [world, setWorld] = useState<HakoniwaWorld | null>(null);
   const [busy, setBusy] = useState<HakoniwaBusy>(null);
+  const [lookTarget, setLookTarget] = useState<string | null>(null);
+  const [touchReaction, setTouchReaction] =
+    useState<HakoniwaTouchReaction | null>(null);
+  const [chatResidentId, setChatResidentId] = useState<string | null>(null);
+  const [chatHistory, setChatHistory] = useState<HakoniwaChatEntry[]>([]);
+  const [chatEvents, setChatEvents] = useState<HakoniwaEvent[]>([]);
   const [greetingResidentId, setGreetingResidentId] = useState<string | null>(
     null,
   );
@@ -324,16 +382,26 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     setDigestPending(false);
     setDigestVisible(false);
     setAdvEventId(null);
+    setTouchReaction(null);
+    setChatResidentId(null);
+    setChatHistory([]);
+    setChatEvents([]);
   }, []);
 
   const createWorld = useCallback(
-    (name: string, presetIds: string[], characters: HakoniwaCharacterEntry[]) =>
+    (
+      name: string,
+      presetIds: string[],
+      characters: HakoniwaCharacterEntry[],
+      dissonanceEnabled: boolean,
+    ) =>
       run("create", async () => {
         const created = await createHakoniwaWorld({
           name,
           preset_ids: presetIds,
           characters,
           language,
+          dissonance_enabled: dissonanceEnabled,
         });
         setWorld(created);
         setWorlds((current) => [
@@ -410,16 +478,22 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const toggleRule = useCallback(
     async (cardId: string, active: boolean) => {
       if (!worldId) return;
-      const updated = await run("rule", () =>
+      const result = await run("rule", () =>
         toggleHakoniwaRule(worldId, cardId, active, language),
       );
-      if (updated) applyWorld(updated);
+      if (!result) return;
+      applyWorld(result.world);
+      recordCost(result.cost_usd);
+      // 書き換えが重なって対面が起きたら、その出来事を部屋で再生する
+      if (result.new_events.length > 0) {
+        setPlaybackQueue((current) => [...current, ...result.new_events]);
+      }
     },
-    [applyWorld, language, run, worldId],
+    [applyWorld, language, recordCost, run, worldId],
   );
 
   const saveCustomRule = useCallback(
-    async (rule: { name: string; text: string }, ruleId?: string) => {
+    async (rule: HakoniwaCustomRuleInput, ruleId?: string) => {
       if (!worldId) return false;
       const updated = await run("rule", () =>
         ruleId
@@ -537,26 +611,29 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
    * 画像を生成する操作を実行する。V5 の利用上限を使い切っていると Anlas を消費する
    * ため、抑止されていなければ先に確認を出す。
    */
+  const usageNeedsConfirm = useCallback(() => {
+    const usage = settingsState.anlasBalance?.usage;
+    const exhausted = usage != null && (usage.percent <= 0 || usage.isNegative);
+    const v5 =
+      settingsState.imageProvider === "novelai" &&
+      world != null &&
+      isV5ImageModel(world.image_model_effective);
+    return (
+      v5 &&
+      exhausted &&
+      !readStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY)
+    );
+  }, [settingsState.anlasBalance, settingsState.imageProvider, world]);
+
   const guardImageGeneration = useCallback(
     (task: () => void) => {
-      const usage = settingsState.anlasBalance?.usage;
-      const exhausted =
-        usage != null && (usage.percent <= 0 || usage.isNegative);
-      const v5 =
-        settingsState.imageProvider === "novelai" &&
-        world != null &&
-        isV5ImageModel(world.image_model_effective);
-      if (
-        v5 &&
-        exhausted &&
-        !readStorageFlag("session", V5_USAGE_WARN_SUPPRESSED_KEY)
-      ) {
+      if (usageNeedsConfirm()) {
         setPendingUsageTask(() => task);
         return;
       }
       task();
     },
-    [settingsState.anlasBalance, settingsState.imageProvider, world],
+    [usageNeedsConfirm],
   );
 
   const confirmUsage = useCallback(
@@ -632,6 +709,157 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const setWorldMemo = useCallback(
+    async (memo: string) => {
+      if (!worldId) return false;
+      const updated = await run("settings", () =>
+        updateHakoniwaSettings(worldId, { world_memo: memo }, language),
+      );
+      if (!updated) return false;
+      applyWorld(updated);
+      return true;
+    },
+    [applyWorld, language, run, worldId],
+  );
+
+  const setIntervention = useCallback(
+    async (choice: HakoniwaInterventionChoice) => {
+      if (!worldId) return;
+      const updated = await run("settings", () =>
+        setHakoniwaIntervention(worldId, choice, language),
+      );
+      if (updated) applyWorld(updated);
+    },
+    [applyWorld, language, run, worldId],
+  );
+
+  const touchResident = useCallback(
+    async (residentId: string, part: HakoniwaTouchPart) => {
+      if (!worldId) return;
+      const result = await run("touch", () =>
+        touchHakoniwaResident(worldId, residentId, part, language),
+      );
+      if (!result) return;
+      applyWorld(result.world);
+      recordCost(result.cost_usd);
+      setTouchReaction((current) => ({
+        residentId,
+        part,
+        text: result.text,
+        key: (current?.key ?? 0) + 1,
+      }));
+    },
+    [applyWorld, language, recordCost, run, worldId],
+  );
+
+  const clearTouchReaction = useCallback(() => setTouchReaction(null), []);
+
+  const openChat = useCallback(
+    (residentId: string) => {
+      if (!worldId) return;
+      setChatResidentId(residentId);
+      setChatHistory([]);
+      void fetchHakoniwaChat(worldId, residentId)
+        .then(setChatHistory)
+        .catch((caught: unknown) => setError(errorText(caught)));
+    },
+    [errorText, worldId],
+  );
+
+  const closeChat = useCallback(() => {
+    setChatResidentId(null);
+    setChatHistory([]);
+    // 会話の中で変身したら、その出来事を部屋で再生する
+    if (chatEvents.length > 0) {
+      setPlaybackQueue((current) => [...current, ...chatEvents]);
+      setChatEvents([]);
+    }
+  }, [chatEvents]);
+
+  const sendChat = useCallback(
+    async (message: string) => {
+      if (!worldId || !chatResidentId) return false;
+      const residentId = chatResidentId;
+      const send = async (confirmed?: string): Promise<boolean> => {
+        const result = await run("chat", () =>
+          chatHakoniwaResident(
+            worldId,
+            residentId,
+            {
+              message,
+              allow_image: confirmed !== undefined || !usageNeedsConfirm(),
+              confirmed_instruction: confirmed,
+            },
+            language,
+          ),
+        );
+        if (!result) return false;
+        if (result.alteration.needs_confirmation) {
+          // 変身の指示だった: V5 の利用上限の確認を出してから送り直す
+          const instruction = result.alteration.instruction || message;
+          guardImageGeneration(() => {
+            void send(instruction);
+          });
+          return true;
+        }
+        if (result.world) applyWorld(result.world);
+        setChatHistory(result.history);
+        recordCost(result.cost_usd);
+        if (result.new_events.length > 0) {
+          refreshUsage();
+          setChatEvents((current) => [...current, ...result.new_events]);
+        }
+        return true;
+      };
+      return send();
+    },
+    [
+      applyWorld,
+      chatResidentId,
+      guardImageGeneration,
+      language,
+      recordCost,
+      refreshUsage,
+      run,
+      usageNeedsConfirm,
+      worldId,
+    ],
+  );
+
+  const generateLook = useCallback(
+    (target: string, regenerate: boolean) => {
+      if (!worldId) return;
+      guardImageGeneration(() => {
+        void (async () => {
+          setLookTarget(target);
+          const result = await run("look", () =>
+            target === "combo"
+              ? generateHakoniwaComboLook(worldId, regenerate, language)
+              : generateHakoniwaRuleLook(worldId, target, regenerate, language),
+          );
+          setLookTarget(null);
+          if (!result) return;
+          applyWorld(result.world);
+          recordCost(result.cost_usd);
+          refreshUsage();
+          if (result.failed > 0) {
+            setError(t("hakoniwa.rules.lookPartial", { count: result.failed }));
+          }
+        })();
+      });
+    },
+    [
+      applyWorld,
+      guardImageGeneration,
+      language,
+      recordCost,
+      refreshUsage,
+      run,
+      t,
+      worldId,
+    ],
+  );
+
   const generateSceneImage = useCallback(
     (eventId: string) => {
       if (!worldId) return;
@@ -698,7 +926,22 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     async (imageModel: string) => {
       if (!worldId) return;
       const updated = await run("settings", () =>
-        updateHakoniwaSettings(worldId, imageModel, language),
+        updateHakoniwaSettings(worldId, { image_model: imageModel }, language),
+      );
+      if (updated) applyWorld(updated);
+    },
+    [applyWorld, language, run, worldId],
+  );
+
+  const setDissonanceEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!worldId) return;
+      const updated = await run("settings", () =>
+        updateHakoniwaSettings(
+          worldId,
+          { dissonance_enabled: enabled },
+          language,
+        ),
       );
       if (updated) applyWorld(updated);
     },
@@ -750,6 +993,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       advanceDay,
       toggleRule,
       saveCustomRule,
+      generateLook,
+      lookTarget,
       deleteCustomRule,
       saveResident,
       addCharacterResident,
@@ -762,6 +1007,17 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       generateAvatar,
       setFavorite,
       setImageModel,
+      setDissonanceEnabled,
+      setWorldMemo,
+      setIntervention,
+      touchReaction,
+      touchResident,
+      clearTouchReaction,
+      chatResidentId,
+      chatHistory,
+      openChat,
+      closeChat,
+      sendChat,
       finishPlayback,
       replayEvent,
       clearPlayback,
@@ -801,6 +1057,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       advanceDay,
       toggleRule,
       saveCustomRule,
+      generateLook,
+      lookTarget,
       deleteCustomRule,
       saveResident,
       addCharacterResident,
@@ -813,6 +1071,17 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       generateAvatar,
       setFavorite,
       setImageModel,
+      setDissonanceEnabled,
+      setWorldMemo,
+      setIntervention,
+      touchReaction,
+      touchResident,
+      clearTouchReaction,
+      chatResidentId,
+      chatHistory,
+      openChat,
+      closeChat,
+      sendChat,
       finishPlayback,
       replayEvent,
       clearPlayback,

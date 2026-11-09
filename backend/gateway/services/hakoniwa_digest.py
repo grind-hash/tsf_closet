@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..consts.hakoniwa import HAKONIWA_MAX_ACTIVE_RULES
+from . import hakoniwa_story as story
 
 # 「親密」とみなす好感度と、「親密まであと少し」とみなす下限
 AFFINITY_CLOSE = 30
@@ -20,8 +21,19 @@ MOOD_NOTABLE_DELTA = 8
 GENERIC_HINTS = 3
 # 変化の行の上限
 CHANGES_MAX = 3
+# 違和感の「次の段階まであと少し」とみなす残り
+DISSONANCE_NEAR_STAGE = 15
 
-_KIND_RANK = {"transform": 1}
+_KIND_RANK = {"confrontation": 3, "transform": 1}
+# 物語の弧の山場の出来事の順位(変身より上、対面より下)
+_ARC_CLIMAX_RANK = 2
+
+
+def _rank(event: dict[str, Any]) -> int:
+    rank = _KIND_RANK.get(str(event.get("kind") or ""), 0)
+    if event.get("arc_climax"):
+        rank = max(rank, _ARC_CLIMAX_RANK)
+    return rank
 
 
 def _movement(event: dict[str, Any]) -> int:
@@ -31,16 +43,20 @@ def _movement(event: dict[str, Any]) -> int:
 
 
 def _highlight(events: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """その日の山場。特別な出来事(変身など)を優先し、次に関係と気分の動きの大きさ。"""
+    """その日の山場。対面 > 物語の山場 > 変身 > 関係と気分の動きの大きさ。"""
     best: dict[str, Any] | None = None
     best_score: tuple[int, int] | None = None
     for event in events:
-        score = (_KIND_RANK.get(str(event.get("kind") or ""), 0), _movement(event))
+        score = (_rank(event), _movement(event))
         if best_score is None or score > best_score:
             best, best_score = event, score
     if best is None or best_score is None:
         return None
-    if best.get("kind") == "transform":
+    if best.get("kind") == "confrontation":
+        reason = "confrontation"
+    elif best.get("arc_climax"):
+        reason = "arc_climax"
+    elif best.get("kind") == "transform":
         reason = "transform"
     elif best_score[1] > 0:
         reason = "trio" if len(best.get("participants") or []) >= 3 else "movement"
@@ -110,11 +126,47 @@ def _near_close_pair(state: dict[str, Any]) -> dict[str, Any] | None:
     return best
 
 
-def _tomorrow_hint(after: dict[str, Any]) -> dict[str, Any]:
+def _dissonance_near(state: dict[str, Any]) -> dict[str, Any] | None:
+    if not story.dissonance_enabled(state) or state.get("dissonance_acknowledged"):
+        return None
+    upcoming = story.next_dissonance_stage(story.dissonance_value(state))
+    if upcoming is None or upcoming["remaining"] > DISSONANCE_NEAR_STAGE:
+        return None
+    return upcoming
+
+
+def _arc_near_climax(state: dict[str, Any]) -> dict[str, Any] | None:
+    for arc in story.active_arcs(state):
+        remaining = int(arc.get("beats_to_climax") or 0) - int(arc.get("progress") or 0)
+        if remaining <= 1:
+            return arc
+    return None
+
+
+def _tomorrow_hint(
+    after: dict[str, Any], events: list[dict[str, Any]]
+) -> dict[str, Any]:
     """明日の予感(最初に当てはまったもの)。"""
+    if any(event.get("kind") == "confrontation" for event in events):
+        return {"type": "acknowledged"}
+    near_stage = _dissonance_near(after)
+    if near_stage is not None:
+        return {
+            "type": "dissonance_near",
+            "stage": near_stage["stage"],
+            "remaining": near_stage["remaining"],
+        }
     pair = after.get("swap_pair")
     if "swap" in after.get("active_rules", []) and pair:
         return {"type": "swap", "ids": list(pair)}
+    arc = _arc_near_climax(after)
+    if arc is not None:
+        return {
+            "type": "arc_near_climax",
+            "arc_id": arc["id"],
+            "kind": arc["kind"],
+            "ids": list(arc.get("resident_ids") or []),
+        }
     near = _near_close_pair(after)
     if near is not None:
         return {
@@ -131,13 +183,68 @@ def _tomorrow_hint(after: dict[str, Any]) -> dict[str, Any]:
     return {"type": "generic", "index": int(after.get("day") or 1) % GENERIC_HINTS}
 
 
-def build_day_digest(
-    before: dict[str, Any], after: dict[str, Any], events: list[dict[str, Any]]
-) -> dict[str, Any]:
-    """1日のまとめ。day は進める前の日(まとめた日)。"""
+def _arcs(after: dict[str, Any], day: int) -> list[dict[str, Any]]:
+    """続いている弧と、その日に閉じた弧。status は started / active / climax / faded / resolved。"""
+    items = []
+    for arc in after.get("story_arcs") or []:
+        if arc.get("status") == "active":
+            status = "started" if int(arc.get("started_day") or 0) == day else "active"
+        elif arc.get("closed_day") == day:
+            status = str(arc.get("close_reason") or "resolved")
+        else:
+            continue
+        items.append(
+            {
+                "id": arc["id"],
+                "kind": arc["kind"],
+                "ids": list(arc.get("resident_ids") or []),
+                "progress": int(arc.get("progress") or 0),
+                "beats": int(arc.get("beats_to_climax") or 0),
+                "status": status,
+            }
+        )
+    return items
+
+
+def _dissonance(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any] | None:
+    if not story.dissonance_enabled(after):
+        return None
+    start = story.dissonance_value(before)
+    end = story.dissonance_value(after)
+    upcoming = story.next_dissonance_stage(end)
     return {
-        "day": int(before.get("day") or 1),
+        "from": start,
+        "to": end,
+        "from_stage": story.dissonance_stage(start),
+        "to_stage": story.dissonance_stage(end),
+        "acknowledged": bool(after.get("dissonance_acknowledged")),
+        "next_stage": upcoming["stage"] if upcoming else None,
+        "remaining": upcoming["remaining"] if upcoming else None,
+    }
+
+
+def build_day_digest(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    events: list[dict[str, Any]],
+    *,
+    adaptations: list[dict[str, Any]] | None = None,
+    world_adaptations: list[dict[str, Any]] | None = None,
+    intervention: str | None = None,
+) -> dict[str, Any]:
+    """1日のまとめ。day は進める前の日(まとめた日)。
+
+    after は日の終わりの処理(適応・名残・違和感)を済ませ、日を進める前の状態。
+    """
+    day = int(before.get("day") or 1)
+    return {
+        "day": day,
         "highlight": _highlight(events),
         "changes": _changes(before, after, events),
-        "hint": _tomorrow_hint(after),
+        "hint": _tomorrow_hint(after, events),
+        "adaptations": list(adaptations or []),
+        "world_adaptations": list(world_adaptations or []),
+        "arcs": _arcs(after, day),
+        "dissonance": _dissonance(before, after),
+        "intervention": intervention,
     }
