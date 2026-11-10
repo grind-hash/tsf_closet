@@ -114,6 +114,13 @@ export default function HakoniwaRandomRoster({
               </div>
               <p>{resident.personality}</p>
               <p className="hakoniwa-note">{resident.appearance_text}</p>
+              <p className="hakoniwa-note">
+                {t("hakoniwa.random.addressStyle", {
+                  style: t(
+                    `hakoniwa.residentForm.addressStyles.${resident.address_style}`,
+                  ),
+                })}
+              </p>
               <div className="hakoniwa-random__actions">
                 <button
                   type="button"

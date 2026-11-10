@@ -11,10 +11,10 @@ from typing import Any
 
 from ..consts.hakoniwa_play import RULE_REACTION_TEMPLATES
 from .hakoniwa_logic import (
+    address_name,
     body_gender,
     custom_rule,
     resident_gender,
-    resident_name,
     resident_text,
 )
 
@@ -75,7 +75,8 @@ def _swap_lines(
                     resident,
                     "swap_start_male" if male_in_female else "swap_start",
                     language,
-                    partner=resident_name(partner, _lang(language)),
+                    # 台詞の中では、その住民がふだん相手を呼ぶ呼び方にする
+                    partner=address_name(resident, partner, language),
                 )
             )
         return lines

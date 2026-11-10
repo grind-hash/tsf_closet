@@ -35,6 +35,14 @@ HAKONIWA_AFFINITY_MIN = -50
 HAKONIWA_AFFINITY_MAX = 50
 HAKONIWA_CUSTOM_RESIDENT_INITIAL_MOOD = 55
 
+# 住民がほかの住民を呼ぶときのくせ(話す側に付く)。相手の名前・性別・年の差から呼び方を作る
+#   given_chan: 下の名前＋ちゃん(男性には くん) / given_san: 下の名前＋さん /
+#   given: 下の名前を呼び捨て / family_san: 苗字＋さん / family: 苗字を呼び捨て
+HAKONIWA_ADDRESS_STYLES = ("given_chan", "given_san", "given", "family_san", "family")
+HAKONIWA_ADDRESS_STYLE_DEFAULT = "given_san"
+# 相手がこれだけ年上なら、くせが ちゃん/くん・呼び捨てでも さん を付ける
+HAKONIWA_ADDRESS_ELDER_GAP = 10
+
 # 生成プロンプトへ載せるときの長さ上限(保存上限より短く切り詰める)
 HAKONIWA_PERSONALITY_PROMPT_MAX = 120
 HAKONIWA_CUSTOM_RULE_PROMPT_MAX = 120
@@ -62,6 +70,8 @@ HAKONIWA_SOLO_GROUP_CHANCE = 0.15
 HAKONIWA_CONVERT_TAGS_MAX_ATTEMPTS = 3
 HAKONIWA_TAGS_MAX_COUNT = 24
 HAKONIWA_TAGS_MAX_LENGTH = 400
+# 手で書いたタグの入力の上限(整えたあとの上限は HAKONIWA_TAGS_MAX_COUNT / _LENGTH で確かめる)
+HAKONIWA_MANUAL_TAGS_INPUT_MAX = 1000
 
 # 同梱素材の URL(frontend/public/hakoniwa-assets/)
 HAKONIWA_ASSET_BASE = "/hakoniwa-assets"
@@ -232,6 +242,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
         ),
         "initial_mood": 62,
         "initial_area": "living",
+        "address_style": "given_chan",
         "initial_affinities": {"shiori": 10, "tamako": 15, "ren": 5, "ritsu": 10},
         "text": {
             "ja": {
@@ -276,6 +287,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
         ),
         "initial_mood": 45,
         "initial_area": "study",
+        "address_style": "given_san",
         "initial_affinities": {"aoi": 10, "tamako": 0, "ren": 15, "ritsu": -5},
         "text": {
             "ja": {
@@ -322,6 +334,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
         ),
         "initial_mood": 58,
         "initial_area": "living",
+        "address_style": "given_chan",
         "initial_affinities": {"aoi": 15, "shiori": 5, "ren": 10, "ritsu": 10},
         "text": {
             "ja": {
@@ -367,6 +380,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
         ),
         "initial_mood": 50,
         "initial_area": "garden",
+        "address_style": "family",
         "initial_affinities": {"aoi": 5, "shiori": 15, "tamako": 5, "ritsu": 0},
         "text": {
             "ja": {
@@ -414,6 +428,7 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
         ),
         "initial_mood": 66,
         "initial_area": "living",
+        "address_style": "family_san",
         "initial_affinities": {"aoi": 10, "shiori": -5, "tamako": 10, "ren": 0},
         "text": {
             "ja": {

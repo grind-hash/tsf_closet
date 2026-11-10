@@ -6,7 +6,8 @@ random.Random を渡す。状態の形:
     {version, day, image_model, active_rules[], swap_pair, last_pair,
      custom_rules: [{id, name, text, appearance_text, appearance_tags}],
      residents: [{id, source, preset_id?, character_preset_id?, name, gender, age, job,
-                  personality, pronoun, speech_style, appearance_text, base_tags,
+                  personality, pronoun, speech_style, address_style, appearance_text,
+                  base_tags,
                   dress_text, dress_tags, avatar_image, dress_image, mood, affinities,
                   transformation, transformation_history,
                   rule_images: {掟 id: {image, tags, source_tags}},
@@ -32,6 +33,9 @@ from ..consts.hakoniwa import (
     DEFAULT_AREA_ID,
     DEFAULT_BASE_TAGS,
     GENDERS,
+    HAKONIWA_ADDRESS_ELDER_GAP,
+    HAKONIWA_ADDRESS_STYLE_DEFAULT,
+    HAKONIWA_ADDRESS_STYLES,
     HAKONIWA_AFFINITY_MAX,
     HAKONIWA_AFFINITY_MIN,
     HAKONIWA_APPEARANCE_TEXT_MAX,
@@ -109,6 +113,89 @@ def resident_text(resident: dict[str, Any], language: str) -> dict[str, Any]:
 
 def resident_name(resident: dict[str, Any], language: str) -> str:
     return resident_text(resident, language)["name"]
+
+
+# --- 住民どうしの呼び方 ---
+
+
+def resident_address_style(resident: dict[str, Any]) -> str:
+    """住民がほかの住民を呼ぶときのくせ。状態の値、無ければプリセットの値、既定の順。"""
+    own = str(resident.get("address_style") or "")
+    if own in HAKONIWA_ADDRESS_STYLES:
+        return own
+    preset = HAKONIWA_PRESET_MAP.get(str(resident.get("preset_id") or ""))
+    style = str(preset.get("address_style") or "") if preset else ""
+    return style if style in HAKONIWA_ADDRESS_STYLES else HAKONIWA_ADDRESS_STYLE_DEFAULT
+
+
+def clean_address_style(value: Any) -> str:
+    """呼び方のくせの入力を整える(知らない値は空 = プリセットか既定に任せる)。"""
+    style = str(value or "")
+    return style if style in HAKONIWA_ADDRESS_STYLES else ""
+
+
+# かなり年上の相手に向けるときの、くせの言い換え(敬称を付ける)
+_ELDER_ADDRESS_STYLES = {
+    "given_chan": "given_san",
+    "given": "given_san",
+    "family": "family_san",
+}
+_AGE_NUMBER = re.compile(r"(\d+)\s*(代|s)?")
+
+
+def age_years(text: str) -> int | None:
+    """年齢の表示文(「20代後半」「27歳」「late 20s」)からおおよその年齢。読めなければ None。"""
+    match = _AGE_NUMBER.search(text or "")
+    if match is None:
+        return None
+    years = int(match.group(1))
+    if match.group(2) is None:
+        return years
+    lowered = text.lower()
+    if "前半" in text or "early" in lowered:
+        return years + 2
+    if "後半" in text or "late" in lowered:
+        return years + 8
+    return years + 5
+
+
+def address_name(
+    speaker: dict[str, Any], listener: dict[str, Any], language: str
+) -> str:
+    """speaker が listener を呼ぶときの呼び方(話す側のくせ・相手の名前と性別・年の差から作る)。
+
+    名前は日本語なら「苗字 名前」、英語なら「Given Family」として分ける(区切りが無ければ
+    名前全体を使う)。性別は心の性別で見る(入れ替わり・変身でも呼び方は変わらない)。
+    相手が HAKONIWA_ADDRESS_ELDER_GAP 以上年上なら、ちゃん/くん・呼び捨ては さん にする。
+    """
+    lang = _lang(language)
+    style = resident_address_style(speaker)
+    name = resident_name(listener, lang)
+    parts = name.split()
+    if len(parts) >= 2:
+        family, given = (parts[0], parts[-1]) if lang == "ja" else (parts[-1], parts[0])
+    else:
+        family = given = name
+    own_age = age_years(str(resident_text(speaker, lang)["age"]))
+    their_age = age_years(str(resident_text(listener, lang)["age"]))
+    if (
+        own_age is not None
+        and their_age is not None
+        and their_age - own_age >= HAKONIWA_ADDRESS_ELDER_GAP
+    ):
+        style = _ELDER_ADDRESS_STYLES.get(style, style)
+    male = resident_gender(listener) == "male"
+    if lang == "en":
+        if style == "family_san":
+            return f"{'Mr.' if male else 'Ms.'} {family}"
+        return family if style == "family" else given
+    if style == "given_chan":
+        return given + ("くん" if male else "ちゃん")
+    if style == "given_san":
+        return given + "さん"
+    if style == "family_san":
+        return family + "さん"
+    return family if style == "family" else given
 
 
 def find_resident(state: dict[str, Any], resident_id: str) -> dict[str, Any]:
@@ -459,10 +546,15 @@ def _base_resident(**fields: Any) -> dict[str, Any]:
         "personality": "",
         "pronoun": "",
         "speech_style": "",
+        # 空ならプリセットのくせか既定(resident_address_style)
+        "address_style": "",
         "appearance_text": "",
         "base_tags": "",
         "dress_text": "",
         "dress_tags": "",
+        # プレイヤーが手で直したタグ。説明を変えても作り直さない(作り直しの指示を待つ)
+        "base_tags_manual": False,
+        "dress_tags_manual": False,
         "avatar_image": None,
         "dress_image": None,
         "mood": HAKONIWA_CUSTOM_RESIDENT_INITIAL_MOOD,
@@ -501,19 +593,27 @@ def upgrade_preset_resident(entry: dict[str, Any]) -> dict[str, Any]:
         return entry
     preset = HAKONIWA_PRESET_MAP[preset_id]
     if current < HAKONIWA_PRESET_CHARACTER_REVISIONS.get(preset_id, 0):
+        # 人物そのものが変わる版では、手で直したタグも新しい人物のタグに戻す
         entry.update(
             gender=preset["gender"],
             base_tags=preset["base_tags"],
             dress_tags=preset["dress_tags"],
+            base_tags_manual=False,
+            dress_tags_manual=False,
             avatar_image=None,
             dress_image=None,
             rule_images={},
             combo_images={},
         )
     else:
-        if not str(entry.get("appearance_text") or "").strip():
+        # 手で直したタグは、描き直しの版でも残す
+        if not str(entry.get("appearance_text") or "").strip() and not entry.get(
+            "base_tags_manual"
+        ):
             entry["base_tags"] = preset["base_tags"]
-        if not str(entry.get("dress_text") or "").strip():
+        if not str(entry.get("dress_text") or "").strip() and not entry.get(
+            "dress_tags_manual"
+        ):
             entry["dress_tags"] = preset["dress_tags"]
     entry["preset_revision"] = revision
     return entry
@@ -600,6 +700,7 @@ def custom_resident(
     age: str = "",
     job: str = "",
     pronoun: str = "",
+    address_style: str = "",
 ) -> dict[str, Any]:
     """プレイヤーが書いた住民(おまかせの住民を含む)のエントリ。
 
@@ -637,6 +738,7 @@ def custom_resident(
         age=str(age or "").strip(),
         job=str(job or "").strip(),
         pronoun=str(pronoun or "").strip(),
+        address_style=clean_address_style(address_style),
     )
 
 
@@ -711,7 +813,12 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         "swap_pair": list(state["swap_pair"]) if state.get("swap_pair") else None,
         "last_pair": list(state["last_pair"]) if state.get("last_pair") else None,
         "custom_rules": [
-            {"appearance_text": "", "appearance_tags": "", **dict(rule)}
+            {
+                "appearance_text": "",
+                "appearance_tags": "",
+                "appearance_tags_manual": False,
+                **dict(rule),
+            }
             for rule in state.get("custom_rules") or []
         ],
         "residents": [],
@@ -805,6 +912,24 @@ def _resume_transform_adaptation(resident: dict[str, Any], day: int) -> None:
         resident["adaptation"] = story.new_adaptation("transform", day)
 
 
+def tag_action(
+    *, edited: str | None, regenerate: bool, manual: bool, source_changed: bool
+) -> str:
+    """保存のときに画像のタグをどうするか。
+
+    manual: プレイヤーが書いたタグを使う / derive: 説明から作り直す / keep: 今のタグのまま。
+    手で直したタグは、説明を変えても作り直さない(作り直すのは regenerate のときだけ)。
+    タグを空にして保存したら、説明から作るタグに戻す。
+    """
+    if regenerate:
+        return "derive"
+    if edited is not None:
+        return "manual" if edited.strip() else "derive"
+    if manual:
+        return "keep"
+    return "derive" if source_changed else "keep"
+
+
 def validate_custom_rule(
     name: Any, text: Any, appearance_text: Any = ""
 ) -> dict[str, str]:
@@ -830,6 +955,7 @@ def add_custom_rule(
     text: Any,
     appearance_text: Any = "",
     appearance_tags: str = "",
+    appearance_tags_manual: bool = False,
 ) -> dict[str, Any]:
     if len(state.get("custom_rules", [])) >= HAKONIWA_CUSTOM_RULES_MAX:
         raise HakoniwaError(
@@ -839,6 +965,7 @@ def add_custom_rule(
         "id": "custom_rule_" + uuid.uuid4().hex[:10],
         **validate_custom_rule(name, text, appearance_text),
         "appearance_tags": str(appearance_tags or ""),
+        "appearance_tags_manual": bool(appearance_tags_manual and appearance_tags),
     }
     new_state = deepcopy(state)
     new_state["custom_rules"].append(rule)
@@ -852,8 +979,12 @@ def update_custom_rule(
     text: Any,
     appearance_text: Any = "",
     appearance_tags: str | None = None,
+    appearance_tags_manual: bool = False,
 ) -> dict[str, Any]:
-    """自作の掟を書き換える。appearance_tags が None なら見た目のタグは変えない。"""
+    """自作の掟を書き換える。appearance_tags が None なら見た目のタグは変えない。
+
+    appearance_tags_manual はプレイヤーが手で直したタグか(説明から作ったタグなら False)。
+    """
     new_state = deepcopy(state)
     target = custom_rule(new_state, rule_id)
     if target is None:
@@ -861,6 +992,9 @@ def update_custom_rule(
     target.update(validate_custom_rule(name, text, appearance_text))
     if appearance_tags is not None:
         target["appearance_tags"] = str(appearance_tags)
+        target["appearance_tags_manual"] = bool(
+            appearance_tags_manual and appearance_tags
+        )
     return new_state
 
 
@@ -924,6 +1058,9 @@ def update_resident(
         "dress_tags",
         "avatar_image",
         "dress_image",
+        "address_style",
+        "base_tags_manual",
+        "dress_tags_manual",
     }
     for key, value in fields.items():
         if key in allowed:
@@ -938,10 +1075,12 @@ def validate_resident_fields(
     gender: Any,
     appearance_text: Any,
     dress_text: Any,
+    address_style: Any = "",
 ) -> dict[str, str]:
     if gender not in GENDERS:
         raise HakoniwaError("invalid_gender", "性別の指定が正しくありません")
     return {
+        "address_style": clean_address_style(address_style),
         "name": _clean_text(
             name, HAKONIWA_RESIDENT_NAME_MAX, required=True, code="invalid_name"
         ),

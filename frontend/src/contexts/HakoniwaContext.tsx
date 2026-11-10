@@ -63,6 +63,7 @@ import {
   updateHakoniwaResident,
   updateHakoniwaSettings,
 } from "../apis/hakoniwa";
+import { reactionScenes } from "../components/hakoniwa/reactionScenes";
 import {
   isV5ImageModel,
   V5_USAGE_WARN_SUPPRESSED_KEY,
@@ -147,6 +148,9 @@ export const HAKONIWA_ERROR_CODES = [
   "invalid_message",
   "invalid_theme",
   "invalid_count",
+  "invalid_tags",
+  "too_many_tags",
+  "tags_gender_mismatch",
 ] as const;
 type HakoniwaErrorCode = (typeof HAKONIWA_ERROR_CODES)[number];
 
@@ -529,20 +533,37 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   );
 
   const reactionSeq = useRef(0);
-  /** 掟の切り替え直後の反応を、再生の列に入れられる一時の場面にする(年代記には無い) */
-  const reactionEvent = useCallback(
+  /**
+   * 掟の切り替え直後の反応を、再生の列に入れられる一時の場面にする(年代記には無い)。
+   * 話し手が別々の場所にいるときは場所ごとに場面を分け、見ている場所の場面を最後にする
+   * (同じ場面に入れると、よその場所の住民が再生の間だけ部屋に現れてしまう)。
+   */
+  const reactionEvents = useCallback(
     (
       reaction: HakoniwaRuleReaction,
       current: HakoniwaWorld,
-      fallbackArea: string,
-    ): HakoniwaEvent | null => {
-      if (reaction.lines.length === 0) return null;
+      viewArea: string,
+    ): HakoniwaEvent[] => {
+      if (reaction.lines.length === 0) return [];
       reactionSeq.current += 1;
+      const seq = reactionSeq.current;
       const rule =
         current.rule_cards.find((card) => card.id === reaction.card_id)?.name ??
         reaction.card_id;
-      return {
-        id: `reaction-${reactionSeq.current}`,
+      const residentAreas = new Map(
+        current.residents.map((resident) => [
+          resident.id,
+          resident.current_area,
+        ]),
+      );
+      const scenes = reactionScenes(
+        reaction.lines,
+        residentAreas,
+        viewArea,
+        reaction.area ?? viewArea,
+      );
+      return scenes.map((scene, index) => ({
+        id: `reaction-${seq}-${index}`,
         day: current.day,
         title: t("hakoniwa.ruleReaction.title", { rule }),
         narration: t(
@@ -551,20 +572,18 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
             : "hakoniwa.ruleReaction.ended",
           { rule },
         ),
-        lines: reaction.lines.map((line) => ({
+        lines: scene.lines.map((line) => ({
           speaker: line.resident_id,
           text: line.text,
         })),
-        participants: [
-          ...new Set(reaction.lines.map((line) => line.resident_id)),
-        ],
+        participants: [...new Set(scene.lines.map((line) => line.resident_id))],
         mood_delta: {},
         affinity_delta: 0,
         source: "template",
         kind: "reaction",
         favorite: false,
-        area: reaction.area ?? fallbackArea,
-      };
+        area: scene.area,
+      }));
     },
     [t],
   );
@@ -580,18 +599,26 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       recordCost(result.cost_usd);
       // 切り替え直後の住民の反応を、年代記に入らない一時の場面として先に再生する。
       // 書き換えが重なって対面が起きたら、その出来事を続けて再生する
-      const reaction = result.reaction
-        ? reactionEvent(result.reaction, result.world, viewAreaId)
-        : null;
-      if (reaction || result.new_events.length > 0) {
+      const reactions = result.reaction
+        ? reactionEvents(result.reaction, result.world, viewAreaId)
+        : [];
+      if (reactions.length > 0 || result.new_events.length > 0) {
         setPlaybackQueue((current) => [
           ...current,
-          ...(reaction ? [reaction] : []),
+          ...reactions,
           ...result.new_events,
         ]);
       }
     },
-    [applyWorld, language, reactionEvent, recordCost, run, viewAreaId, worldId],
+    [
+      applyWorld,
+      language,
+      reactionEvents,
+      recordCost,
+      run,
+      viewAreaId,
+      worldId,
+    ],
   );
 
   const saveCustomRule = useCallback(

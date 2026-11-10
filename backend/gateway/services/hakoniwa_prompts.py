@@ -38,6 +38,7 @@ from . import hakoniwa_story_text as story_text
 from .hakoniwa_logic import (
     active_combo,
     active_custom_rules,
+    address_name,
     appearance_kind,
     body_gender,
     combo_tags,
@@ -174,7 +175,10 @@ def gender_address_rules(language: str) -> str:
         "description must match each resident's gender setting. A body swap or a "
         "transformation changes only the body, not the mind: every resident keeps "
         "their own first-person pronoun, speech style and way of addressing others "
-        "(a man in a woman's body still says his usual first person, and vice versa)."
+        "(a man in a woman's body still says his usual first person, and vice versa). "
+        "The residents have lived together under one roof for a long time: in "
+        "dialogue, call a housemate exactly as listed under 'Calls housemates' in the "
+        "speaker's information, and never call a housemate by their full name."
     )
     if language == "ja":
         rules += (
@@ -390,6 +394,26 @@ def _swap_note(state: dict[str, Any], resident: dict[str, Any], language: str) -
     return note
 
 
+def address_text(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    language: str,
+    among: list[dict[str, Any]] | None = None,
+) -> str:
+    """住民がほかの住民をふだん何と呼ぶか(台詞で使う呼び方の一覧)。
+
+    among を渡すと、その住民たちへの呼び方だけにする(場面に居合わせる住民など)。
+    """
+    open_quote, close_quote = ("「", "」") if language == "ja" else ('"', '"')
+    pairs = [
+        f"{resident_name(other, language)} -> "
+        f"{open_quote}{address_name(resident, other, language)}{close_quote}"
+        for other in (state["residents"] if among is None else among)
+        if other["id"] != resident["id"]
+    ]
+    return f" Calls housemates: {', '.join(pairs)}." if pairs else ""
+
+
 def residents_text(state: dict[str, Any], language: str) -> str:
     names = {item["id"]: resident_name(item, language) for item in state["residents"]}
     lines = []
@@ -407,6 +431,7 @@ def residents_text(state: dict[str, Any], language: str) -> str:
             f"- {text['name']} ({_gender_label(resident_gender(resident))}, "
             f"{text['age']}, {text['job']}): {personality}{pronoun} "
             f"Mood {resident['mood']}/100. {affinities}."
+            f"{address_text(state, resident, language)}"
             f"{_swap_note(state, resident, language)}"
             f"{appearance_note(state, resident)}"
             f"{story_text.story_notes(state, resident, language)}"
@@ -796,6 +821,7 @@ def resident_profile_text(
         f"{str(text['personality'])[:HAKONIWA_PERSONALITY_PROMPT_MAX]}{pronoun} "
         f"Mood {resident['mood']}/100.{top_affinity} "
         f"Currently in the {area_name(resident.get('current_area'), 'en').lower()}."
+        f"{address_text(state, resident, language)}"
         f"{_swap_note(state, resident, language)}{appearance_note(state, resident)}"
         f"{story_text.story_notes(state, resident, language)}"
     )
@@ -1062,6 +1088,7 @@ def transform_reaction_prompts(
         f"{resident_name(resident, language)} ({_gender_label(resident_gender(resident))}, "
         f"{str(resident_text(resident, language)['personality'])[:HAKONIWA_PERSONALITY_PROMPT_MAX]}"
         f"; First-person pronoun: {resident_text(resident, language)['pronoun']}"
+        f".{address_text(state, resident, language, involved)}"
         f"{_swap_note(state, resident, language)}"
         f"{appearance_note(state, resident)})"
         for resident in involved
@@ -1186,6 +1213,14 @@ def random_residents_prompts(
         if language == "ja"
         else ""
     )
+    address_rule = (
+        "address_style is how the resident calls the other residents, chosen to fit "
+        "the personality: given_chan (given name + ちゃん, くん for men), given_san "
+        "(given name + さん), given (given name alone), family_san (family name + "
+        "さん, polite), family (family name alone, curt). They have lived together "
+        "for a while, so prefer the familiar styles; use family_san only for a "
+        "reserved or very polite person."
+    )
     age_example = "20代後半" if language == "ja" else "late 20s"
     system_prompt = (
         "You are a character designer for a life simulation set in a small boarding "
@@ -1200,13 +1235,14 @@ def random_residents_prompts(
         "English Danbooru-style tags for exactly that appearance: start with the "
         "gender token (1girl or 1boy), then solo, the age, hair, eyes and clothes, "
         f"at most {HAKONIWA_TAGS_MAX_COUNT} tags, modest everyday clothing. "
-        f"{pronoun_rule}\n"
+        f"{pronoun_rule} {address_rule}\n"
         f"Write name, age, job, personality, pronoun and appearance in {lang}; "
         f"appearance_tags are always English.{chinese_rule}\n"
         "Output only this JSON, with no explanation or code fence:\n"
         '{"residents": [{"name": "...", "gender": "female", '
         f'"age": "{age_example}", '
-        '"job": "...", "personality": "...", "pronoun": "...", "appearance": "...", '
+        '"job": "...", "personality": "...", "pronoun": "...", '
+        '"address_style": "given_san", "appearance": "...", '
         '"appearance_tags": "1girl, solo, ..."}]}'
     )
     return system_prompt, f"Design {count} residents."

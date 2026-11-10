@@ -25,8 +25,9 @@ def test_swap_start_lets_the_man_in_a_womans_body_speak_first():
     speakers = [line["resident_id"] for line in reaction["lines"]]
     assert speakers == ["ren", "aoi"]
     ren_line, aoi_line = (line["text"] for line in reaction["lines"])
-    assert "高瀬 葵" in ren_line and "俺" in ren_line
-    assert "苑田 蓮" in aoi_line and "私" in aoi_line
+    # 台詞ではフルネームでなく、ふだんの呼び方(蓮は苗字を呼び捨て、葵は下の名前＋くん)
+    assert "高瀬" in ren_line and "高瀬 葵" not in ren_line and "俺" in ren_line
+    assert "蓮くん" in aoi_line and "苑田 蓮" not in aoi_line and "私" in aoi_line
 
 
 def test_swap_end_returns_both_to_their_bodies():
@@ -70,7 +71,8 @@ def test_turning_a_rule_off_and_english_text():
     assert text == "Phew, it feels like everyday life is back."
     _after, swap = _toggle(_world(), "swap", True, language="en")
     assert all("{" not in line["text"] for line in swap["lines"])
-    assert "Aoi Takase" in swap["lines"][0]["text"]
+    assert "Takase" in swap["lines"][0]["text"]
+    assert "Aoi Takase" not in swap["lines"][0]["text"]
 
 
 def test_no_reaction_when_nothing_changed():

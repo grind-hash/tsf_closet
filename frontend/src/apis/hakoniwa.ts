@@ -166,6 +166,19 @@ export interface HakoniwaAchievementUnlocked {
 }
 
 /** おまかせの住民(作成画面で組む住民の定義) */
+/**
+ * 住民がほかの住民を呼ぶときのくせ(話す側に付く)。相手の名前・性別・年の差から
+ * 呼び方を作る(かなり年上の相手には さん を付ける)
+ */
+export const HAKONIWA_ADDRESS_STYLES = [
+  "given_chan",
+  "given_san",
+  "given",
+  "family_san",
+  "family",
+] as const;
+export type HakoniwaAddressStyle = (typeof HAKONIWA_ADDRESS_STYLES)[number];
+
 export interface HakoniwaRandomResident {
   name: string;
   gender: "female" | "male";
@@ -173,6 +186,7 @@ export interface HakoniwaRandomResident {
   job: string;
   personality: string;
   pronoun: string;
+  address_style: HakoniwaAddressStyle;
   appearance_text: string;
   base_tags: string;
 }
@@ -279,12 +293,19 @@ export interface HakoniwaResident {
   job: string;
   personality: string;
   pronoun: string;
+  address_style: HakoniwaAddressStyle;
+  /** ほかの住民(id)をふだん何と呼ぶか(台詞で使う呼び方) */
+  addresses: Record<string, string>;
   /** プレイヤーが書いた外見の説明(画像タグとは別に持つ) */
   appearance_text: string;
-  /** 通常の姿の画像タグ(外見の説明から作る) */
+  /** 通常の姿の画像タグ(外見の説明から作る。手で直すこともできる) */
   base_tags: string;
+  /** いつもの姿のタグをプレイヤーが手で直したか(説明を変えても上書きしない) */
+  base_tags_manual: boolean;
   dress_text: string;
   dress_tags: string;
+  /** ドレス姿のタグをプレイヤーが手で直したか */
+  dress_tags_manual: boolean;
   mood: number;
   affinities: Record<string, number>;
   transformation: HakoniwaTransformation | null;
@@ -324,8 +345,10 @@ export interface HakoniwaRuleCard {
   active: boolean;
   /** 自作の掟の見た目の説明(プレイヤーが書いた文) */
   appearance_text?: string | null;
-  /** 見た目の説明(空なら掟の本文)から作ったタグ */
+  /** 見た目の説明(空なら掟の本文)から作ったタグ。手で直すこともできる */
   appearance_tags?: string | null;
+  /** 見た目のタグをプレイヤーが手で直したか(説明を変えても上書きしない) */
+  appearance_tags_manual?: boolean | null;
   look?: HakoniwaLookStatus | null;
   /** 既定の掟どうしの相性 */
   synergies?: HakoniwaSynergy[] | null;
@@ -404,6 +427,10 @@ export interface HakoniwaCustomRuleInput {
   name: string;
   text: string;
   appearance_text: string;
+  /** 手で直した見た目のタグ。null は手直し無し、空文字は説明から作る */
+  appearance_tags?: string | null;
+  /** 見た目のタグを見た目の説明から作り直す */
+  regenerate_appearance_tags?: boolean;
 }
 
 export interface HakoniwaWorld {
@@ -519,6 +546,13 @@ export interface HakoniwaResidentInput {
   gender: HakoniwaGender;
   appearance_text: string;
   dress_text: string;
+  address_style: HakoniwaAddressStyle;
+  /** 手で直したいつもの姿のタグ(編集のとき)。null は手直し無し、空文字は説明から作る */
+  base_tags?: string | null;
+  /** 手で直したドレス姿のタグ(編集のとき) */
+  dress_tags?: string | null;
+  regenerate_base_tags?: boolean;
+  regenerate_dress_tags?: boolean;
 }
 
 export interface HakoniwaCharacterEntry {

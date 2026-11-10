@@ -201,7 +201,16 @@ export default function HakoniwaResidentPanel({
               <ul className="hakoniwa-resident__relations">
                 {relations.map(([id, value]) => (
                   <li key={id}>
-                    <span>{names[id]}</span>
+                    <span>
+                      {names[id]}
+                      {resident.addresses[id] && (
+                        <span className="hakoniwa-resident__relation-address">
+                          {t("hakoniwa.panel.callsThem", {
+                            address: resident.addresses[id],
+                          })}
+                        </span>
+                      )}
+                    </span>
                     <span className="hakoniwa-resident__relation-level">
                       {t(
                         `hakoniwa.residents.affinityLabels.${affinityLevel(value)}`,

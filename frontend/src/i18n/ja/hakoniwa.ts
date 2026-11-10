@@ -225,6 +225,7 @@ export const hakoniwa = {
     talking: "考えています…",
     personality: "性格",
     relations: "関係",
+    callsThem: "（「{{address}}」と呼ぶ）",
     transformHeading: "その場で変身",
     transformPlaceholder:
       "例: ウェディングドレス姿にして／髪を銀色のロングにして",
@@ -263,6 +264,16 @@ export const hakoniwa = {
     dressPlaceholder: "例: 水色のフリルドレス",
     tags: "画像の生成に使うタグ",
     dressTags: "ドレス姿のタグ",
+    addressStyle: "ほかの住民の呼び方",
+    addressStyles: {
+      given_chan: "下の名前＋ちゃん（男性は くん）",
+      given_san: "下の名前＋さん",
+      given: "下の名前を呼び捨て",
+      family_san: "苗字＋さん",
+      family: "苗字を呼び捨て",
+    },
+    addressNote:
+      "出来事や会話のせりふで、この住民がほかの住民を呼ぶときに使います。かなり年上の相手には さん を付けます。",
     cancel: "キャンセル",
     save: "保存する",
     saving: "保存しています…",
@@ -293,6 +304,7 @@ export const hakoniwa = {
     appearanceTags: "見た目のタグ",
     appearanceShown: "見た目: {{text}}",
     appearanceFromRule: "見た目: 生成するときに掟の本文から考えます",
+    appearanceManualTags: "見た目: 手で書いたタグ",
     lookStatus: "姿: {{ready}} / {{total}}人",
     lookReady: "姿: 全員ぶん生成済み",
     lookStale: "（見た目を変える前の姿が{{count}}人分）",
@@ -371,8 +383,19 @@ export const hakoniwa = {
       dissonance_push: "違和感を煽りました。世界の違和感が少し高まりました。",
     },
   },
+  tagsField: {
+    manual: "手で直したタグ",
+    auto: "説明から作ったタグ",
+    regenerate: "説明から作り直す",
+    cancelRegenerate: "作り直しをやめる",
+    regenerateNote:
+      "保存すると、説明からタグを作り直します（手で直したタグは消えます）。",
+    note: "英語のタグをカンマ区切りで書きます。手で直したタグは、説明を変えても上書きしません。描き直すには、保存したあとで姿をもう一度生成します。",
+    emptyPlaceholder: "空のままなら、姿を生成するときに掟の本文から作ります",
+  },
   random: {
     heading: "おまかせの住民",
+    addressStyle: "ほかの住民の呼び方: {{style}}",
     lead: "人数を選ぶと、名前・性格・見た目の違う住民をおまかせで組みます。気に入らない住民は1人ずつ入れ替えられます。",
     countLabel: "人数",
     countOption: "{{count}}人",
@@ -539,6 +562,12 @@ export const hakoniwa = {
     invalid_theme:
       "実験テーマの指定が正しくありません（自分で書くテーマは100文字までです）。",
     invalid_count: "おまかせの住民の人数が正しくありません。",
+    invalid_tags:
+      "タグは英語（半角の英数字と記号）のカンマ区切りで書いてください。掟の見た目のタグには、服装や髪型などの見た目を書いてください。",
+    too_many_tags:
+      "タグが多すぎます（住民のタグは24個・400文字、掟の見た目のタグは10個まで）。",
+    tags_gender_mismatch:
+      "タグの性別（1girl / 1boy）が住民の性別と合っていません。タグか性別を直してください。",
     world_not_found: "世界が見つかりません。",
     resident_not_found: "住民が見つかりません。",
     too_few_residents: "住民は2人以上必要です。",

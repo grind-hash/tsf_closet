@@ -1,9 +1,15 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { HakoniwaGender, HakoniwaResident } from "../../apis/hakoniwa";
+import {
+  HAKONIWA_ADDRESS_STYLES,
+  type HakoniwaAddressStyle,
+  type HakoniwaGender,
+  type HakoniwaResident,
+} from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { GenderSegments } from "./HakoniwaCharacterAdder";
+import HakoniwaTagsField, { editedTags } from "./HakoniwaTagsField";
 
 const NAME_MAX = 30;
 const PERSONALITY_MAX = 300;
@@ -30,6 +36,7 @@ export default function HakoniwaResidentModal({
   const genderId = useId();
   const appearanceId = useId();
   const dressId = useId();
+  const addressId = useId();
   const [name, setName] = useState(resident?.name ?? "");
   const [personality, setPersonality] = useState(resident?.personality ?? "");
   const [gender, setGender] = useState<HakoniwaGender>(
@@ -37,6 +44,13 @@ export default function HakoniwaResidentModal({
   );
   const [appearance, setAppearance] = useState(resident?.appearance_text ?? "");
   const [dress, setDress] = useState(resident?.dress_text ?? "");
+  const [addressStyle, setAddressStyle] = useState<HakoniwaAddressStyle>(
+    resident?.address_style ?? "given_san",
+  );
+  const [baseTags, setBaseTags] = useState(resident?.base_tags ?? "");
+  const [dressTags, setDressTags] = useState(resident?.dress_tags ?? "");
+  const [regenerateBase, setRegenerateBase] = useState(false);
+  const [regenerateDress, setRegenerateDress] = useState(false);
   const saving = busy === "resident";
 
   const handleSave = async () => {
@@ -47,6 +61,17 @@ export default function HakoniwaResidentModal({
         gender,
         appearance_text: appearance.trim(),
         dress_text: dress.trim(),
+        address_style: addressStyle,
+        ...(resident && {
+          base_tags: editedTags(baseTags, resident.base_tags, regenerateBase),
+          dress_tags: editedTags(
+            dressTags,
+            resident.dress_tags,
+            regenerateDress,
+          ),
+          regenerate_base_tags: regenerateBase,
+          regenerate_dress_tags: regenerateDress,
+        }),
       },
       resident?.id,
     );
@@ -103,6 +128,25 @@ export default function HakoniwaResidentModal({
             labelledBy={genderId}
           />
         </div>
+        <label className="hakoniwa-field" htmlFor={addressId}>
+          <span>{t("hakoniwa.residentForm.addressStyle")}</span>
+          <select
+            id={addressId}
+            value={addressStyle}
+            onChange={(event) =>
+              setAddressStyle(event.target.value as HakoniwaAddressStyle)
+            }
+          >
+            {HAKONIWA_ADDRESS_STYLES.map((style) => (
+              <option key={style} value={style}>
+                {t(`hakoniwa.residentForm.addressStyles.${style}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="hakoniwa-note">
+          {t("hakoniwa.residentForm.addressNote")}
+        </p>
         <label className="hakoniwa-field" htmlFor={appearanceId}>
           <span>{t("hakoniwa.residentForm.appearance")}</span>
           <textarea
@@ -117,11 +161,15 @@ export default function HakoniwaResidentModal({
         <p className="hakoniwa-note">
           {t("hakoniwa.residentForm.appearanceNote")}
         </p>
-        {resident?.base_tags && (
-          <p className="hakoniwa-tags">
-            <span>{t("hakoniwa.residentForm.tags")}</span>
-            <code>{resident.base_tags}</code>
-          </p>
+        {resident && (
+          <HakoniwaTagsField
+            label={t("hakoniwa.residentForm.tags")}
+            value={baseTags}
+            onChange={setBaseTags}
+            manual={resident.base_tags_manual}
+            regenerate={regenerateBase}
+            onRegenerateChange={setRegenerateBase}
+          />
         )}
         <label className="hakoniwa-field" htmlFor={dressId}>
           <span>{t("hakoniwa.residentForm.dress")}</span>
@@ -134,11 +182,16 @@ export default function HakoniwaResidentModal({
             onChange={(event) => setDress(event.target.value)}
           />
         </label>
-        {resident?.dress_tags && (
-          <p className="hakoniwa-tags">
-            <span>{t("hakoniwa.residentForm.dressTags")}</span>
-            <code>{resident.dress_tags}</code>
-          </p>
+        {resident && (
+          <HakoniwaTagsField
+            label={t("hakoniwa.residentForm.dressTags")}
+            value={dressTags}
+            onChange={setDressTags}
+            manual={resident.dress_tags_manual}
+            regenerate={regenerateDress}
+            onRegenerateChange={setRegenerateDress}
+            showNote={false}
+          />
         )}
       </div>
     </ConfirmDialog>

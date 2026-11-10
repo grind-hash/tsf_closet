@@ -10,6 +10,7 @@ from __future__ import annotations
 import random
 from typing import Any
 
+from ..consts.hakoniwa import HAKONIWA_ADDRESS_STYLES
 from ..consts.hakoniwa_random import (
     AGES,
     APPEARANCE_TEMPLATES,
@@ -129,6 +130,7 @@ def template_resident(
         "job": rng.choice(JOBS)[index],
         "personality": personality,
         "pronoun": pronoun,
+        "address_style": rng.choice(HAKONIWA_ADDRESS_STYLES),
         "appearance_text": appearance,
         "base_tags": ", ".join(tag for tag in tags if tag),
     }

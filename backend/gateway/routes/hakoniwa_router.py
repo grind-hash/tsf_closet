@@ -261,6 +261,7 @@ async def add_custom_rule(
             request.text,
             request.appearance_text,
             request.language,
+            appearance_tags=request.appearance_tags,
         )
     )
     return HakoniwaWorldResponse(**world)
@@ -283,6 +284,8 @@ async def update_custom_rule(
             request.text,
             request.appearance_text,
             request.language,
+            appearance_tags=request.appearance_tags,
+            regenerate_appearance_tags=request.regenerate_appearance_tags,
         )
     )
     return HakoniwaWorldResponse(**world)

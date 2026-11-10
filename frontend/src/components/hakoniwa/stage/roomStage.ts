@@ -10,6 +10,10 @@ import Phaser from "phaser";
 import {
   AVATAR_H,
   anchorRatio,
+  approach,
+  BREATH_PERIOD_MS,
+  BREATH_STRETCH,
+  brakePoint,
   depthScale,
   FLOOR_BOTTOM,
   FLOOR_TOP,
@@ -18,13 +22,24 @@ import {
   focusZone,
   GAME_H,
   GAME_W,
+  IDLE_MAX_MS,
+  IDLE_MIN_MS,
   initialPosition,
+  isPathBlocked,
   NAME_OFFSET,
+  nearestWithin,
   type Point,
   pickWanderTarget,
+  STEP_STRETCH,
   stepToward,
+  TURN_MIN_DX,
+  TURN_MIN_WIDTH,
+  TURN_MS,
+  WALK_BLEND_MS,
+  WALK_SPEED,
   WALK_SWAY,
   WALK_SWAY_SPEED,
+  walkSpeedFactor,
   type XRange,
   yJitter,
 } from "./roomLayout";
@@ -78,6 +93,12 @@ const SHADOW_TEXTURE = "hakoniwa-shadow";
 const CONTACT_SHADOW = { width: 96, height: 16, alpha: 0.6, y: -9 };
 const AMBIENT_SHADOW = { width: 176, height: 38, alpha: 0.28, y: -7 };
 const BOOT_TIMEOUT_MS = 8000;
+/** 前に人がいて立ち止まったあと、向かい直すまでの間 */
+const YIELD_MIN_MS = 600;
+const YIELD_MAX_MS = 1500;
+/** 立ち止まったとき、この距離以内の住民の方へ向き直ることがある(確率) */
+const FACE_NEIGHBOR_RANGE = 420;
+const FACE_NEIGHBOR_CHANCE = 0.4;
 const NAME_FONT =
   '"Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif';
 
@@ -92,11 +113,33 @@ interface Agent {
   highlight: Phaser.GameObjects.Ellipse;
   selRing: Phaser.GameObjects.Ellipse;
   url: string | null | undefined;
+  /** 立ち絵の高さを AVATAR_H に合わせる縮尺(歩き・呼吸の伸び縮みはこれに掛ける) */
+  baseScale: number;
   position: Point;
   target: Point | null;
   mode: AgentMode;
   waitUntil: number;
+  /** 歩きの揺れの位相 */
   phase: number;
+  /** 呼吸の位相 */
+  breathPhase: number;
+  /** 歩きの揺れの強さ(0〜1)。歩き出し・立ち止まりで滑らかに出し入れする */
+  walkBlend: number;
+  /** 今の目標へ歩き出してからの時間(加速に使う) */
+  walkedMs: number;
+  /** 前に人がいて減速して止まろうとしているところ */
+  braking: boolean;
+  /**
+   * 出来事の寄り合いの場所から外へよけているところ。抜け道が参加住民の向こうにしか
+   * 無いこともあるので、前に人がいても立ち止まらない
+   */
+  evacuating: boolean;
+  /** 左を向くか(画像の左右反転) */
+  facingLeft: boolean;
+  /** 向きの見た目(1 = 反転なし 〜 -1 = 反転)。振り向くときに 0 をまたいで裏返す */
+  turn: number;
+  /** 寄り合いの位置に着いたら向く向き */
+  focusFacingLeft: boolean;
   jitter: number;
   arrived: boolean;
 }
@@ -283,7 +326,8 @@ class RoomStage {
     agent.sprite.setTexture(key);
     const frame = scene.textures.getFrame(key);
     const height = frame && frame.height > 0 ? frame.height : AVATAR_H;
-    agent.sprite.setScale(AVATAR_H / height);
+    agent.baseScale = AVATAR_H / height;
+    agent.sprite.setScale(agent.baseScale);
   }
 
   // --- 住民 ---
@@ -334,11 +378,21 @@ class RoomStage {
       highlight,
       selRing,
       url: undefined,
+      baseScale: 1,
       position: start,
       target: null,
       mode: "idle",
-      waitUntil: scene.time.now + Math.random() * 2000,
+      // 開いた直後に全員が一斉に歩き出さないよう、歩き出す時刻をばらす
+      waitUntil: scene.time.now + 600 + Math.random() * 3400,
       phase: Math.random() * Math.PI * 2,
+      breathPhase: Math.random() * Math.PI * 2,
+      walkBlend: 0,
+      walkedMs: 0,
+      braking: false,
+      evacuating: false,
+      facingLeft: false,
+      turn: 1,
+      focusFacingLeft: false,
       jitter: yJitter(index),
       arrived: false,
     };
@@ -486,9 +540,44 @@ class RoomStage {
       if (agent.mode === "idle") continue;
       agent.mode = "idle";
       agent.target = null;
+      agent.braking = false;
+      agent.evacuating = false;
       agent.arrived = false;
       agent.waitUntil = now + 1200 + Math.random() * 2000;
     }
+  }
+
+  /** 他の住民の今の位置と、歩いている住民の行き先(目標点選びで避ける点) */
+  private occupiedPoints(agent: Agent): Point[] {
+    const points: Point[] = [];
+    for (const other of this.agents.values()) {
+      if (other === agent) continue;
+      points.push(other.position);
+      if (other.target) points.push(other.target);
+    }
+    return points;
+  }
+
+  private otherPositions(agent: Agent): Point[] {
+    const points: Point[] = [];
+    for (const other of this.agents.values()) {
+      if (other !== agent) points.push(other.position);
+    }
+    return points;
+  }
+
+  /** 横へ十分に動くときだけ、進む方へ向く(奥・手前への移動では向きを変えない) */
+  private faceToward(agent: Agent, x: number): void {
+    const dx = x - agent.position.x;
+    if (Math.abs(dx) >= TURN_MIN_DX) agent.facingLeft = dx < 0;
+  }
+
+  private startWalk(agent: Agent, target: Point): void {
+    agent.target = target;
+    agent.walkedMs = 0;
+    agent.braking = false;
+    agent.evacuating = false;
+    this.faceToward(agent, target.x);
   }
 
   focusGroup(ids: string[]): Promise<boolean> {
@@ -506,17 +595,18 @@ class RoomStage {
       if (members.has(agent) || !this.zone) continue;
       const x = agent.target?.x ?? agent.position.x;
       if (x < this.zone.min || x > this.zone.max) continue;
-      const others = [...this.agents.values()]
-        .filter((other) => other !== agent)
-        .map((other) => other.target ?? other.position);
-      agent.target = pickWanderTarget(
-        others,
+      const target = pickWanderTarget(
+        agent.position,
+        this.occupiedPoints(agent),
         agent.jitter,
         Math.random,
         this.zone,
       );
-      if (!this.motionEnabled) {
-        agent.position = { ...agent.target };
+      if (this.motionEnabled) {
+        this.startWalk(agent, target);
+        agent.evacuating = true;
+      } else {
+        agent.position = target;
         agent.target = null;
       }
     }
@@ -524,11 +614,13 @@ class RoomStage {
       const target = targets[index];
       agent.mode = "toFocus";
       agent.arrived = false;
-      agent.target = { x: target.x, y: target.y };
-      agent.sprite.setFlipX(target.flip);
+      agent.focusFacingLeft = target.flip;
+      // 歩いている間は進む方を向き、着いてから相手の方へ向き直る
+      this.startWalk(agent, { x: target.x, y: target.y });
       if (!this.motionEnabled) {
         // 動きを減らす設定では、歩かずにその場へ移す
         agent.position = { x: target.x, y: target.y };
+        agent.facingLeft = target.flip;
       }
     });
     return new Promise((resolve) => {
@@ -539,46 +631,116 @@ class RoomStage {
 
   // --- フレーム更新 ---
 
+  /** 目標へ一歩進める。歩き出しは加速し、目標の手前で減速する */
+  private walk(agent: Agent, target: Point, delta: number) {
+    agent.walkedMs += delta;
+    const remaining = Math.hypot(
+      target.x - agent.position.x,
+      target.y - agent.position.y,
+    );
+    const speed = WALK_SPEED * walkSpeedFactor(agent.walkedMs, remaining);
+    const step = stepToward(agent.position, target, delta, speed);
+    agent.position = step.position;
+    return step;
+  }
+
+  private wanderTick(agent: Agent, time: number, delta: number): void {
+    if (!agent.target && time >= agent.waitUntil) {
+      this.startWalk(
+        agent,
+        pickWanderTarget(
+          agent.position,
+          this.occupiedPoints(agent),
+          agent.jitter,
+          Math.random,
+          this.zone,
+        ),
+      );
+    }
+    if (!agent.target) return;
+    const others = this.otherPositions(agent);
+    if (
+      !agent.braking &&
+      !agent.evacuating &&
+      isPathBlocked(agent.position, agent.target, others)
+    ) {
+      // 前に人がいるときは、少し進んで止まり、間を置いてから別の場所へ向かい直す
+      agent.target = brakePoint(agent.position, agent.target);
+      agent.braking = true;
+    }
+    const step = this.walk(agent, agent.target, delta);
+    if (!step.arrived) return;
+    agent.target = null;
+    agent.evacuating = false;
+    if (agent.braking) {
+      agent.braking = false;
+      agent.waitUntil =
+        time + YIELD_MIN_MS + Math.random() * (YIELD_MAX_MS - YIELD_MIN_MS);
+      return;
+    }
+    agent.waitUntil =
+      time + IDLE_MIN_MS + Math.random() * (IDLE_MAX_MS - IDLE_MIN_MS);
+    // 立ち止まったら、近くの住民の方へ向き直ることがある
+    const neighbor = nearestWithin(agent.position, others, FACE_NEIGHBOR_RANGE);
+    if (neighbor && Math.random() < FACE_NEIGHBOR_CHANCE) {
+      this.faceToward(agent, neighbor.x);
+    }
+  }
+
+  /** 振り向き・歩きの揺れ・呼吸を立ち絵に反映する */
+  private animate(agent: Agent, delta: number): void {
+    const goal = agent.facingLeft ? -1 : 1;
+    if (!this.motionEnabled) {
+      agent.turn = goal;
+      agent.walkBlend = 0;
+      agent.sprite.setFlipX(agent.facingLeft);
+      agent.sprite.rotation = 0;
+      agent.sprite.setScale(agent.baseScale);
+      return;
+    }
+    // 振り向くときは横幅を縮め、裏返してから元の幅へ戻す(一瞬で反転させない)
+    agent.turn = approach(agent.turn, goal, (2 * delta) / TURN_MS);
+    if (agent.turn !== 0) agent.sprite.setFlipX(agent.turn < 0);
+    // 正弦で縮めて、いちばん細い時間を短くする
+    const width = Math.max(
+      Math.abs(Math.sin((agent.turn * Math.PI) / 2)),
+      TURN_MIN_WIDTH,
+    );
+    // 歩くときは足元を軸に左右へ揺らし、一歩ごとに縦へわずかに伸ばす
+    // (体ごと上下させると足が床から離れて見える)。立っている間は呼吸だけ
+    const walking = agent.target !== null;
+    agent.walkBlend = approach(
+      agent.walkBlend,
+      walking ? 1 : 0,
+      delta / WALK_BLEND_MS,
+    );
+    if (agent.walkBlend > 0) agent.phase += delta * WALK_SWAY_SPEED;
+    agent.breathPhase =
+      (agent.breathPhase + (delta / BREATH_PERIOD_MS) * Math.PI * 2) %
+      (Math.PI * 2);
+    const stepWave = Math.sin(agent.phase);
+    agent.sprite.rotation = stepWave * WALK_SWAY * agent.walkBlend;
+    const stretch =
+      1 +
+      Math.abs(stepWave) * STEP_STRETCH * agent.walkBlend +
+      Math.sin(agent.breathPhase) * BREATH_STRETCH * (1 - agent.walkBlend);
+    agent.sprite.setScale(agent.baseScale * width, agent.baseScale * stretch);
+  }
+
   tick(time: number, delta: number): void {
     for (const agent of this.agents.values()) {
       if (agent.mode === "idle" && this.motionEnabled) {
-        if (!agent.target && time >= agent.waitUntil) {
-          const others = [...this.agents.values()]
-            .filter((other) => other !== agent)
-            .map((other) => other.target ?? other.position);
-          agent.target = pickWanderTarget(
-            others,
-            agent.jitter,
-            Math.random,
-            this.zone,
-          );
-        }
-        if (agent.target) {
-          const step = stepToward(agent.position, agent.target, delta);
-          agent.position = step.position;
-          agent.sprite.setFlipX(step.movingLeft);
-          if (step.arrived) {
-            agent.target = null;
-            agent.waitUntil = time + 2200 + Math.random() * 3800;
-          }
-        }
+        this.wanderTick(agent, time, delta);
       } else if (agent.mode === "toFocus" && agent.target) {
-        const step = stepToward(agent.position, agent.target, delta);
-        agent.position = step.position;
+        const step = this.walk(agent, agent.target, delta);
         if (step.arrived) {
           agent.mode = "focus";
           agent.target = null;
           agent.arrived = true;
+          agent.facingLeft = agent.focusFacingLeft;
         }
       }
-      // 歩くときは足元を軸に左右へ少し揺らす(体ごと上下させると足が床から離れて見える)
-      const walking = agent.target !== null && this.motionEnabled;
-      if (walking) {
-        agent.phase += delta * WALK_SWAY_SPEED;
-        agent.sprite.rotation = Math.sin(agent.phase) * WALK_SWAY;
-      } else {
-        agent.sprite.rotation = 0;
-      }
+      this.animate(agent, delta);
       const y = Math.min(Math.max(agent.position.y, FLOOR_TOP), FLOOR_BOTTOM);
       agent.container.setPosition(agent.position.x, y);
       // 奥に立つほど小さく描く(名札・影・選択の輪もまとめて縮める)

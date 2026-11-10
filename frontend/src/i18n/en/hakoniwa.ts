@@ -225,6 +225,7 @@ export const hakoniwa = {
     talking: "Thinking…",
     personality: "Personality",
     relations: "Relationships",
+    callsThem: "(calls them “{{address}}”)",
     transformHeading: "Transform on the spot",
     transformPlaceholder:
       "e.g. Put her in a wedding dress / Give him long silver hair",
@@ -263,6 +264,16 @@ export const hakoniwa = {
     dressPlaceholder: "e.g. A light blue frilly dress",
     tags: "Tags used for image generation",
     dressTags: "Dress look tags",
+    addressStyle: "How they call housemates",
+    addressStyles: {
+      given_chan: "Given name (-chan / -kun in Japanese)",
+      given_san: "Given name (-san in Japanese)",
+      given: "Given name only",
+      family_san: "Mr./Ms. + family name",
+      family: "Family name only",
+    },
+    addressNote:
+      "Used when this resident calls the others in event and chat lines. Much older housemates get an honorific.",
     cancel: "Cancel",
     save: "Save",
     saving: "Saving…",
@@ -294,6 +305,7 @@ export const hakoniwa = {
     appearanceTags: "Look tags",
     appearanceShown: "Look: {{text}}",
     appearanceFromRule: "Look: worked out from the rule text when generating",
+    appearanceManualTags: "Look: tags written by hand",
     lookStatus: "Looks: {{ready}} / {{total}}",
     lookReady: "Looks: ready for everyone",
     lookStale: "({{count}} drawn before the look changed)",
@@ -378,8 +390,20 @@ export const hakoniwa = {
       dissonance_push: "You stirred the strangeness. It rose a little.",
     },
   },
+  tagsField: {
+    manual: "Edited by hand",
+    auto: "Made from the description",
+    regenerate: "Remake from the description",
+    cancelRegenerate: "Keep these tags",
+    regenerateNote:
+      "On save, the tags are remade from the description (your edits are replaced).",
+    note: "Write English tags separated by commas. Tags you edit by hand are kept even when the description changes. To redraw, generate the look again after saving.",
+    emptyPlaceholder:
+      "If left empty, tags are made from the rule text when looks are generated",
+  },
   random: {
     heading: "Random residents",
+    addressStyle: "Calls housemates by: {{style}}",
     lead: "Pick a number and residents with different names, personalities and looks are put together for you. Swap out any one you do not like.",
     countLabel: "Number",
     countOption: "{{count}}",
@@ -548,6 +572,12 @@ export const hakoniwa = {
     invalid_theme:
       "The experiment theme is not valid (a theme you write can be up to 100 characters).",
     invalid_count: "The number of random residents is not valid.",
+    invalid_tags:
+      "Write tags in English, separated by commas. Rule look tags should describe a look such as clothes or hair.",
+    too_many_tags:
+      "Too many tags (up to 24 tags and 400 characters for residents, 10 tags for rule looks).",
+    tags_gender_mismatch:
+      "The gender tag (1girl / 1boy) does not match the resident. Fix the tags or the gender.",
     world_not_found: "World not found.",
     resident_not_found: "Resident not found.",
     too_few_residents: "A world needs at least 2 residents.",

@@ -1506,6 +1506,12 @@
   color: var(--hk-muted);
 }
 
+.hakoniwa-resident__relation-address {
+  margin-left: 6px;
+  color: var(--hk-muted);
+  font-size: 0.9em;
+}
+
 .hakoniwa-resident__memories {
   display: flex;
   flex-direction: column;
@@ -1735,7 +1741,19 @@
 /* --- フォームのダイアログ --- */
 
 .hakoniwa-form-dialog {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   max-width: min(560px, 94vw);
+  /* 入力欄が多いと画面より高くなるので、見出しと保存ボタンを残して中身だけ流す */
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+}
+
+.hakoniwa-form-dialog .confirm-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .hakoniwa-form {
@@ -1753,6 +1771,28 @@
 
 .hakoniwa-tags code {
   overflow-wrap: anywhere;
+}
+
+/* 画像のタグの欄: 見出しの右上に「説明から作り直す」を置く */
+.hakoniwa-tags-field__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hakoniwa-tags-field__action {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.hakoniwa-tags-field__input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.hakoniwa-tags-field__input:disabled {
+  opacity: 0.55;
 }
 
 /* 1列のときは部屋を横幅いっぱいにし、地の文は部屋の下に出す

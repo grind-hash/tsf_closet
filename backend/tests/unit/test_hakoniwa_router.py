@@ -922,3 +922,125 @@ def test_hakoniwa_achievements_unlock_once_across_worlds(client: TestClient) -> 
         status.achievement_id for status in get_user_achievements() if status.unlocked
     }
     assert {"hakoniwa_dress_all", "hakoniwa_first_day", "hakoniwa_new_world"} <= saved
+
+
+def _edit_aoi(client: TestClient, wid: str, **fields):
+    body = {
+        "name": "高瀬 葵",
+        "personality": "明るく世話好き",
+        "gender": "female",
+        **fields,
+    }
+    return client.patch(f"/api/hakoniwa/worlds/{wid}/residents/aoi", json=body)
+
+
+def _aoi(body: dict) -> dict:
+    return next(r for r in body["world"]["residents"] if r["id"] == "aoi")
+
+
+def test_hand_edited_tags_survive_description_changes(
+    client: TestClient, llm_outputs: list
+) -> None:
+    wid = _create(client, ["aoi", "ren"])["id"]
+
+    edited = _aoi(
+        _edit_aoi(client, wid, base_tags="solo, short silver hair,\nmaid outfit").json()
+    )
+    # 性別トークンを補い、改行もカンマとして扱う
+    assert edited["base_tags"] == "1girl, solo, short silver hair, maid outfit"
+    assert edited["base_tags_manual"] is True
+
+    # 説明だけを変えても、手で直したタグは作り直さない(LLM も呼ばない)
+    llm_outputs.append("1girl, blonde long hair")
+    kept = _aoi(_edit_aoi(client, wid, appearance_text="金髪のロング").json())
+    assert kept["base_tags"] == "1girl, solo, short silver hair, maid outfit"
+    assert kept["appearance_text"] == "金髪のロング"
+    assert llm_outputs == ["1girl, blonde long hair"]
+
+    # 作り直しを指示したときだけ、説明から作り直す
+    remade = _aoi(
+        _edit_aoi(
+            client, wid, appearance_text="金髪のロング", regenerate_base_tags=True
+        ).json()
+    )
+    assert remade["base_tags"] == "1girl, blonde long hair"
+    assert remade["base_tags_manual"] is False
+
+
+def test_hand_written_tags_are_checked(client: TestClient) -> None:
+    wid = _create(client, ["aoi", "ren"])["id"]
+
+    japanese = _edit_aoi(client, wid, base_tags="銀髪, メイド服")
+    assert japanese.status_code == 400
+    assert japanese.json()["detail"]["code"] == "invalid_tags"
+    mismatch = _edit_aoi(client, wid, dress_tags="1boy, suit")
+    assert mismatch.json()["detail"]["code"] == "tags_gender_mismatch"
+    too_many = _edit_aoi(client, wid, base_tags=", ".join(f"tag{i}" for i in range(30)))
+    assert too_many.json()["detail"]["code"] == "too_many_tags"
+
+
+def test_custom_rule_look_tags_can_be_written_by_hand(client: TestClient) -> None:
+    wid = _create(client, ["aoi", "ren"])["id"]
+    path = f"/api/hakoniwa/worlds/{wid}/custom-rules"
+
+    added = client.post(
+        path,
+        json={
+            "name": "猫の日",
+            "text": "猫耳を付ける",
+            "appearance_tags": "1girl, cat ears",
+        },
+    ).json()
+    rule = next(card for card in added["rule_cards"] if card["custom"])
+    # 人物の性別・人数のタグは外す
+    assert rule["appearance_tags"] == "cat ears"
+    assert rule["appearance_tags_manual"] is True
+
+    kept = client.patch(
+        f"{path}/{rule['id']}",
+        json={
+            "name": "猫の日",
+            "text": "猫耳を付ける",
+            "appearance_text": "bunny ears",
+        },
+    ).json()
+    kept_rule = next(card for card in kept["rule_cards"] if card["id"] == rule["id"])
+    assert kept_rule["appearance_tags"] == "cat ears"
+
+    remade = client.patch(
+        f"{path}/{rule['id']}",
+        json={
+            "name": "猫の日",
+            "text": "猫耳を付ける",
+            "appearance_text": "bunny ears",
+            "regenerate_appearance_tags": True,
+        },
+    ).json()
+    remade_rule = next(c for c in remade["rule_cards"] if c["id"] == rule["id"])
+    assert remade_rule["appearance_tags"] == "bunny ears"
+    assert remade_rule["appearance_tags_manual"] is False
+
+
+def test_address_style_is_saved_on_edit_and_add(client: TestClient) -> None:
+    wid = _create(client, ["aoi", "ren"])["id"]
+
+    edited = _aoi(_edit_aoi(client, wid, address_style="family_san").json())
+    assert edited["address_style"] == "family_san"
+    assert edited["addresses"] == {"ren": "苑田さん"}
+    # 呼び方を送らない編集では今のまま
+    assert _aoi(_edit_aoi(client, wid).json())["address_style"] == "family_san"
+
+    added = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents",
+        json={
+            "name": "佐倉 美咲",
+            "personality": "穏やか",
+            "gender": "female",
+            "address_style": "given",
+        },
+    ).json()
+    misaki = next(
+        r for r in added["world"]["residents"] if r["id"] == added["resident_id"]
+    )
+    assert misaki["address_style"] == "given"
+    assert misaki["addresses"]["aoi"] == "葵"

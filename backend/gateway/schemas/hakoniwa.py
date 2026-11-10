@@ -10,6 +10,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_APPEARANCE_TEXT_MAX,
     HAKONIWA_CUSTOM_RULE_NAME_MAX,
     HAKONIWA_CUSTOM_RULE_TEXT_MAX,
+    HAKONIWA_MANUAL_TAGS_INPUT_MAX,
     HAKONIWA_MAX_RESIDENTS,
     HAKONIWA_PERSONALITY_MAX,
     HAKONIWA_RESIDENT_NAME_MAX,
@@ -29,6 +30,8 @@ from ..consts.hakoniwa_random import (
 )
 
 Gender = Literal["female", "male"]
+# 住民がほかの住民を呼ぶときのくせ(consts の HAKONIWA_ADDRESS_STYLES と同じ並び)
+AddressStyle = Literal["given_chan", "given_san", "given", "family_san", "family"]
 
 
 class HakoniwaLanguageRequest(BaseModel):
@@ -55,6 +58,9 @@ class HakoniwaRandomResident(BaseModel):
     job: str = ""
     personality: str = Field(..., max_length=HAKONIWA_PERSONALITY_MAX)
     pronoun: str = ""
+    address_style: AddressStyle = Field(
+        "given_san", description="ほかの住民を呼ぶときのくせ"
+    )
     appearance_text: str = Field("", max_length=HAKONIWA_APPEARANCE_TEXT_MAX)
     base_tags: str = Field("", description="外見の英語タグ(画像生成用)")
 
@@ -148,6 +154,14 @@ class HakoniwaCustomRuleRequest(HakoniwaLanguageRequest):
         max_length=HAKONIWA_RULE_APPEARANCE_TEXT_MAX,
         description="掟が住民の見た目に与える変化の説明(任意)。空なら掟の本文から考える",
     )
+    appearance_tags: str | None = Field(
+        None,
+        max_length=HAKONIWA_MANUAL_TAGS_INPUT_MAX,
+        description="手で直した見た目のタグ。None は手直し無し、空は説明から作る",
+    )
+    regenerate_appearance_tags: bool = Field(
+        False, description="見た目のタグを見た目の説明から作り直す(編集のとき)"
+    )
 
 
 class HakoniwaLookRequest(HakoniwaLanguageRequest):
@@ -169,6 +183,26 @@ class HakoniwaResidentRequest(HakoniwaLanguageRequest):
         "",
         max_length=HAKONIWA_APPEARANCE_TEXT_MAX,
         description="ドレスの掟で着るドレス姿の説明(任意)",
+    )
+    address_style: AddressStyle | None = Field(
+        None,
+        description="ほかの住民を呼ぶときのくせ。未指定ならプリセットか既定のまま",
+    )
+    base_tags: str | None = Field(
+        None,
+        max_length=HAKONIWA_MANUAL_TAGS_INPUT_MAX,
+        description="手で直したいつもの姿のタグ(編集のとき)。None は手直し無し、空は説明から作る",
+    )
+    dress_tags: str | None = Field(
+        None,
+        max_length=HAKONIWA_MANUAL_TAGS_INPUT_MAX,
+        description="手で直したドレス姿のタグ(編集のとき)。None は手直し無し、空は説明から作る",
+    )
+    regenerate_base_tags: bool = Field(
+        False, description="いつもの姿のタグを外見の説明から作り直す"
+    )
+    regenerate_dress_tags: bool = Field(
+        False, description="ドレス姿のタグをドレスの説明から作り直す"
     )
 
 
@@ -286,10 +320,23 @@ class HakoniwaResident(BaseModel):
     job: str
     personality: str
     pronoun: str
+    address_style: AddressStyle = Field(
+        "given_san", description="ほかの住民を呼ぶときのくせ"
+    )
+    addresses: dict[str, str] = Field(
+        default_factory=dict,
+        description="ほかの住民(id)をふだん何と呼ぶか(台詞で使う呼び方)",
+    )
     appearance_text: str
     base_tags: str = Field(..., description="通常の姿の画像タグ(外見の説明から作る)")
+    base_tags_manual: bool = Field(
+        False, description="いつもの姿のタグをプレイヤーが手で直したか"
+    )
     dress_text: str
     dress_tags: str
+    dress_tags_manual: bool = Field(
+        False, description="ドレス姿のタグをプレイヤーが手で直したか"
+    )
     mood: int
     affinities: dict[str, int]
     transformation: HakoniwaTransformation | None
@@ -349,6 +396,9 @@ class HakoniwaRuleCard(BaseModel):
     appearance_text: str | None = Field(None, description="見た目の説明(自作の掟)")
     appearance_tags: str | None = Field(
         None, description="見た目の説明から作ったタグ(自作の掟)"
+    )
+    appearance_tags_manual: bool = Field(
+        False, description="見た目のタグをプレイヤーが手で直したか"
     )
     look: HakoniwaLookStatus | None = Field(None, description="掟の姿の生成状況")
     synergies: list[HakoniwaSynergy] | None = Field(

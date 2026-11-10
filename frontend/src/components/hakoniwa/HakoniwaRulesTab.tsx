@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { HakoniwaLookStatus, HakoniwaRuleCard } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import HakoniwaTagsField, { editedTags } from "./HakoniwaTagsField";
 
 const MAX_ACTIVE = 3;
 const NAME_MAX = 20;
@@ -291,7 +292,9 @@ function RuleRow({
               ? t("hakoniwa.rules.appearanceShown", {
                   text: card.appearance_text,
                 })
-              : t("hakoniwa.rules.appearanceFromRule")}
+              : card.appearance_tags_manual
+                ? t("hakoniwa.rules.appearanceManualTags")
+                : t("hakoniwa.rules.appearanceFromRule")}
           </span>
           {card.appearance_tags && (
             <code className="hakoniwa-rule__appearance-tags">
@@ -344,6 +347,8 @@ function CustomRuleModal({
   const [name, setName] = useState(rule?.name ?? "");
   const [text, setText] = useState(rule?.description ?? "");
   const [appearance, setAppearance] = useState(rule?.appearance_text ?? "");
+  const [lookTags, setLookTags] = useState(rule?.appearance_tags ?? "");
+  const [regenerateTags, setRegenerateTags] = useState(false);
 
   return (
     <ConfirmDialog
@@ -365,6 +370,14 @@ function CustomRuleModal({
             name: name.trim(),
             text: text.trim(),
             appearance_text: appearance.trim(),
+            ...(rule && {
+              appearance_tags: editedTags(
+                lookTags,
+                rule.appearance_tags ?? "",
+                regenerateTags,
+              ),
+              regenerate_appearance_tags: regenerateTags,
+            }),
           },
           rule?.id,
         ).then((saved) => {
@@ -408,11 +421,16 @@ function CustomRuleModal({
           />
         </label>
         <p className="hakoniwa-note">{t("hakoniwa.rules.appearanceNote")}</p>
-        {rule?.appearance_tags && (
-          <p className="hakoniwa-tags">
-            <span>{t("hakoniwa.rules.appearanceTags")}</span>
-            <code>{rule.appearance_tags}</code>
-          </p>
+        {rule && (
+          <HakoniwaTagsField
+            label={t("hakoniwa.rules.appearanceTags")}
+            value={lookTags}
+            onChange={setLookTags}
+            manual={Boolean(rule.appearance_tags_manual)}
+            regenerate={regenerateTags}
+            onRegenerateChange={setRegenerateTags}
+            placeholder={t("hakoniwa.tagsField.emptyPlaceholder")}
+          />
         )}
       </div>
     </ConfirmDialog>

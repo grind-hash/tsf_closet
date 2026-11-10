@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from ..consts.hakoniwa import (
     GENERIC_GREETINGS,
+    HAKONIWA_ADDRESS_STYLE_DEFAULT,
     HAKONIWA_APPEARANCE_TEXT_MAX,
     HAKONIWA_CONVERT_TAGS_MAX_ATTEMPTS,
     HAKONIWA_EVENT_LINE_TEXT_MAX,
@@ -46,11 +47,14 @@ from ..consts.hakoniwa_random import (
 from . import hakoniwa_play as play
 from . import hakoniwa_story as story
 from .cost_tracker import record_cost
+from .hakoniwa_errors import HakoniwaError
 from .hakoniwa_logic import (
+    clean_address_style,
     ensure_gender_token,
     is_male_in_feminine_form,
     resident_name,
     resident_text,
+    tags_gender,
 )
 from .hakoniwa_prompts import (
     RULE_FOCUS_RETRY_NOTE,
@@ -476,6 +480,54 @@ def clean_look_tags(raw: str) -> str | None:
     return ", ".join(kept[:HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT]) or None
 
 
+def _manual_tag_list(raw: str, max_count: int, max_length: int) -> list[str]:
+    """プレイヤーが手で書いたタグを分ける。改行もカンマと同じに扱い、切り詰めずに断る。"""
+    text = ", ".join(line.strip() for line in str(raw or "").splitlines())
+    tags = [tag.strip() for tag in text.split(",") if tag.strip()]
+    if not tags or not all(_TAG_CHARS.match(tag) for tag in tags):
+        raise HakoniwaError(
+            "invalid_tags",
+            "タグは英語(半角の英数字と記号)のカンマ区切りで書いてください",
+        )
+    if len(tags) > max_count or len(", ".join(tags)) > max_length:
+        raise HakoniwaError(
+            "too_many_tags",
+            f"タグが多すぎます({max_count}個・{max_length}文字まで)",
+        )
+    return tags
+
+
+def clean_manual_tags(raw: str, gender: str) -> str:
+    """プレイヤーが手で書いた住民のタグ(いつもの姿・ドレス姿)を整える。
+
+    性別トークンが無ければ補う(無いと女性寄りに描かれる)。住民の性別と逆の性別トークンは断る。
+    """
+    tags = ", ".join(
+        _manual_tag_list(raw, HAKONIWA_TAGS_MAX_COUNT, HAKONIWA_TAGS_MAX_LENGTH)
+    )
+    found = tags_gender(tags)
+    if found is not None and found != gender:
+        raise HakoniwaError(
+            "tags_gender_mismatch",
+            "タグの性別(1girl / 1boy)が住民の性別と合っていません",
+        )
+    return ensure_gender_token(tags, gender)
+
+
+def clean_manual_look_tags(raw: str) -> str:
+    """プレイヤーが手で書いた掟の見た目のタグを整える(人物の性別と人数のタグは外す)。"""
+    tags = _manual_tag_list(
+        raw, HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT, HAKONIWA_TAGS_MAX_LENGTH
+    )
+    kept = [tag for tag in tags if not _PERSON_TAG.match(tag)]
+    if not kept:
+        raise HakoniwaError(
+            "invalid_tags",
+            "掟の見た目のタグには、服装や髪型などの見た目を書いてください",
+        )
+    return ", ".join(kept)
+
+
 async def generate_rule_look_tags(
     name: str, text: str, description: str, *, novelai_model: str | None
 ) -> str | None:
@@ -802,6 +854,7 @@ class _RandomResident(BaseModel):
     job: str = ""
     personality: str = Field(min_length=1)
     pronoun: str = ""
+    address_style: str = ""
     appearance: str = Field(min_length=1)
     appearance_tags: str = ""
 
@@ -869,6 +922,9 @@ def clean_profile(raw: dict[str, Any], language: str) -> dict[str, str]:
         "personality": text("personality", HAKONIWA_PERSONALITY_MAX),
         "pronoun": text("pronoun", HAKONIWA_RANDOM_PRONOUN_MAX)
         or ("私" if language == "ja" else "I"),
+        # 知らない値は既定のくせにする(生成のやり直しはしない)
+        "address_style": clean_address_style(raw.get("address_style"))
+        or HAKONIWA_ADDRESS_STYLE_DEFAULT,
         "appearance_text": text(
             "appearance_text" if raw.get("appearance_text") else "appearance",
             HAKONIWA_APPEARANCE_TEXT_MAX,

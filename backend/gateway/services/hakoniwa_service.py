@@ -69,6 +69,8 @@ from .hakoniwa_digest import build_day_digest
 from .hakoniwa_generation import (
     classify_chat_alteration,
     clean_look_tags,
+    clean_manual_look_tags,
+    clean_manual_tags,
     clean_profile,
     convert_change_to_tags,
     convert_scene_to_tags,
@@ -179,10 +181,18 @@ def _resident_view(
         "job": text["job"],
         "personality": text["personality"],
         "pronoun": resident.get("pronoun") or "",
+        "address_style": logic.resident_address_style(resident),
+        "addresses": {
+            other["id"]: logic.address_name(resident, other, language)
+            for other in state["residents"]
+            if other["id"] != resident["id"]
+        },
         "appearance_text": resident.get("appearance_text") or "",
         "base_tags": resident.get("base_tags") or "",
+        "base_tags_manual": bool(resident.get("base_tags_manual")),
         "dress_text": resident.get("dress_text") or "",
         "dress_tags": resident.get("dress_tags") or "",
+        "dress_tags_manual": bool(resident.get("dress_tags_manual")),
         "mood": int(resident["mood"]),
         "affinities": dict(resident["affinities"]),
         # 変身は体に付くので、いま入っている体の変身と履歴を出す(入れ替わり中は相手の体)
@@ -206,6 +216,22 @@ def _resident_view(
     }
 
 
+# 住民の編集の入力のうち、文の項目以外(タグの手直しと作り直しの指示)
+_RESIDENT_TAG_FIELDS = (
+    "base_tags",
+    "dress_tags",
+    "regenerate_base_tags",
+    "regenerate_dress_tags",
+)
+
+
+def _resident_text_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    """住民の編集の入力から、validate_resident_fields に渡す文の項目だけを取り出す。"""
+    return {
+        key: value for key, value in fields.items() if key not in _RESIDENT_TAG_FIELDS
+    }
+
+
 def _random_resident_entry(raw: dict[str, Any], language: str) -> dict[str, Any]:
     """作成画面で組んだおまかせの住民を、自作の住民のエントリにする。
 
@@ -222,6 +248,7 @@ def _random_resident_entry(raw: dict[str, Any], language: str) -> dict[str, Any]
         age=profile["age"],
         job=profile["job"],
         pronoun=profile["pronoun"],
+        address_style=profile["address_style"],
     )
 
 
@@ -284,6 +311,7 @@ def _rule_cards_view(state: dict[str, Any], language: str) -> list[dict[str, Any
             "active": rule["id"] in active,
             "appearance_text": rule.get("appearance_text") or "",
             "appearance_tags": rule.get("appearance_tags") or "",
+            "appearance_tags_manual": bool(rule.get("appearance_tags_manual")),
             "look": logic.rule_look_status(state, rule["id"]),
         }
         for rule in state.get("custom_rules", [])
@@ -1007,15 +1035,27 @@ class HakoniwaService:
         text: str,
         appearance_text: str = "",
         language: str | None = None,
+        appearance_tags: str | None = None,
     ) -> dict[str, Any]:
+        """掟を書く。見た目のタグを手で書いたらそれを使い、無ければ説明から作る。"""
         _, user_settings = await self._context(language)
         clean = logic.validate_custom_rule(name, text, appearance_text)
-        tags = await self._rule_look_tags(clean, user_settings)
+        manual = bool(str(appearance_tags or "").strip())
+        tags = (
+            clean_manual_look_tags(str(appearance_tags))
+            if manual
+            else await self._rule_look_tags(clean, user_settings)
+        )
         return await self._mutate(
             world_id,
             language,
             lambda state: logic.add_custom_rule(
-                state, name, text, appearance_text, appearance_tags=tags
+                state,
+                name,
+                text,
+                appearance_text,
+                appearance_tags=tags,
+                appearance_tags_manual=manual,
             ),
         )
 
@@ -1027,8 +1067,14 @@ class HakoniwaService:
         text: str,
         appearance_text: str = "",
         language: str | None = None,
+        appearance_tags: str | None = None,
+        regenerate_appearance_tags: bool = False,
     ) -> dict[str, Any]:
-        """掟を編集する。見た目の説明を変えたときだけ見た目のタグを作り直す。"""
+        """掟を編集する。見た目の説明を変えたときだけ見た目のタグを作り直す。
+
+        手で直したタグは、説明を変えても作り直さない(作り直しの指示か、タグを空にした
+        ときだけ説明から作る)。appearance_tags が None ならタグは手直ししていない。
+        """
         _, user_settings = await self._context(language)
         clean = logic.validate_custom_rule(name, text, appearance_text)
         async with async_session_factory() as db:
@@ -1037,14 +1083,31 @@ class HakoniwaService:
             )
         if current is None:
             raise HakoniwaError("rule_not_found", "掟が見つかりません")
+        action = logic.tag_action(
+            edited=appearance_tags,
+            regenerate=regenerate_appearance_tags,
+            manual=bool(current.get("appearance_tags_manual")),
+            source_changed=clean["appearance_text"]
+            != (current.get("appearance_text") or ""),
+        )
         tags: str | None = None
-        if clean["appearance_text"] != (current.get("appearance_text") or ""):
+        manual = False
+        if action == "manual":
+            tags = clean_manual_look_tags(str(appearance_tags))
+            manual = True
+        elif action == "derive":
             tags = await self._rule_look_tags(clean, user_settings)
         return await self._mutate(
             world_id,
             language,
             lambda state: logic.update_custom_rule(
-                state, rule_id, name, text, appearance_text, appearance_tags=tags
+                state,
+                rule_id,
+                name,
+                text,
+                appearance_text,
+                appearance_tags=tags,
+                appearance_tags_manual=manual,
             ),
         )
 
@@ -1280,7 +1343,7 @@ class HakoniwaService:
         language: str | None = None,
     ) -> dict[str, Any]:
         lang, user_settings = await self._context(language)
-        clean = logic.validate_resident_fields(**fields)
+        clean = logic.validate_resident_fields(**_resident_text_fields(fields))
         tracker = begin_cost_tracking()
         novelai_model = user_settings.get("novelai_text_model")
         base_tags, base_failed = await self._derive_tags(
@@ -1305,6 +1368,7 @@ class HakoniwaService:
             base_tags=base_tags,
             dress_text=clean["dress_text"],
             dress_tags=dress_tags,
+            address_style=clean["address_style"],
         )
         view = await self._mutate(
             world_id, lang, lambda state: logic.add_resident(state, resident)
@@ -1354,9 +1418,13 @@ class HakoniwaService:
         fields: dict[str, Any],
         language: str | None = None,
     ) -> dict[str, Any]:
-        """住民の名前・性格・性別・外見の説明を書き換える。外見の説明はタグに変換する。"""
+        """住民の名前・性格・性別・外見の説明・呼び方・画像のタグを書き換える。
+
+        外見の説明はタグに変換する。ただしプレイヤーが手で直したタグは、説明を変えても
+        作り直さない(作り直しの指示か、タグを空にしたときだけ説明から作る)。
+        """
         lang, user_settings = await self._context(language)
-        clean = logic.validate_resident_fields(**fields)
+        clean = logic.validate_resident_fields(**_resident_text_fields(fields))
         async with async_session_factory() as db:
             world = await self._load(db, world_id)
             current = logic.find_resident(_load_state(world), resident_id)
@@ -1364,9 +1432,23 @@ class HakoniwaService:
         novelai_model = user_settings.get("novelai_text_model")
         failed = False
         updates: dict[str, Any] = dict(clean)
-        if clean["appearance_text"] != (current.get("appearance_text") or "") or clean[
-            "gender"
-        ] != logic.resident_gender(current):
+        if fields.get("address_style") is None:
+            # 呼び方の指定が無ければ今のまま
+            updates.pop("address_style")
+        gender_changed = clean["gender"] != logic.resident_gender(current)
+        base_action = logic.tag_action(
+            edited=fields.get("base_tags"),
+            regenerate=bool(fields.get("regenerate_base_tags")),
+            manual=bool(current.get("base_tags_manual")),
+            source_changed=gender_changed
+            or clean["appearance_text"] != (current.get("appearance_text") or ""),
+        )
+        if base_action == "manual":
+            updates["base_tags"] = clean_manual_tags(
+                str(fields["base_tags"]), clean["gender"]
+            )
+            updates["base_tags_manual"] = True
+        elif base_action == "derive":
             fallback_resident = {**current, "gender": clean["gender"]}
             updates["base_tags"], failed_base = await self._derive_tags(
                 clean["appearance_text"],
@@ -1377,8 +1459,25 @@ class HakoniwaService:
                 ),
                 novelai_model=novelai_model,
             )
+            updates["base_tags_manual"] = False
             failed = failed or failed_base
-        if clean["dress_text"] != (current.get("dress_text") or ""):
+        elif gender_changed and current.get("base_tags_manual"):
+            # 手で直したタグを残すときも、性別を変えたらタグの性別と合っているか確かめる
+            updates["base_tags"] = clean_manual_tags(
+                str(current.get("base_tags") or ""), clean["gender"]
+            )
+        dress_action = logic.tag_action(
+            edited=fields.get("dress_tags"),
+            regenerate=bool(fields.get("regenerate_dress_tags")),
+            manual=bool(current.get("dress_tags_manual")),
+            source_changed=clean["dress_text"] != (current.get("dress_text") or ""),
+        )
+        if dress_action == "manual":
+            updates["dress_tags"] = clean_manual_tags(
+                str(fields["dress_tags"]), clean["gender"]
+            )
+            updates["dress_tags_manual"] = True
+        elif dress_action == "derive":
             preset = HAKONIWA_PRESET_MAP.get(str(current.get("preset_id") or ""))
             updates["dress_tags"], failed_dress = await self._derive_tags(
                 clean["dress_text"],
@@ -1387,7 +1486,16 @@ class HakoniwaService:
                 fallback=str(preset["dress_tags"]) if preset else "",
                 novelai_model=novelai_model,
             )
+            updates["dress_tags_manual"] = False
             failed = failed or failed_dress
+        elif (
+            gender_changed
+            and current.get("dress_tags_manual")
+            and current.get("dress_tags")
+        ):
+            updates["dress_tags"] = clean_manual_tags(
+                str(current.get("dress_tags") or ""), clean["gender"]
+            )
         view = await self._mutate(
             world_id,
             lang,
