@@ -63,6 +63,28 @@ def test_history_dir_basename_fallback(dirs: dict[str, Path]) -> None:
     assert result == img
 
 
+def test_adventure_image_from_previous_install_relocated(
+    dirs: dict[str, Path], tmp_path: Path
+) -> None:
+    """旧バージョンのフォルダを指す Adventure の絶対パスを現在の data 配下へ付け替える。"""
+    img = dirs["data"] / "adventure_images" / "run-1" / "initial.png"
+    img.parent.mkdir(parents=True)
+    img.write_bytes(b"INITIAL")
+    stale = (
+        tmp_path / "old_install" / "backend" / "data" / "adventure_images" / "run-1"
+    ) / "initial.png"
+
+    result = resolve_stored_image_path(str(stale))
+    assert result == img
+
+
+def test_adventure_image_missing_everywhere_returns_none(
+    dirs: dict[str, Path], tmp_path: Path
+) -> None:
+    stale = tmp_path / "old_install" / "data" / "adventure_images" / "run-1" / "x.png"
+    assert resolve_stored_image_path(str(stale)) is None
+
+
 def test_explicit_history_dir_overrides_settings(
     dirs: dict[str, Path], tmp_path: Path
 ) -> None:

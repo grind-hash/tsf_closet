@@ -188,6 +188,7 @@ from .identity_signature import (
     signature_from_tags,
 )
 from .image_generation import image_service
+from .image_paths import resolve_stored_image_path
 from .llm_json import (
     StructuredOutputError,
     extract_json_object,
@@ -1400,8 +1401,8 @@ def _romance_partner_scene_reference(
             if _partner_appearance_diverged(state)
             else "partner_image_path"
         )
-        reference_path = Path(str(state.get(reference_key) or ""))
-        if not reference_path.is_file():
+        reference_path = _stored_image(state.get(reference_key))
+        if reference_path is None:
             return None
         reference_bytes = reference_path.read_bytes()
     # ターン中は state_json が永続化前で古いため、visual_state を持つ
@@ -1610,6 +1611,19 @@ def _json_load(value: str, fallback: Any) -> Any:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
         return fallback
+
+
+def _stored_image(raw: Any) -> Path | None:
+    """run / state に保存した画像パスを実ファイルへ解決する。
+
+    保存値は生成時の絶対パスのため、旧バージョンのフォルダから data を
+    引き継いだ run では旧フォルダを指したままになる。その場合も現在の
+    adventure_images 配下の同名ファイルへ付け替えて返す。見つからなければ None。
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    return resolve_stored_image_path(text)
 
 
 # プレイヤーが手番中に宣言する現実改変。通常ゲームのセッション属性とは独立に、
@@ -5797,23 +5811,21 @@ The objective must name a concrete target and an observable end condition that c
         try:
             # このターンで背景を描き直した場合はその1枚を下地にする。
             # run オブジェクトはターン開始時点の読みなので直接は使えない
-            background_path_str = (
-                str(fresh_background_path)
+            background_file = (
+                fresh_background_path
                 if fresh_background_path is not None
-                else getattr(run, "background_image_path", None)
+                else _stored_image(getattr(run, "background_image_path", None))
             )
             background_bytes = (
-                Path(background_path_str).read_bytes()
-                if background_path_str and Path(background_path_str).is_file()
-                else None
+                background_file.read_bytes() if background_file is not None else None
             )
             # 立ち絵を省略したターンは前ターンの1枚を参照に流用する。
             # 描き直した直後の1枚ではないため参照強度は弱める
             reference_path = portrait_path
             if reference_path is None:
-                previous_portrait = getattr(run, "portrait_image_path", None)
-                if previous_portrait and Path(previous_portrait).is_file():
-                    reference_path = Path(previous_portrait)
+                reference_path = _stored_image(
+                    getattr(run, "portrait_image_path", None)
+                )
             image_path, _ = await self._generate_image_unlocked(
                 run.id,
                 None,
@@ -7017,9 +7029,9 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 )
                 effective_turn_id = latest_turn.id if latest_turn else None
         state = _json_load(run.state_json, {})
-        current_path = Path(run.current_image_path)
-        initial_path = Path(run.initial_image_path)
-        if not current_path.is_file() or not initial_path.is_file():
+        current_path = _stored_image(run.current_image_path)
+        initial_path = _stored_image(run.initial_image_path)
+        if current_path is None or initial_path is None:
             raise AdventureError(
                 "image_not_found", "アドベンチャー画像が見つかりません"
             )
@@ -7527,8 +7539,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 )
                 effective_turn_id = latest_turn.id if latest_turn else None
         state = _json_load(run.state_json, {})
-        initial_path = Path(run.initial_image_path)
-        if not initial_path.is_file():
+        initial_path = _stored_image(run.initial_image_path)
+        if initial_path is None:
             raise AdventureError(
                 "image_not_found", "アドベンチャー画像が見つかりません"
             )
@@ -7567,11 +7579,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             # 参照なしにする(古い姿を参照するより無参照の方が正しい)
             reference_path: Path | None = initial_path
             if _appearance_diverged(state):
-                latest_portrait = getattr(run, "portrait_image_path", None)
-                reference_path = (
-                    Path(latest_portrait)
-                    if latest_portrait and Path(latest_portrait).is_file()
-                    else None
+                reference_path = _stored_image(
+                    getattr(run, "portrait_image_path", None)
                 )
             if provider == "novelai":
                 character_references = None
@@ -7716,11 +7725,11 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             if _partner_appearance_diverged(state)
             else "partner_image_path"
         )
-        reference_path = Path(str(state.get(reference_key) or ""))
+        reference_path = _stored_image(state.get(reference_key))
         if provider == "novelai":
             if (
                 bool(state.get("use_precise_reference"))
-                and reference_path.is_file()
+                and reference_path is not None
                 and supports_character_references(effective_image_model)
             ):
                 # 服装は変化し得るため弱めに参照する
@@ -7751,7 +7760,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             # 参照は追加課金なしで常に使い、同一性を保つ。参照が無いときは
             # OpenRouter / ComfyUI とも txt2img で新規に描く
             edit_source: bytes | None = (
-                reference_path.read_bytes() if reference_path.is_file() else None
+                reference_path.read_bytes() if reference_path is not None else None
             )
             instruction = (
                 _REDRAW_REFERENCE_INSTRUCTION if edit_source is not None else ""
@@ -7980,8 +7989,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
         return path
 
     def _opening_image_path(self, run: AdventureRun, state: dict[str, Any]) -> Path:
-        stored_path = Path(str(state.get("opening_image_path") or ""))
-        if stored_path.is_file():
+        stored_path = _stored_image(state.get("opening_image_path"))
+        if stored_path is not None:
             return stored_path
         generated_images = list((self._images_dir / run.id).glob("turn-0-*.png"))
         if generated_images:
@@ -7991,8 +8000,8 @@ All values must be concise English comma-separated tags. scene_tags contains onl
     def _opening_portrait_path(
         self, run: AdventureRun, state: dict[str, Any]
     ) -> Path | None:
-        stored_path = Path(str(state.get("opening_portrait_path") or ""))
-        if stored_path.is_file():
+        stored_path = _stored_image(state.get("opening_portrait_path"))
+        if stored_path is not None:
             return stored_path
         generated_portraits = list((self._images_dir / run.id).glob("portrait-0-*.png"))
         if generated_portraits:
@@ -8095,10 +8104,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 avatar_file_url(turn_avatar_id) if turn_avatar_id else None
             )
             # このターン確定時点の攻略対象立ち絵。過去フレーム表示に使う
-            partner_sprite = Path(str(state_delta.get("partner_portrait_path") or ""))
+            partner_sprite = _stored_image(state_delta.get("partner_portrait_path"))
             result["partner_portrait_url"] = (
                 self.image_url(turn.run_id, partner_sprite)
-                if partner_sprite.is_file()
+                if partner_sprite is not None
                 else None
             )
             # この手番で立ち絵を描いたか、据え置いた理由。旧ターンは None
@@ -8106,10 +8115,10 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                 state_delta.get("partner_portrait_status")
             )
             # このターン確定時点の背景。過去フレームを当時の場所・時間帯で見せる
-            turn_background = Path(str(state_delta.get("background_image_path") or ""))
+            turn_background = _stored_image(state_delta.get("background_image_path"))
             result["background_image_url"] = (
                 self.image_url(turn.run_id, turn_background)
-                if turn_background.is_file()
+                if turn_background is not None
                 else None
             )
         return result
@@ -8619,18 +8628,16 @@ All values must be concise English comma-separated tags. scene_tags contains onl
             )
             # 開幕フレーム(手番0)の表示用。開始値は定数から再構成する
             response["opening_sim"] = opening_sim_view(sim_state)
-            partner_portrait = Path(str(state.get("partner_portrait_path") or ""))
+            partner_portrait = _stored_image(state.get("partner_portrait_path"))
             response["partner_portrait_url"] = (
                 self.image_url(run.id, partner_portrait)
-                if partner_portrait.is_file()
+                if partner_portrait is not None
                 else None
             )
-            opening_partner = Path(
-                str(state.get("opening_partner_portrait_path") or "")
-            )
+            opening_partner = _stored_image(state.get("opening_partner_portrait_path"))
             response["opening_partner_portrait_url"] = (
                 self.image_url(run.id, opening_partner)
-                if opening_partner.is_file()
+                if opening_partner is not None
                 else None
             )
             # 最新手番で立ち絵を描いたか、据え置いた理由。旧 run は None

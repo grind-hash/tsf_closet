@@ -18,6 +18,24 @@ from ..settings import config as _config
 
 logger = logging.getLogger(__name__)
 
+# 絶対パスで保存している data 配下のディレクトリ。配置先が変わったとき
+# （ポータブル版を別フォルダの新バージョンへ移した等）に付け替える対象。
+_RELOCATABLE_DATA_DIRS = ("adventure_images",)
+
+
+def _relocated_data_path(raw: Path, data_dir: Path) -> Path | None:
+    """別の data ディレクトリを指す絶対パスを、現在の data ディレクトリ配下へ付け替える。
+
+    Adventure は画像パスを絶対パスで保存するため、旧バージョンのフォルダから
+    data を引き継ぐと保存値が旧フォルダを指したままになる。パス中の
+    既知のディレクトリ名（最後の出現）以降を現在の data ディレクトリへつなぐ。
+    """
+    parts = raw.parts
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index] in _RELOCATABLE_DATA_DIRS:
+            return data_dir.joinpath(*parts[index:])
+    return None
+
 
 def resolve_stored_image_path(
     raw_path: str | None,
@@ -30,7 +48,9 @@ def resolve_stored_image_path(
     1. data ディレクトリ相対（history_images 等）
     2. BASE_DIR（backend/）相対（キャラクター画像等）
     3. 文字列どおり（絶対パス・作業ディレクトリ相対）
-    4. 履歴画像ディレクトリ直下の同名ファイル
+    4. 旧配置の絶対パスを現在の data ディレクトリへ付け替えたもの
+       （adventure_images/<run_id>/... など）
+    5. 履歴画像ディレクトリ直下の同名ファイル
 
     Args:
         raw_path: DB に保存されたパス文字列。空や None なら None を返す。
@@ -44,12 +64,15 @@ def resolve_stored_image_path(
     settings = _config.settings
     images_dir = history_images_dir or settings.history_images_dir
     raw = Path(raw_path)
-    candidates = (
+    candidates = [
         settings.history_images_dir.parent / raw,
         _config.BASE_DIR / raw,
         raw,
-        images_dir / raw.name,
-    )
+    ]
+    relocated = _relocated_data_path(raw, settings.history_images_dir.parent)
+    if relocated is not None:
+        candidates.append(relocated)
+    candidates.append(images_dir / raw.name)
     for candidate in candidates:
         try:
             if candidate.is_file():

@@ -3598,6 +3598,85 @@ async def test_generate_portrait_uses_portrait_size_and_no_characters(
 
 
 @pytest.mark.asyncio
+async def test_generate_portrait_resolves_paths_saved_by_previous_install(
+    monkeypatch, tmp_path
+) -> None:
+    """旧バージョンのフォルダを指す保存パスでも、現在の data 配下の画像で生成できる。"""
+    data_dir = tmp_path / "data"
+    images_dir = data_dir / "adventure_images"
+    run_dir = images_dir / "run-1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "initial.png").write_bytes(b"initial")
+    stale_initial = tmp_path / "old_install" / "data" / "adventure_images"
+    stale_initial = stale_initial / "run-1" / "initial.png"
+    monkeypatch.setattr(
+        "gateway.settings.config.settings.history_images_dir",
+        data_dir / "history_images",
+    )
+    service = AdventureService()
+    service._images_dir = images_dir
+    run = SimpleNamespace(
+        id="run-1",
+        state_json=(
+            '{"use_precise_reference": false, "visual_state":{"location":"売り場",'
+            '"appearance":"黒髪","clothing":"紺色のドレス","surroundings":"婦人服売り場",'
+            '"main_characters":[]}}'
+        ),
+        current_image_path=str(stale_initial),
+        initial_image_path=str(stale_initial),
+        text_model="glm-4-6",
+        image_model="nai-diffusion-4-5-full",
+        nsfw_mode=False,
+        turn_count=1,
+    )
+    persisted_run = SimpleNamespace(
+        id="run-1",
+        portrait_image_path=None,
+        updated_at=None,
+        state_json="{}",
+    )
+
+    generate_image = AsyncMock(return_value=SimpleNamespace(images=[b"portrait"]))
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.session_store.get_user_settings",
+        AsyncMock(return_value={"nsfw_mode": False, "language": "ja"}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.llm_service.generate_text",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                content=make_image_prompt_content(with_guard=True)
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.image_service.generate_image",
+        generate_image,
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.async_session_factory",
+        fake_database_factory({(AdventureRun, None): persisted_run}),
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_model",
+        "nai-diffusion-4-5-full",
+    )
+    monkeypatch.setattr(
+        "gateway.services.adventure_service.settings.novelai_curated_model",
+        "nai-diffusion-4-5-curated",
+    )
+
+    portrait_path, _ = await service._generate_portrait_unlocked(
+        "run-1", None, redraw_from_reference=True, turn_number=1
+    )
+
+    generate_image.assert_awaited_once()
+    assert portrait_path.parent == run_dir
+    assert persisted_run.portrait_image_path == str(portrait_path)
+
+
+@pytest.mark.asyncio
 async def test_generate_portrait_uses_precise_reference_when_enabled(
     monkeypatch, tmp_path
 ) -> None:
