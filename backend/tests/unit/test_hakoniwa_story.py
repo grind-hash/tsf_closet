@@ -129,7 +129,7 @@ def test_adaptation_speed_follows_personality():
     stages = {
         r["id"]: r["adaptation"]["stage"] for r in state["residents"] if r["adaptation"]
     }
-    # 律(好奇心)は1日で1段、葵(明るく)は 0.75、栞(内気)は 0.4
+    # 薫(好奇心)は1日で1段、葵(明るく)は 0.75、栞(内気)は 0.4
     assert stages == {"ritsu": 1, "aoi": 0, "shiori": 0}
     assert progressions == [{"id": "ritsu", "kind": "transform", "stage": 1}]
 

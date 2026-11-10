@@ -9,6 +9,8 @@
     chat_histories: {住民 id: [{role: player | resident | system, text, kind?}]}
     experiment_theme: {preset_id: プリセット id | None, text: 自由文} | None
     theme_stats: {swap_active_days, dress_active_days}(実験テーマの進み具合)
+    observations: {rules_seen, dress_seen, swap_seen, dissonance_max}
+        (観察記録の判定に使う、状態だけからは戻せない観測の事実。保存のたびに積む)
 """
 
 from __future__ import annotations
@@ -17,7 +19,11 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from ..consts.hakoniwa import HAKONIWA_AFFINITY_MAX, HAKONIWA_AFFINITY_MIN
+from ..consts.hakoniwa import (
+    HAKONIWA_AFFINITY_MAX,
+    HAKONIWA_AFFINITY_MIN,
+    HAKONIWA_RULE_MAP,
+)
 from ..consts.hakoniwa_play import (
     CHAT_ALTERATION_MARKERS,
     CHAT_CLEAR_PATTERNS,
@@ -75,6 +81,7 @@ def normalize_play(source: dict[str, Any], normalized: dict[str, Any]) -> None:
     normalized["theme_stats"] = {
         key: max(0, _int(stats.get(key))) for key in THEME_STAT_KEYS
     }
+    normalized["observations"] = _normalize_observations(source.get("observations"))
 
 
 def initial_play_state() -> dict[str, Any]:
@@ -84,6 +91,7 @@ def initial_play_state() -> dict[str, Any]:
         "chat_histories": {},
         "experiment_theme": None,
         "theme_stats": dict.fromkeys(THEME_STAT_KEYS, 0),
+        "observations": _normalize_observations(None),
     }
 
 
@@ -391,3 +399,48 @@ def theme_progress(state: dict[str, Any]) -> dict[str, Any] | None:
             if resident.get("transformation")
         )
     return progress
+
+
+# --- 観察記録のための観測 ---
+
+
+def _normalize_observations(source: Any) -> dict[str, Any]:
+    data = source if isinstance(source, dict) else {}
+    return {
+        "rules_seen": sorted(
+            {
+                str(item)
+                for item in data.get("rules_seen") or []
+                if item in HAKONIWA_RULE_MAP
+            }
+        ),
+        "dress_seen": sorted({str(item) for item in data.get("dress_seen") or []}),
+        "swap_seen": bool(data.get("swap_seen")),
+        "dissonance_max": max(0, _int(data.get("dissonance_max"))),
+    }
+
+
+def observe(state: dict[str, Any]) -> dict[str, Any]:
+    """いまの状態から観測の事実を積んだ状態を返す(保存のたびに呼ぶ)。
+
+    有効にしたことのある既定の掟、ドレスの掟の間に見た住民、入れ替わりの体験、
+    違和感の到達点は、あとで状態が変わっても残す。
+    """
+    observed = _normalize_observations(state.get("observations"))
+    active = set(state.get("active_rules", []))
+    rules_seen = set(observed["rules_seen"]) | (active & set(HAKONIWA_RULE_MAP))
+    dress_seen = set(observed["dress_seen"])
+    if "dress" in active:
+        dress_seen |= {resident["id"] for resident in state.get("residents", [])}
+    return {
+        **state,
+        "observations": {
+            "rules_seen": sorted(rules_seen),
+            "dress_seen": sorted(dress_seen),
+            "swap_seen": observed["swap_seen"]
+            or bool("swap" in active and state.get("swap_pair")),
+            "dissonance_max": max(
+                observed["dissonance_max"], story.dissonance_value(state)
+            ),
+        },
+    }

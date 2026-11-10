@@ -446,6 +446,7 @@ export const hakoniwa = {
     stepClick:
       "部屋の住民をクリックすると、その住民の一言が聞ける（住民タブから変身もさせられる）",
     stepAdvance: "「1日進める」を押すと、その日の出来事が3件生まれる",
+    noteAchievements: "観察の記録は「実績」画面の「AI箱庭」で見られます。",
     noteDissonance:
       "書き換えを重ねるほど、住民たちは世界の変化に気づき始めます。",
     openRules: "掟を見てみる",

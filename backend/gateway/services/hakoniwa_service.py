@@ -57,6 +57,13 @@ from . import hakoniwa_logic as logic
 from . import hakoniwa_play as play
 from . import hakoniwa_story as story
 from . import hakoniwa_story_text as story_text
+from .achievement_service import achievement_service
+from .achievements import (
+    ACHIEVEMENTS,
+    check_achievement,
+    get_global_stats,
+    get_user_achievements,
+)
 from .cost_tracker import begin_cost_tracking
 from .hakoniwa_digest import build_day_digest
 from .hakoniwa_generation import (
@@ -135,6 +142,8 @@ def _load_state(world: HakoniwaWorld) -> dict[str, Any]:
 
 
 def _store_state(world: HakoniwaWorld, state: dict[str, Any]) -> None:
+    # 観察記録のための観測の事実(有効にした掟・見たドレス姿など)は保存のたびに積む
+    state = play.observe(state)
     world.state_json = json.dumps(state, ensure_ascii=False)
     world.day = int(state["day"])
     world.updated_at = datetime.now()
@@ -311,15 +320,57 @@ def _combo_look_view(state: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _unlock_hakoniwa_achievements() -> list[dict[str, Any]]:
+    """条件を満たした AI箱庭の観察記録を保存し、通知用に返す(新しく達成した分だけ)。
+
+    判定に失敗しても世界の表示は止めない(次に世界を返すときに改めて判定される)。
+    """
+    try:
+        already = {
+            status.achievement_id
+            for status in get_user_achievements()
+            if status.unlocked
+        }
+        stats = get_global_stats()
+        unlocked = []
+        for achievement in ACHIEVEMENTS.values():
+            if achievement.category != "hakoniwa" or achievement.id in already:
+                continue
+            if not check_achievement(achievement, stats):
+                continue
+            achievement_service.save_user_achievement(achievement.id)
+            unlocked.append(
+                {
+                    "achievement_id": achievement.id,
+                    "name": achievement.name,
+                    "description": achievement.description,
+                    "icon": achievement.icon,
+                    "category": achievement.category,
+                }
+            )
+        return unlocked
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa achievement check failed: %s: %s", type(error).__name__, error
+        )
+        return []
+
+
 def _world_view(
     world: HakoniwaWorld,
     state: dict[str, Any],
     language: str,
     user_settings: dict[str, Any],
 ) -> dict[str, Any]:
+    """世界の表示。
+
+    世界を返すのはいつも保存(commit)のあとなので、ここで観察記録を判定し、
+    新しく達成した分を new_achievements で返す(すべての書き換えと、世界を開いたときに拾う)。
+    """
     nsfw_mode = bool(user_settings.get("nsfw_mode"))
     effective_model = resolve_image_model(state, user_settings)
     return {
+        "new_achievements": _unlock_hakoniwa_achievements(),
         "id": world.id,
         "name": world.name,
         "day": int(state["day"]),

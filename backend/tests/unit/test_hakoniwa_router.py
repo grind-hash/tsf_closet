@@ -139,7 +139,7 @@ def test_swap_rule_swaps_display_avatars(client: TestClient) -> None:
     assert swapped["events"] == []
 
     by_id = {r["id"]: r for r in swapped["residents"]}
-    assert by_id["aoi"]["display_avatar_url"] == "/hakoniwa-assets/avatar_ren.png"
+    assert by_id["aoi"]["display_avatar_url"] == "/hakoniwa-assets/avatar_ren.png?v=3"
     assert by_id["aoi"]["swapped_with"] == "ren"
     assert by_id["aoi"]["body_gender"] == "male"
     dressed = client.put(
@@ -887,3 +887,38 @@ def test_free_text_theme_goes_to_one_event_a_day(client: TestClient, monkeypatch
     plain = _create(client)
     client.post(f"/api/hakoniwa/worlds/{plain['id']}/day", json={})
     assert seen == [False, False, False]
+
+
+def test_hakoniwa_achievements_unlock_once_across_worlds(client: TestClient) -> None:
+    from gateway.services.achievements import get_user_achievements
+
+    world = _create(client, ["aoi", "ren"])
+    assert world["new_achievements"] == []
+    wid = world["id"]
+
+    dressed = client.put(
+        f"/api/hakoniwa/worlds/{wid}/rules/dress", json={"active": True}
+    ).json()
+    unlocked = {item["achievement_id"] for item in dressed["world"]["new_achievements"]}
+    assert unlocked == {"hakoniwa_dress_all"}
+    assert all(
+        item["category"] == "hakoniwa" for item in dressed["world"]["new_achievements"]
+    )
+
+    day = client.post(f"/api/hakoniwa/worlds/{wid}/day", json={}).json()
+    assert "hakoniwa_first_day" in {
+        item["achievement_id"] for item in day["world"]["new_achievements"]
+    }
+
+    # 開き直しても、もう達成した分は出ない
+    reopened = client.get(f"/api/hakoniwa/worlds/{wid}").json()
+    assert reopened["new_achievements"] == []
+
+    second = _create(client, ["aoi", "ren"])
+    assert [item["achievement_id"] for item in second["new_achievements"]] == [
+        "hakoniwa_new_world"
+    ]
+    saved = {
+        status.achievement_id for status in get_user_achievements() if status.unlocked
+    }
+    assert {"hakoniwa_dress_all", "hakoniwa_first_day", "hakoniwa_new_world"} <= saved

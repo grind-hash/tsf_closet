@@ -53,7 +53,9 @@ from ..consts.hakoniwa import (
     HAKONIWA_MOOD_MAX,
     HAKONIWA_MOOD_MIN,
     HAKONIWA_PERSONALITY_MAX,
+    HAKONIWA_PRESET_CHARACTER_REVISIONS,
     HAKONIWA_PRESET_MAP,
+    HAKONIWA_PRESET_REVISIONS,
     HAKONIWA_RESIDENT_AREA_MOVE_CHANCE,
     HAKONIWA_RESIDENT_NAME_MAX,
     HAKONIWA_RULE_APPEARANCE_TEXT_MAX,
@@ -472,9 +474,49 @@ def _base_resident(**fields: Any) -> dict[str, Any]:
         "current_area": DEFAULT_AREA_ID,
         "adaptation": None,
         "remnant": None,
+        # プリセット住民の設定の版(HAKONIWA_PRESET_REVISIONS)。自作の住民は 1 のまま
+        "preset_revision": 1,
     }
     resident.update(fields)
     return resident
+
+
+def upgrade_preset_resident(entry: dict[str, Any]) -> dict[str, Any]:
+    """作り直したプリセット住民(版が上がったもの)を、既存の世界でも新しい設定にする。
+
+    人物そのものを変えた版(HAKONIWA_PRESET_CHARACTER_REVISIONS)をまたぐときは、性別・画像
+    タグを新しい設定にし、古い姿で生成した画像(通常・ドレス・掟の姿・複合の姿)を外して
+    同梱の立ち絵に戻す。描き直しだけの版では、プレイヤーが外見を書き換えていない住民の
+    画像タグだけを新しくする(生成した画像は残す)。名前・性格の書き換えはどちらも残す。
+    """
+    preset_id = str(entry.get("preset_id") or "")
+    revision = HAKONIWA_PRESET_REVISIONS.get(preset_id)
+    if entry.get("source") != "preset" or revision is None:
+        return entry
+    try:
+        current = int(entry.get("preset_revision") or 1)
+    except (TypeError, ValueError):
+        current = 1
+    if current >= revision:
+        return entry
+    preset = HAKONIWA_PRESET_MAP[preset_id]
+    if current < HAKONIWA_PRESET_CHARACTER_REVISIONS.get(preset_id, 0):
+        entry.update(
+            gender=preset["gender"],
+            base_tags=preset["base_tags"],
+            dress_tags=preset["dress_tags"],
+            avatar_image=None,
+            dress_image=None,
+            rule_images={},
+            combo_images={},
+        )
+    else:
+        if not str(entry.get("appearance_text") or "").strip():
+            entry["base_tags"] = preset["base_tags"]
+        if not str(entry.get("dress_text") or "").strip():
+            entry["dress_tags"] = preset["dress_tags"]
+    entry["preset_revision"] = revision
+    return entry
 
 
 def preset_resident(preset_id: str) -> dict[str, Any]:
@@ -491,6 +533,7 @@ def preset_resident(preset_id: str) -> dict[str, Any]:
         dress_tags=preset["dress_tags"],
         mood=int(preset["initial_mood"]),
         current_area=str(preset.get("initial_area") or DEFAULT_AREA_ID),
+        preset_revision=HAKONIWA_PRESET_REVISIONS.get(preset_id, 1),
     )
 
 
@@ -696,6 +739,7 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
                 for key, value in (images.items() if isinstance(images, dict) else [])
                 if isinstance(value, dict) and value.get("image")
             }
+        entry = upgrade_preset_resident(entry)
         normalized["residents"].append(entry)
     ids = {resident["id"] for resident in normalized["residents"]}
     if normalized["swap_pair"] and not set(normalized["swap_pair"]) <= ids:

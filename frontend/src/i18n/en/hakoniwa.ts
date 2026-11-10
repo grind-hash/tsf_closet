@@ -453,6 +453,8 @@ export const hakoniwa = {
     stepClick:
       "Click a resident in the room to hear a word from them (you can transform them from the Residents tab)",
     stepAdvance: 'Press "Advance the day" and three events happen that day',
+    noteAchievements:
+      "Your observation records are on the Achievements screen under AI Dollhouse.",
     noteDissonance:
       "The more you rewrite, the more the residents start to notice the world changing.",
     openRules: "Look at the rules",

@@ -286,7 +286,7 @@ def resolve_confrontation(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def investigator(state: dict[str, Any]) -> dict[str, Any] | None:
-    """世界の変化を調べる役回りの住民(律→栞→性格に好奇心→先頭)。"""
+    """世界の変化を調べる役回りの住民(薫→栞→性格に好奇心→先頭)。"""
     residents = state.get("residents", [])
     by_id = {resident["id"]: resident for resident in residents}
     for resident_id in INVESTIGATOR_PREFERENCE:

@@ -10,6 +10,7 @@ import Phaser from "phaser";
 import {
   AVATAR_H,
   anchorRatio,
+  depthScale,
   FLOOR_BOTTOM,
   FLOOR_TOP,
   FURNITURE_H,
@@ -22,6 +23,8 @@ import {
   type Point,
   pickWanderTarget,
   stepToward,
+  WALK_SWAY,
+  WALK_SWAY_SPEED,
   type XRange,
   yJitter,
 } from "./roomLayout";
@@ -65,6 +68,15 @@ export interface RoomStageHandle {
 }
 
 const FOCUS_TIMEOUT_MS = 5000;
+/** 足元の影: ぼかした楕円の質感(中心が濃く、縁へ消える) */
+const SHADOW_TEXTURE = "hakoniwa-shadow";
+/**
+ * 足の裏に密着させる濃い影と、周りに広がる薄い影(幅・高さ・濃さ・中心の y)。
+ * 立ち絵は足を正面から描いているので、床に触れる位置は画像の下端(つま先)より少し上
+ * (かかと寄り)になる。影の中心はそこへ合わせる。
+ */
+const CONTACT_SHADOW = { width: 96, height: 16, alpha: 0.6, y: -9 };
+const AMBIENT_SHADOW = { width: 176, height: 38, alpha: 0.28, y: -7 };
 const BOOT_TIMEOUT_MS = 8000;
 const NAME_FONT =
   '"Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", sans-serif';
@@ -87,7 +99,6 @@ interface Agent {
   phase: number;
   jitter: number;
   arrived: boolean;
-  bob: number;
 }
 
 interface FocusSession {
@@ -137,6 +148,7 @@ class RoomStage {
       .setOrigin(0, 0)
       .setDepth(-20);
     scene.textures.createCanvas("hakoniwa-blank", 4, 4);
+    this.createShadowTexture(scene);
     this.background = scene.add
       .image(0, 0, "hakoniwa-blank")
       .setOrigin(0, 0)
@@ -146,6 +158,39 @@ class RoomStage {
   }
 
   // --- テクスチャ ---
+
+  /** 足元の影の質感(円の放射グラデーション)。楕円に引き伸ばして使う */
+  private createShadowTexture(scene: Phaser.Scene): void {
+    if (scene.textures.exists(SHADOW_TEXTURE)) return;
+    const size = 64;
+    const texture = scene.textures.createCanvas(SHADOW_TEXTURE, size, size);
+    if (!texture) return;
+    const ctx = texture.getContext();
+    const gradient = ctx.createRadialGradient(
+      size / 2,
+      size / 2,
+      0,
+      size / 2,
+      size / 2,
+      size / 2,
+    );
+    gradient.addColorStop(0, "rgba(0,0,0,1)");
+    gradient.addColorStop(0.45, "rgba(0,0,0,0.75)");
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    texture.refresh();
+  }
+
+  private shadowImage(
+    scene: Phaser.Scene,
+    shape: { width: number; height: number; alpha: number; y: number },
+  ): Phaser.GameObjects.Image {
+    return scene.add
+      .image(0, shape.y, SHADOW_TEXTURE)
+      .setDisplaySize(shape.width, shape.height)
+      .setAlpha(shape.alpha);
+  }
 
   private ensureTexture(url: string, callback: (key: string | null) => void) {
     const scene = this.scene;
@@ -256,9 +301,9 @@ class RoomStage {
       .ellipse(0, 4, 176, 36)
       .setFillStyle(0xb08968, 0.35)
       .setVisible(false);
-    const shadow = scene.add
-      .ellipse(0, 4, 118, 22)
-      .setFillStyle(0x000000, 0.22);
+    // 影は足の裏に重ねる(足と影の間が空くと浮いて見える)
+    const ambientShadow = this.shadowImage(scene, AMBIENT_SHADOW);
+    const contactShadow = this.shadowImage(scene, CONTACT_SHADOW);
     const sprite = scene.add
       .image(0, 0, this.placeholderKey(resident))
       .setOrigin(0.5, 1);
@@ -271,7 +316,14 @@ class RoomStage {
         padding: { x: 10, y: 5 },
       })
       .setOrigin(0.5, 1);
-    container.add([selRing, highlight, shadow, sprite, nameText]);
+    container.add([
+      selRing,
+      highlight,
+      ambientShadow,
+      contactShadow,
+      sprite,
+      nameText,
+    ]);
     container.setDepth(start.y);
     const agent: Agent = {
       id: resident.id,
@@ -289,7 +341,6 @@ class RoomStage {
       phase: Math.random() * Math.PI * 2,
       jitter: yJitter(index),
       arrived: false,
-      bob: 0,
     };
     this.applyTexture(agent, this.placeholderKey(resident));
     sprite.setInteractive({ useHandCursor: true });
@@ -520,17 +571,18 @@ class RoomStage {
           agent.arrived = true;
         }
       }
+      // 歩くときは足元を軸に左右へ少し揺らす(体ごと上下させると足が床から離れて見える)
       const walking = agent.target !== null && this.motionEnabled;
       if (walking) {
-        agent.phase += delta * 0.011;
-        agent.bob = Math.sin(agent.phase) * 3.2;
+        agent.phase += delta * WALK_SWAY_SPEED;
+        agent.sprite.rotation = Math.sin(agent.phase) * WALK_SWAY;
       } else {
-        agent.bob = 0;
+        agent.sprite.rotation = 0;
       }
-      agent.sprite.y = agent.bob;
-      agent.nameText.y = agent.bob - AVATAR_H - NAME_OFFSET;
       const y = Math.min(Math.max(agent.position.y, FLOOR_TOP), FLOOR_BOTTOM);
       agent.container.setPosition(agent.position.x, y);
+      // 奥に立つほど小さく描く(名札・影・選択の輪もまとめて縮める)
+      agent.container.setScale(depthScale(y));
       agent.container.setDepth(y);
     }
     if (this.focus?.agents.every((agent) => agent.arrived)) {
@@ -540,7 +592,7 @@ class RoomStage {
 
   getAnchor(id: string): Point | null {
     const agent = this.agents.get(id);
-    return agent ? anchorRatio(agent.position, agent.bob) : null;
+    return agent ? anchorRatio(agent.position) : null;
   }
 
   dispose(): void {

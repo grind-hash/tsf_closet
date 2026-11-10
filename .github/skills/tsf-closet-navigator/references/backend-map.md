@@ -17,6 +17,8 @@
 - 掟の切り替え直後の反応: `hakoniwa_reactions.rule_reactions`（定型文 `consts/hakoniwa_play.RULE_REACTION_TEMPLATES`）。`PUT /rules` の `area_id` で話し手を選び、応答の `reaction` で返す（年代記には残さない）。
 - おまかせの住民: `POST /api/hakoniwa/random-residents`（`HakoniwaService.random_residents`）。LLM 版は `hakoniwa_generation.generate_random_resident_profiles`（出力言語の文と英語タグを1回で作る。日本語に簡体字があれば修復を依頼）、作れなければ `hakoniwa_random.template_residents`（語彙は `consts/hakoniwa_random.py`）。世界の作成は `custom_residents` で受け、作成時は生成を呼ばない。
 - 実験テーマ: `hakoniwa_play.validate_theme` / `record_theme_day` / `theme_progress`（数値だけ。文はフロント）。自由文のテーマだけ `hakoniwa_prompts.theme_section` で生成に渡し、出来事は1日1件（`advance_day` の `theme_index`）に絞る。
+- 観察記録（実績）: 定義は `services/achievements.py` の `HAKONIWA_ACHIEVEMENTS`（category `hakoniwa`、id は `hakoniwa_` 始まり）。集計は `achievement_service._hakoniwa_stats`（全世界の state JSON。観測の事実は `hakoniwa_play.observe` が `_store_state` のたびに `observations` へ積み、集計時にもいまの状態から拾う）。判定は `hakoniwa_service._unlock_hakoniwa_achievements` を `_world_view` で呼び、`new_achievements` で返す（世界を返すのは必ず commit の後）。
+- プリセット住民を作り直すときは `consts/hakoniwa.py` の `HAKONIWA_PRESET_REVISIONS` を上げる。既存の世界も `hakoniwa_logic.upgrade_preset_resident`（`normalize_state` から）で性別・タグを新しい設定にし、古い姿の生成画像を外す。同梱の立ち絵の URL にも `?v=版` が付く（例: ritsu は版2で 九条 律 -> 九条 薫、ren は版2で通常の姿を描き直し）。人物そのものを変えた版は `HAKONIWA_PRESET_CHARACTER_REVISIONS` に入れる（性別と生成画像も置き換える）。描き直しだけなら、外見を書き換えていない住民のタグだけを新しくする。
 - `hakoniwa_images.py` は世界ごとの画像保存・登録キャラクター立ち絵の複製・姿と場面絵の生成を担当する。`portrait_generation.py` の透過指定は NovelAI V5 のみで有効になる。
 - 永続化は `HakoniwaWorld` / `hakoniwa_worlds.state_json` と migration `038_add_hakoniwa_worlds.py`。状態変更は世界単位のロックで直列化する。
 - 検証: `tests/unit/test_hakoniwa_*.py`、`test_novelai_transparent_background.py`。DB テストは `isolated_db` を使用する。

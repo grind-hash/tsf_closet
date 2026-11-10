@@ -356,13 +356,14 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
         "id": "ren",
         "gender": "male",
         "base_tags": (
-            "1boy, solo, adult man, 28 years old, short dark green hair, "
-            "green eyes, calm expression, work shirt, gardening gloves"
+            "1boy, solo, young man, 27 years old, handsome, clean-shaven, "
+            "short dark green hair, green eyes, calm expression, white work shirt, "
+            "sleeves rolled up, light blue apron, gardening gloves"
         ),
         "dress_tags": (
-            "1boy, solo, adult man, 28 years old, short dark green hair, "
-            "green eyes, calm expression, dignified dark blue dress, "
-            "sharp silhouette, high collar, cool beauty"
+            "1boy, solo, young man, 27 years old, handsome, clean-shaven, "
+            "short dark green hair, green eyes, calm expression, dignified dark blue "
+            "dress, sharp silhouette, high collar, cool beauty"
         ),
         "initial_mood": 50,
         "initial_area": "garden",
@@ -398,27 +399,31 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
     },
     {
         "id": "ritsu",
-        "gender": "female",
+        "gender": "male",
         "base_tags": (
-            "1girl, solo, young adult woman, 23 years old, shoulder-length ash blonde hair, "
-            "blue eyes, curious expression, hoodie, jeans"
+            "1boy, solo, male focus, androgynous, bishounen, adult, young man, "
+            "23 years old, tall, slender, flat chest, soft facial features, "
+            "ash blonde bob cut, sidelocks, bangs, blue eyes, curious expression, "
+            "beige hoodie, jeans, sneakers"
         ),
         "dress_tags": (
-            "1girl, solo, young adult woman, 23 years old, shoulder-length ash blonde hair, "
-            "blue eyes, curious expression, refreshing light blue summer dress, "
-            "fresh, lively"
+            "1boy, solo, male focus, androgynous, bishounen, adult, young man, "
+            "23 years old, tall, slender, flat chest, soft facial features, "
+            "ash blonde bob cut, sidelocks, bangs, blue eyes, curious expression, "
+            "crossdressing, refreshing light blue summer dress, fresh, lively"
         ),
         "initial_mood": 66,
         "initial_area": "living",
         "initial_affinities": {"aoi": 10, "shiori": -5, "tamako": 10, "ren": 0},
         "text": {
             "ja": {
-                "name": "九条 律",
-                "pronoun": "私",
+                "name": "九条 薫",
+                "pronoun": "僕",
                 "age": "20代前半",
                 "job": "新住民（求職中）",
                 "personality": (
-                    "引っ越してきたばかり。好奇心旺盛で、星屑荘の掟や習慣に興味津々。"
+                    "引っ越してきたばかりの、中性的な顔立ちの青年。好奇心旺盛で、"
+                    "星屑荘の掟や習慣に興味津々。"
                 ),
                 "greetings": [
                     "あ、こんにちは！星屑荘って、毎日何か起きてて面白いですね",
@@ -427,12 +432,13 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
                 ],
             },
             "en": {
-                "name": "Ritsu Kujo",
+                "name": "Kaoru Kujo",
                 "pronoun": "I",
                 "age": "early 20s",
                 "job": "new resident (job hunting)",
                 "personality": (
-                    "Just moved in. Very curious, especially about the house's rules and customs."
+                    "A young man with androgynous looks who just moved in. Very "
+                    "curious, especially about the house's rules and customs."
                 ),
                 "greetings": [
                     "Oh, hi! Something happens at Stardust House every day, it's so fun.",
@@ -469,10 +475,23 @@ CUSTOM_RESIDENT_LABELS: dict[str, dict[str, str]] = {
 }
 
 
+# プリセット住民の作り直しの版。上げると、既存の世界の住民も normalize_state で新しい
+# 画像タグになる(プレイヤーが外見を書き換えていれば、そのまま)。同梱の立ち絵の URL にも
+# 版を付けて、古い画像のキャッシュを使わせない。
+# ritsu: 2 = 九条 律(女性) -> 九条 薫(中性的な青年)、3 = 通常とドレスを V5 で顔をそろえて描き直した
+# ren: 2 = 通常の姿を20代に見えるように描き直した、3 = 通常とドレスを V5 で顔をそろえて描き直した
+HAKONIWA_PRESET_REVISIONS: dict[str, int] = {"ritsu": 3, "ren": 3}
+# 人物そのもの(性別など)を変えた版。ここより前の版の世界では、性別を新しい設定にして、
+# 古い姿で生成した画像(通常・ドレス・掟の姿・複合の姿)も外す
+HAKONIWA_PRESET_CHARACTER_REVISIONS: dict[str, int] = {"ritsu": 2}
+
+
 def preset_bundled_avatar_url(preset_id: str, *, dress: bool = False) -> str:
     """プリセット住民の同梱アバターの URL。"""
     suffix = "_dress" if dress else ""
-    return f"{HAKONIWA_ASSET_BASE}/avatar_{preset_id}{suffix}.png"
+    revision = HAKONIWA_PRESET_REVISIONS.get(preset_id, 1)
+    version = f"?v={revision}" if revision > 1 else ""
+    return f"{HAKONIWA_ASSET_BASE}/avatar_{preset_id}{suffix}.png{version}"
 
 
 # --- 掟(ルールカード) ---

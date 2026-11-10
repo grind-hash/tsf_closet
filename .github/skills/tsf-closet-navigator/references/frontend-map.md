@@ -33,6 +33,8 @@
 - 明日の介入は「1日進める」の横（`HakoniwaWorldView.tsx`）、世界のメモは設定タブ、掟の相性は掟タブ、立ち絵に触れるのは `HakoniwaTouchPreview.tsx`、箱庭の中での会話は `HakoniwaChat.tsx`（ADV の枠。会話からの変身の出来事は閉じたあと部屋で再生）。
 - はじまりの案内は `HakoniwaIntro.tsx`（1日目・出来事0件の世界だけ、右パネルのタブの上。閉じたことは世界ごとに localStorage）。掟の切り替え直後の反応は `HakoniwaContext.toggleRule` が一時の場面（`kind: "reaction"`、年代記に無い）として再生の列へ入れる。
 - 作成画面のおまかせの住民は `HakoniwaRandomRoster.tsx`、実験テーマの選択は `HakoniwaThemePicker.tsx`（作成画面と設定タブで共用）。立ち絵の無い住民のまとめて生成は住民タブ（`HakoniwaContext.generateMissingAvatars`、1人ずつ順に）。まとめの実験テーマは `HakoniwaDigest.tsx`。
+- 観察記録の通知は `HakoniwaContext.announceAchievements`（世界の応答の `new_achievements`）。実績画面の「AI箱庭」の絞り込みは `AchievementsScreen.tsx`（AI箱庭の機能フラグが OFF なら、カテゴリも件数も出さない）。
+- 部屋の住民が浮いて見えないための描き方は `stage/roomStage.ts`（足の裏に合わせたぼかしの影、奥行きの縮尺 `roomLayout.depthScale`、歩くときは足元を軸に左右へ揺らす）。吹き出しの位置 `anchorRatio` も縮尺を見る。
 - `HakoniwaStage.tsx` は Phaser 3.90.0 の `stage/roomStage.ts` を遅延読込する。座標計算は `roomLayout.ts`、クリック・Enter による台詞送りと Esc スキップは `useHakoniwaPlayback.ts` に分離する。
 - `hooks/useTransparentImages.ts` が複数画像の単色背景除去を管理する。同梱素材は `public/hakoniwa-assets/`、文言は `i18n/{ja,en}/hakoniwa.ts`。
 - ブラウザ回帰テストは `tests/e2e/hakoniwa.spec.ts`。外部生成 API は呼び出さず、モック応答と同梱画像で主要操作を確認する。

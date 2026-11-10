@@ -384,7 +384,21 @@ class HakoniwaFurniture(BaseModel):
     url: str
 
 
+class HakoniwaAchievementUnlocked(BaseModel):
+    """新しく達成した観察記録(通知用)。"""
+
+    achievement_id: str
+    name: str
+    description: str
+    icon: str
+    category: str
+
+
 class HakoniwaWorldResponse(BaseModel):
+    new_achievements: list[HakoniwaAchievementUnlocked] = Field(
+        default_factory=list,
+        description="この応答で新しく達成した観察記録(実績)。通知に使う",
+    )
     id: str
     name: str
     day: int

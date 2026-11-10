@@ -336,6 +336,205 @@ ACHIEVEMENTS: dict[str, Achievement] = {
 }
 
 
+def _hakoniwa(
+    achievement_id: str,
+    name: str,
+    description: str,
+    icon: str,
+    condition_type: str,
+    condition_target: str,
+    condition_value: int,
+    hint: str,
+) -> Achievement:
+    return Achievement(
+        id=achievement_id,
+        name=name,
+        description=description,
+        category="hakoniwa",
+        icon=icon,
+        condition_type=condition_type,
+        condition_target=condition_target,
+        condition_value=condition_value,
+        hint=hint,
+    )
+
+
+# AI箱庭の観察記録(すべての世界を通して数える)。アイコンは記号の文字
+HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
+    _hakoniwa(
+        "hakoniwa_first_day",
+        "初めての日",
+        "AI箱庭で、初めて1日を進めた",
+        "◇",
+        "count",
+        "hakoniwa_day",
+        2,
+        "「1日進める」を押してみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_day_7",
+        "一週間の観察",
+        "AI箱庭のどこかの世界で、7日目に到達した",
+        "◆",
+        "count",
+        "hakoniwa_day",
+        7,
+        "同じ世界で日を重ねてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_day_30",
+        "一ヶ月の観察",
+        "AI箱庭のどこかの世界で、30日目に到達した",
+        "◈",
+        "count",
+        "hakoniwa_day",
+        30,
+        "ひとつの世界を長く見守ってみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_events_10",
+        "見届けた日々・10",
+        "AI箱庭で、出来事を10件見届けた",
+        "✎",
+        "count",
+        "hakoniwa_events",
+        10,
+        "日を進めて出来事を見届けましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_events_50",
+        "見届けた日々・50",
+        "AI箱庭で、出来事を50件見届けた",
+        "✐",
+        "count",
+        "hakoniwa_events",
+        50,
+        "さらに日を重ねてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_all_rules",
+        "掟の蒐集家",
+        "AI箱庭で、すべての既定の掟を一度は有効にした",
+        "§",
+        "specific",
+        "hakoniwa_all_rules",
+        1,
+        "5枚の既定の掟を、それぞれ一度は有効にしてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_custom_rule",
+        "立法者",
+        "AI箱庭で、初めて自作の掟を作った",
+        "¶",
+        "specific",
+        "hakoniwa_custom_rule",
+        1,
+        "掟タブで、自分だけの掟を書いてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_first_transform",
+        "初めての変身",
+        "AI箱庭で、初めて住民を変身させた",
+        "✧",
+        "count",
+        "hakoniwa_transforms",
+        1,
+        "住民タブの「その場で変身」を試してみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_transform_5",
+        "変身の常連",
+        "AI箱庭で、住民を5回変身させた",
+        "✦",
+        "count",
+        "hakoniwa_transforms",
+        5,
+        "いろいろな姿に変身させてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_dress_all",
+        "ドレスの観客",
+        "AI箱庭で、ある世界の住民全員のドレス姿を見た",
+        "♢",
+        "specific",
+        "hakoniwa_dress_all",
+        1,
+        "ドレスの掟を有効にしてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_swap",
+        "入れ替わりの朝",
+        "AI箱庭で、入れ替わりを体験した",
+        "⇄",
+        "specific",
+        "hakoniwa_swap",
+        1,
+        "入れ替わりの朝を有効にしてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_affinity_close",
+        "親密な二人",
+        "AI箱庭で、いずれかの二人の好感度が「親密」に達した",
+        "♡",
+        "threshold",
+        "hakoniwa_affinity",
+        30,
+        "同じ二人の出来事を重ねてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_favorites_5",
+        "お気に入りの棚",
+        "AI箱庭で、お気に入りの出来事を5件集めた",
+        "☆",
+        "count",
+        "hakoniwa_favorites",
+        5,
+        "年代記の☆で、気に入った出来事を残しましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_new_world",
+        "新しい世界",
+        "AI箱庭で、2つ目の世界を作った",
+        "○",
+        "count",
+        "hakoniwa_worlds",
+        2,
+        "別の顔ぶれで、もうひとつ世界を作ってみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_dissonance_stirring",
+        "ざわめきの始まり",
+        "AI箱庭で、世界の違和感が「ざわめき」に達した",
+        "∴",
+        "threshold",
+        "hakoniwa_dissonance",
+        20,
+        "掟の切り替えや変身で、世界を書き換えてみましょう",
+    ),
+    _hakoniwa(
+        "hakoniwa_dissonance_probing",
+        "真実への接近",
+        "AI箱庭で、世界の違和感が「探り合い」に達した",
+        "∵",
+        "threshold",
+        "hakoniwa_dissonance",
+        50,
+        "書き換えを重ねると、住民たちが調べ始めます",
+    ),
+    _hakoniwa(
+        "hakoniwa_dissonance_confrontation",
+        "書き手への呼びかけ",
+        "AI箱庭で、住民たちが書き手へ呼びかける「対面」に到達した",
+        "※",
+        "count",
+        "hakoniwa_confrontations",
+        1,
+        "違和感が80に達すると、何かが起きます",
+    ),
+)
+ACHIEVEMENTS.update({item.id: item for item in HAKONIWA_ACHIEVEMENTS})
+
+
 def get_achievement(achievement_id: str) -> Achievement | None:
     """実績IDから実績定義を取得"""
     return ACHIEVEMENTS.get(achievement_id)
@@ -415,10 +614,49 @@ class AchievementStats(BaseModel):
     shame: int = 0
     adaptation: int = 0
     has_gender_change: bool = False
+    # AI箱庭(すべての世界を通して)
+    hakoniwa_max_day: int = 0
+    hakoniwa_event_count: int = 0
+    hakoniwa_transform_count: int = 0
+    hakoniwa_confrontation_count: int = 0
+    hakoniwa_favorite_count: int = 0
+    hakoniwa_world_count: int = 0
+    hakoniwa_max_affinity: int = 0
+    hakoniwa_max_dissonance: int = 0
+    hakoniwa_all_rules: bool = False
+    hakoniwa_custom_rule: bool = False
+    hakoniwa_dress_all: bool = False
+    hakoniwa_swap: bool = False
+
+
+# AI箱庭の観察記録: 条件対象 -> 判定に使う統計
+_HAKONIWA_COUNTS = {
+    "hakoniwa_day": "hakoniwa_max_day",
+    "hakoniwa_events": "hakoniwa_event_count",
+    "hakoniwa_transforms": "hakoniwa_transform_count",
+    "hakoniwa_confrontations": "hakoniwa_confrontation_count",
+    "hakoniwa_favorites": "hakoniwa_favorite_count",
+    "hakoniwa_worlds": "hakoniwa_world_count",
+    "hakoniwa_affinity": "hakoniwa_max_affinity",
+    "hakoniwa_dissonance": "hakoniwa_max_dissonance",
+}
+_HAKONIWA_FLAGS = {
+    "hakoniwa_all_rules": "hakoniwa_all_rules",
+    "hakoniwa_custom_rule": "hakoniwa_custom_rule",
+    "hakoniwa_dress_all": "hakoniwa_dress_all",
+    "hakoniwa_swap": "hakoniwa_swap",
+}
 
 
 def check_achievement(achievement: Achievement, stats: AchievementStats) -> bool:
     """単一の実績条件をチェック"""
+    target = achievement.condition_target
+    if target in _HAKONIWA_COUNTS:
+        return int(getattr(stats, _HAKONIWA_COUNTS[target])) >= (
+            achievement.condition_value
+        )
+    if target in _HAKONIWA_FLAGS:
+        return bool(getattr(stats, _HAKONIWA_FLAGS[target]))
     if achievement.condition_type == "count":
         target = achievement.condition_target
         if target == "transform":

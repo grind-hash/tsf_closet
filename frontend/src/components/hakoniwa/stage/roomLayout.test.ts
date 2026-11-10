@@ -3,6 +3,8 @@ import { affinityLevel, moodLevel } from "../hakoniwaLabels";
 import {
   AVATAR_H,
   anchorRatio,
+  DEPTH_SCALE_BACK,
+  depthScale,
   FLOOR_BOTTOM,
   FLOOR_TOP,
   FOCUS_MIN_Y,
@@ -13,6 +15,8 @@ import {
   GAME_W,
   initialPosition,
   MIN_SPACING,
+  NAME_HEIGHT,
+  NAME_OFFSET,
   pickWanderTarget,
   stepToward,
 } from "./roomLayout";
@@ -86,6 +90,21 @@ describe("roomLayout", () => {
     const anchor = anchorRatio({ x: GAME_W / 2, y: FLOOR_BOTTOM });
     expect(anchor.x).toBeCloseTo(0.5);
     expect(anchor.y).toBeLessThan((FLOOR_BOTTOM - AVATAR_H) / GAME_H);
+  });
+
+  it("draws residents smaller toward the back of the floor", () => {
+    expect(depthScale(FLOOR_BOTTOM)).toBeCloseTo(1);
+    expect(depthScale(FLOOR_TOP)).toBeCloseTo(DEPTH_SCALE_BACK);
+    expect(depthScale(FLOOR_TOP - 100)).toBeCloseTo(DEPTH_SCALE_BACK);
+    const middle = depthScale((FLOOR_TOP + FLOOR_BOTTOM) / 2);
+    expect(middle).toBeGreaterThan(DEPTH_SCALE_BACK);
+    expect(middle).toBeLessThan(1);
+    // 奥に立つ住民の吹き出しは、縮めた頭の上(手前より下がった位置)に置く
+    const back = anchorRatio({ x: 100, y: FLOOR_TOP });
+    expect(back.y).toBeCloseTo(
+      (FLOOR_TOP - (AVATAR_H + NAME_OFFSET + NAME_HEIGHT) * DEPTH_SCALE_BACK) /
+        GAME_H,
+    );
   });
 
   it("steps toward a target and reports arrival", () => {

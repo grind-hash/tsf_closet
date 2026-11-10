@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSettings } from "../../contexts/SettingsContext";
 import type { Achievement } from "../../types";
 import { API_BASE } from "../../utils/api";
 import MainLayout from "../layout/MainLayout";
@@ -24,6 +25,9 @@ export default function AchievementsScreen({
   sessionId,
 }: AchievementsScreenProps) {
   const { t } = useTranslation();
+  const { state: settingsState } = useSettings();
+  // AI箱庭の観察記録は、AI箱庭の機能を使っているときだけ出す
+  const hakoniwaEnabled = settingsState.experimentalHakoniwaEnabled;
   const [achievements, setAchievements] = useState<AchievementWithStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +49,9 @@ export default function AchievementsScreen({
     { id: "collection", label: t("achievements.filterCollection") },
     { id: "self", label: t("achievements.filterSelf") },
     { id: "salon", label: t("achievements.filterSalon") },
+    ...(hakoniwaEnabled
+      ? [{ id: "hakoniwa", label: t("achievements.filterHakoniwa") }]
+      : []),
   ];
 
   // 実績を取得
@@ -105,14 +112,23 @@ export default function AchievementsScreen({
     fetchAchievements();
   }, [fetchAchievements]);
 
-  // フィルタリング
-  const filteredAchievements = achievements.filter(
+  // フィルタリング(機能を使っていない AI箱庭の観察記録は数にも入れない)
+  const visibleAchievements = achievements.filter(
+    (a) => hakoniwaEnabled || a.category !== "hakoniwa",
+  );
+  const filteredAchievements = visibleAchievements.filter(
     (a) => filter === "all" || a.category === filter,
   );
+  const hiddenCount = achievements.length - visibleAchievements.length;
+  const hiddenUnlocked = achievements.filter(
+    (a) => !hakoniwaEnabled && a.category === "hakoniwa" && a.unlocked,
+  ).length;
+  const shownTotal = Math.max(stats.total - hiddenCount, 0);
+  const shownUnlocked = Math.max(stats.unlocked - hiddenUnlocked, 0);
 
   // 進捗率
   const progressPercent =
-    stats.total > 0 ? Math.round((stats.unlocked / stats.total) * 100) : 0;
+    shownTotal > 0 ? Math.round((shownUnlocked / shownTotal) * 100) : 0;
 
   return (
     <MainLayout>
@@ -131,7 +147,7 @@ export default function AchievementsScreen({
                 />
               </div>
               <span className="achievements-screen__progress-text">
-                {stats.unlocked} / {stats.total} ({progressPercent}%)
+                {shownUnlocked} / {shownTotal} ({progressPercent}%)
               </span>
             </div>
           </div>

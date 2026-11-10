@@ -157,6 +157,14 @@ export interface HakoniwaThemeProgress {
   transformed_now?: number;
 }
 
+export interface HakoniwaAchievementUnlocked {
+  achievement_id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: string;
+}
+
 /** おまかせの住民(作成画面で組む住民の定義) */
 export interface HakoniwaRandomResident {
   name: string;
@@ -427,6 +435,8 @@ export interface HakoniwaWorld {
   combo_look: HakoniwaComboLook | null;
   /** 世界のメモ(全生成に最優先の指示として載せる) */
   world_memo: string;
+  /** この応答で新しく達成した観察記録(実績)。通知に使う */
+  new_achievements?: HakoniwaAchievementUnlocked[];
   /** 実験テーマ(テーマ無しは null) */
   experiment_theme?: HakoniwaTheme | null;
   intervention: {

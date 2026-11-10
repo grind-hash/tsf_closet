@@ -256,3 +256,78 @@ def test_gender_token_helpers():
     assert logic.ensure_gender_token("long hair", "male") == "1boy, long hair"
     assert logic.ensure_gender_token("1girl, long hair", "male") == "1girl, long hair"
     assert logic.ensure_gender_token("", "female").startswith("1girl")
+
+
+def test_old_ritsu_entry_is_replaced_with_kaoru():
+    from gateway.consts.hakoniwa import preset_bundled_avatar_url
+
+    old = {
+        **logic.preset_resident("ritsu"),
+        "gender": "female",
+        "base_tags": "1girl, solo, young adult woman, ash blonde hair",
+        "dress_tags": "1girl, solo, light blue summer dress",
+        "avatar_image": "old_ritsu.png",
+        "dress_image": "old_ritsu_dress.png",
+        "rule_images": {"custom_x": {"image": "r.png", "tags": "", "source_tags": ""}},
+        "personality": "プレイヤーが書いた性格",
+    }
+    old.pop("preset_revision")
+    state = logic.new_world_state(
+        [logic.preset_resident("aoi"), logic.preset_resident("ren")]
+    )
+    state = logic.normalize_state({**state, "residents": [*state["residents"], old]})
+    kaoru = logic.find_resident(state, "ritsu")
+    assert kaoru["gender"] == "male"
+    assert kaoru["base_tags"].startswith("1boy, solo, male focus, androgynous")
+    assert kaoru["avatar_image"] is None and kaoru["dress_image"] is None
+    assert kaoru["rule_images"] == {}
+    assert kaoru["preset_revision"] == 3
+    # プレイヤーが書き換えた性格は残し、名前・一人称は新しい設定になる
+    text = logic.resident_text(kaoru, "ja")
+    assert text["personality"] == "プレイヤーが書いた性格"
+    assert text["name"] == "九条 薫"
+    assert text["pronoun"] == "僕"
+    assert logic.resident_text(kaoru, "en")["name"] == "Kaoru Kujo"
+    # 置き換えたあとは、もう一度読み込んでも変わらない
+    again = logic.normalize_state(state)
+    assert logic.find_resident(again, "ritsu") == kaoru
+    assert preset_bundled_avatar_url("ritsu").endswith("avatar_ritsu.png?v=3")
+    assert preset_bundled_avatar_url("aoi") == "/hakoniwa-assets/avatar_aoi.png"
+
+
+def test_redrawn_ren_gets_new_tags_but_keeps_generated_images():
+    def old_ren(**fields):
+        entry = {
+            **logic.preset_resident("ren"),
+            "base_tags": "1boy, solo, adult man, 28 years old, work shirt",
+            "dress_tags": "1boy, solo, adult man, 28 years old, dark blue dress",
+            "avatar_image": "my_ren.png",
+            **fields,
+        }
+        entry.pop("preset_revision")
+        return entry
+
+    state = logic.new_world_state(
+        [logic.preset_resident("aoi"), logic.preset_resident("shiori")]
+    )
+    state = logic.normalize_state(
+        {**state, "residents": [*state["residents"], old_ren()]}
+    )
+    ren = logic.find_resident(state, "ren")
+    assert "young man" in ren["base_tags"] and "clean-shaven" in ren["base_tags"]
+    assert "young man" in ren["dress_tags"]
+    assert ren["avatar_image"] == "my_ren.png"
+    assert ren["gender"] == "male"
+    assert ren["preset_revision"] == 3
+
+    # プレイヤーが外見を書き換えていれば、そのタグを残す
+    custom = logic.normalize_state(
+        {
+            **state,
+            "residents": [
+                *state["residents"][:2],
+                old_ren(appearance_text="髭のある庭師", base_tags="1boy, beard"),
+            ],
+        }
+    )
+    assert logic.find_resident(custom, "ren")["base_tags"] == "1boy, beard"

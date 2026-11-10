@@ -62,6 +62,8 @@ async function mockHakoniwa(
   dissonance = 0,
   options: {
     reactions?: boolean;
+    /** ドレスの掟を有効にした応答で観察記録の達成を返す */
+    achievements?: boolean;
     /** 送られた本文を記録する(世界の作成・設定) */
     recorded?: { create?: Record<string, unknown>; settings: unknown[] };
   } = {},
@@ -166,6 +168,42 @@ async function mockHakoniwa(
           status: "ok",
           image_provider: "comfyui",
           text_provider: "openrouter",
+        },
+      });
+      return;
+    }
+    if (path === "/api/achievements") {
+      const item = (
+        id: string,
+        name: string,
+        category: string,
+        unlocked: boolean,
+      ) => ({
+        id,
+        name,
+        description: `${name}の説明`,
+        category,
+        icon: "◇",
+        condition_type: "count",
+        condition_target: "",
+        condition_value: 1,
+        is_hidden: false,
+        hint: null,
+        unlocked,
+        unlocked_at: unlocked ? "2026-11-09T12:00:00" : null,
+      });
+      await route.fulfill({
+        json: {
+          achievements: [
+            item("first_transform", "初めての変身", "transform", false),
+            item("hakoniwa_dress_all", "ドレスの観客", "hakoniwa", true),
+          ],
+          total: 2,
+          unlocked_count: 1,
+          transform_count: 0,
+          crossdress_count: 0,
+          reality_alter_count: 0,
+          gallery_count: 0,
         },
       });
       return;
@@ -526,9 +564,23 @@ async function mockHakoniwa(
             ],
           }
         : null;
+      world.new_achievements =
+        options.achievements && id === "dress" && body.active
+          ? [
+              {
+                achievement_id: "hakoniwa_dress_all",
+                name: "ドレスの観客",
+                description: "AI箱庭で、ある世界の住民全員のドレス姿を見た",
+                icon: "♢",
+                category: "hakoniwa",
+              },
+            ]
+          : [];
       await route.fulfill({
         json: { world, new_events: newEvents, reaction, cost_usd: null },
       });
+      // 達成の通知は、その応答だけ
+      world.new_achievements = [];
       return;
     }
     if (path.endsWith("/greet")) {
@@ -1101,4 +1153,49 @@ test("おまかせの住民・実験テーマ・立ち絵のまとめて生成",
   expect(recorded.settings.at(-1)).toMatchObject({
     experiment_theme: { preset_id: null, text: "みんなが猫好きになる" },
   });
+});
+
+test("観察記録: 達成の通知と、実績画面の「AI箱庭」の絞り込み", async ({
+  page,
+}) => {
+  await mockHakoniwa(page, true, 0, { achievements: true });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
+  await expect(page.getByTestId("hakoniwa-intro")).toContainText(
+    "観察の記録は「実績」画面の「AI箱庭」で見られます。",
+  );
+
+  await page.getByRole("tab", { name: "掟", exact: true }).click();
+  await page.getByRole("checkbox", { name: "ドレスの掟を有効にする" }).click();
+  await expect(page.locator(".achievement-toast")).toContainText(
+    "ドレスの観客",
+  );
+
+  await page.goto("/achievements");
+  const chip = page.locator(".achievements-screen__filter-btn", {
+    hasText: "AI箱庭",
+  });
+  await expect(chip).toBeVisible();
+  await expect(page.locator(".achievements-screen__progress-text")).toHaveText(
+    "1 / 2 (50%)",
+  );
+  await chip.click();
+  await expect(page.locator(".achievement-card")).toHaveCount(1);
+  await expect(page.locator(".achievement-card")).toContainText("ドレスの観客");
+});
+
+test("AI箱庭を使わない設定では、実績画面に AI箱庭の記録を出さない", async ({
+  page,
+}) => {
+  await mockHakoniwa(page, false);
+  await page.goto("/achievements");
+  await expect(page.locator(".achievements-screen__progress-text")).toHaveText(
+    "0 / 1 (0%)",
+  );
+  await expect(
+    page.locator(".achievements-screen__filter-btn", { hasText: "AI箱庭" }),
+  ).toHaveCount(0);
+  await expect(page.getByText("ドレスの観客")).toHaveCount(0);
 });

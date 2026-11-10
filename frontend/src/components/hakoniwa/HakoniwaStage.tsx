@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { useTransparentImages } from "../../hooks/useTransparentImages";
 import HakoniwaDigest from "./HakoniwaDigest";
-import { anchorRatio, initialPosition, type Point } from "./stage/roomLayout";
+import {
+  anchorRatio,
+  depthScale,
+  initialPosition,
+  type Point,
+} from "./stage/roomLayout";
 import type {
   RoomStageHandle,
   StageFurniture,
@@ -374,10 +386,13 @@ function FallbackRoom({
             className={`hakoniwa-stage__fallback-avatar${
               resident.id === selectedResidentId ? " is-selected" : ""
             }`}
-            style={{
-              left: `${(position.x / 1216) * 100}%`,
-              top: `${(position.y / 832) * 100}%`,
-            }}
+            style={
+              {
+                left: `${(position.x / 1216) * 100}%`,
+                top: `${(position.y / 832) * 100}%`,
+                "--hk-depth-scale": depthScale(position.y),
+              } as CSSProperties
+            }
             onClick={(event) => {
               event.stopPropagation();
               onResidentClick(resident.id);

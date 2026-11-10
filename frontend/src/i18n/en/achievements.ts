@@ -7,6 +7,7 @@ export const achievements = {
   filterCollection: "Collection",
   filterSelf: "Self Mode",
   filterSalon: "Salon",
+  filterHakoniwa: "AI Dollhouse",
   transformCount: "Transform Count: {{count}}",
   crossdressCount: "Crossdress Count: {{count}}",
   realityAlterCount: "Reality Alter Count: {{count}}",

@@ -280,7 +280,27 @@ const HakoniwaContext = createContext<HakoniwaContextValue | null>(null);
 export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const { state: settingsState, addTotalCost, setAnlasBalance } = useSettings();
-  const { showNotification } = useNotification();
+  const { showNotification, showAchievementNotification } = useNotification();
+
+  /** 応答で新しく達成した観察記録(実績)を知らせる */
+  const announceAchievements = useCallback(
+    (next: HakoniwaWorld) => {
+      for (const item of next.new_achievements ?? []) {
+        showAchievementNotification({
+          id: item.achievement_id,
+          name: item.name,
+          description: item.description,
+          icon: item.icon,
+          category: item.category,
+          condition_type: "",
+          condition_target: "",
+          condition_value: 0,
+          is_hidden: false,
+        });
+      }
+    },
+    [showAchievementNotification],
+  );
   const [catalog, setCatalog] = useState<HakoniwaCatalog | null>(null);
   const [worlds, setWorlds] = useState<HakoniwaWorldSummary[]>([]);
   const [world, setWorld] = useState<HakoniwaWorld | null>(null);
@@ -350,23 +370,27 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     [errorText],
   );
 
-  const applyWorld = useCallback((next: HakoniwaWorld) => {
-    setWorld(next);
-    setWorlds((current) =>
-      current.map((item) =>
-        item.id === next.id
-          ? {
-              ...item,
-              name: next.name,
-              day: next.day,
-              resident_count: next.residents.length,
-              event_count: next.events.length,
-              updated_at: next.updated_at,
-            }
-          : item,
-      ),
-    );
-  }, []);
+  const applyWorld = useCallback(
+    (next: HakoniwaWorld) => {
+      announceAchievements(next);
+      setWorld(next);
+      setWorlds((current) =>
+        current.map((item) =>
+          item.id === next.id
+            ? {
+                ...item,
+                name: next.name,
+                day: next.day,
+                resident_count: next.residents.length,
+                event_count: next.events.length,
+                updated_at: next.updated_at,
+              }
+            : item,
+        ),
+      );
+    },
+    [announceAchievements],
+  );
 
   const loadCatalog = useCallback(async () => {
     const loaded = await run("load", () => fetchHakoniwaCatalog(language));
@@ -382,10 +406,11 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     (id: string) =>
       run("load", async () => {
         const loaded = await fetchHakoniwaWorld(id, language);
+        announceAchievements(loaded);
         setWorld(loaded);
         return loaded;
       }),
-    [language, run],
+    [announceAchievements, language, run],
   );
 
   // 言語を切り替えたら、プリセット住民の名前などを読み直す
@@ -430,6 +455,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
           custom_residents: input.customResidents,
           experiment_theme: input.theme,
         });
+        announceAchievements(created);
         setWorld(created);
         setWorlds((current) => [
           {
@@ -450,7 +476,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
         ]);
         return created;
       }),
-    [language, run],
+    [announceAchievements, language, run],
   );
 
   const deleteWorld = useCallback(

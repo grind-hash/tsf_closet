@@ -111,6 +111,7 @@ export default function HakoniwaIntro() {
         {world.dissonance.enabled && (
           <p className="hakoniwa-note">{t("hakoniwa.intro.noteDissonance")}</p>
         )}
+        <p className="hakoniwa-note">{t("hakoniwa.intro.noteAchievements")}</p>
       </div>
       <div className="hakoniwa-intro__actions">{actions}</div>
     </section>

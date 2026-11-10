@@ -10,8 +10,13 @@ export const GAME_H = 832;
 /** 住民の足元 y の範囲(奥〜手前) */
 export const FLOOR_TOP = 580;
 export const FLOOR_BOTTOM = 784;
-/** 部屋の中での住民の表示高さ */
+/** 部屋の中での住民の表示高さ(いちばん手前に立ったとき) */
 export const AVATAR_H = Math.round(GAME_H * 0.55);
+/** 床のいちばん奥に立ったときの縮尺(奥ほど小さく描き、浮いて見えないようにする) */
+export const DEPTH_SCALE_BACK = 0.84;
+/** 歩くときの左右の揺れ(足元を軸にした回転、ラジアン)と、その速さ */
+export const WALK_SWAY = 0.022;
+export const WALK_SWAY_SPEED = 0.011;
 /** 部屋の中での家具の表示高さ */
 export const FURNITURE_H = 215;
 /** 歩く速さ(ゲーム座標 px / 秒) */
@@ -149,10 +154,20 @@ export function focusTargets(positions: Point[]): FocusTarget[] {
  * 吹き出しの位置(部屋の枠に対する割合)。名札の上端を指す。
  * bob は歩行中の上下動のずれ。
  */
-export function anchorRatio(position: Point, bob = 0): Point {
+/** 足元の高さ(奥行き)に応じた縮尺。奥 DEPTH_SCALE_BACK 〜 手前 1 */
+export function depthScale(y: number): number {
+  const ratio =
+    (clamp(y, FLOOR_TOP, FLOOR_BOTTOM) - FLOOR_TOP) /
+    (FLOOR_BOTTOM - FLOOR_TOP);
+  return DEPTH_SCALE_BACK + (1 - DEPTH_SCALE_BACK) * ratio;
+}
+
+/** 吹き出しを置く位置(名札の上)。奥に立つ住民は縮めて描くので、その分だけ下げる */
+export function anchorRatio(position: Point): Point {
+  const scale = depthScale(position.y);
   return {
     x: position.x / GAME_W,
-    y: (position.y + bob - AVATAR_H - NAME_OFFSET - NAME_HEIGHT) / GAME_H,
+    y: (position.y - (AVATAR_H + NAME_OFFSET + NAME_HEIGHT) * scale) / GAME_H,
   };
 }
 
