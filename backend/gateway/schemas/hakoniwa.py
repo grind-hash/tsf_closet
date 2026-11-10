@@ -10,6 +10,8 @@ from ..consts.hakoniwa import (
     HAKONIWA_APPEARANCE_TEXT_MAX,
     HAKONIWA_CUSTOM_RULE_NAME_MAX,
     HAKONIWA_CUSTOM_RULE_TEXT_MAX,
+    HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX,
+    HAKONIWA_DIRECTED_EVENT_TEXT_MAX,
     HAKONIWA_MANUAL_TAGS_INPUT_MAX,
     HAKONIWA_MAX_RESIDENTS,
     HAKONIWA_PERSONALITY_MAX,
@@ -215,6 +217,21 @@ class HakoniwaTransformRequest(HakoniwaLanguageRequest):
     instruction: str = Field(..., min_length=1, max_length=HAKONIWA_TRANSFORM_TEXT_MAX)
 
 
+class HakoniwaDirectedEventRequest(HakoniwaLanguageRequest):
+    instruction: str = Field(
+        ..., min_length=1, max_length=HAKONIWA_DIRECTED_EVENT_TEXT_MAX
+    )
+    scope: Literal["solo", "selected", "room"] = Field(
+        "solo",
+        description="solo: 本人だけ / selected: 選んだ住民と / room: 同じ部屋の住民と",
+    )
+    partner_ids: list[str] = Field(
+        default_factory=list,
+        max_length=HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX,
+        description="selected のときに一緒に出る住民の id",
+    )
+
+
 class HakoniwaReapplyRequest(HakoniwaLanguageRequest):
     image: str = Field(..., description="履歴の変身の画像ファイル名")
 
@@ -247,8 +264,13 @@ class HakoniwaEvent(BaseModel):
     mood_delta: dict[str, int]
     affinity_delta: int
     source: str = Field(..., description="llm / template / player")
-    kind: str | None = Field(None, description="transform(変身の出来事)など")
+    kind: str | None = Field(
+        None, description="transform(変身の出来事)・directed(指示した出来事)など"
+    )
     change_text: str | None = None
+    instruction: str | None = Field(
+        None, description="書き手が指示して起こした出来事(directed)の指示文"
+    )
     favorite: bool = False
     area: str = Field("living", description="出来事の起きた場所")
     scene_image: str | None = Field(None, description="場面絵のファイル名")

@@ -1,7 +1,8 @@
 """AI箱庭モードのテキスト生成(出来事・一言・変身のタグ変換と反応)。
 
 本文生成と同じプロバイダ・テキストモデルを使い、別のプロバイダへは切り替えない。
-生成に失敗したら定型の出来事・一言に落とす(変身のタグ変換だけは失敗を返す)。
+生成に失敗したら定型の出来事・一言に落とす(変身のタグ変換と、書き手が指示した
+出来事だけは失敗を返す)。
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ from .hakoniwa_logic import (
     tags_gender,
 )
 from .hakoniwa_prompts import (
+    DIRECTED_EVENT_RETRY_NOTE,
     RULE_FOCUS_RETRY_NOTE,
     alteration_prompts,
     appearance_is_risque,
@@ -361,6 +363,66 @@ async def generate_event(
     event = template_event(state, group, language, rng, recent_titles=recent_titles)
     event["area"] = area_id
     return event
+
+
+async def generate_directed_event(
+    state: dict[str, Any],
+    group: tuple[dict[str, Any], ...],
+    instruction: str,
+    language: str,
+    *,
+    novelai_model: str | None,
+    nsfw: bool,
+    area_id: str | None,
+) -> dict[str, Any]:
+    """書き手が指示した出来事を1件生成する。
+
+    指示を無視した場面を積まないよう、定型の出来事には落とさない。検証に落ちたら指示を
+    再掲してもう一度だけ生成し、それも落ちたら event_generation_failed を投げる。
+    """
+    names = [resident_name(resident, language) for resident in group]
+    system_prompt = event_system_prompt(
+        group, state, language, nsfw=nsfw, directed=True
+    )
+    user_prompt = event_user_prompt(
+        state,
+        group,
+        language,
+        nsfw=nsfw,
+        area_id=area_id,
+        include_theme=False,
+        directed_instruction=instruction,
+    )
+
+    async def generate(system: str, user: str) -> str:
+        return await _generate_text(system, user, novelai_model=novelai_model)
+
+    for attempt in range(2):
+        prompt = (
+            user_prompt if attempt == 0 else user_prompt + DIRECTED_EVENT_RETRY_NOTE
+        )
+        try:
+            output = await generate_validated(
+                EventOutput,
+                generate=generate,
+                system_prompt=system_prompt,
+                user_prompt=prompt,
+                context={"names": names},
+            )
+        except Exception as error:
+            logger.warning(
+                "Hakoniwa directed event generation failed: %s: %s",
+                type(error).__name__,
+                error,
+            )
+            continue
+        event = _event_from_output(output, group, language)
+        event["area"] = area_id
+        return event
+    raise HakoniwaError(
+        "event_generation_failed",
+        "出来事を生成できませんでした。指示の文を変えてお試しください",
+    )
 
 
 def recent_titles(state: dict[str, Any]) -> set[str]:

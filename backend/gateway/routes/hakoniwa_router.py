@@ -23,6 +23,7 @@ from ..schemas.hakoniwa import (
     HakoniwaCreateRequest,
     HakoniwaCustomRuleRequest,
     HakoniwaDayResponse,
+    HakoniwaDirectedEventRequest,
     HakoniwaFavoriteRequest,
     HakoniwaFurnitureRequest,
     HakoniwaGreetingResponse,
@@ -64,6 +65,7 @@ _UPSTREAM_CODES = {
     "image_generation_failed",
     "tag_conversion_failed",
     "look_tags_failed",
+    "event_generation_failed",
 }
 _ERROR_RESPONSES = {
     400: {"model": ErrorResponse},
@@ -539,6 +541,32 @@ async def transform_resident(
     result = await _call(
         hakoniwa_service.transform(
             world_id, resident_id, request.instruction, request.language
+        )
+    )
+    return HakoniwaDayResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/residents/{resident_id}/event",
+    response_model=HakoniwaDayResponse,
+    summary="指示した出来事を起こす",
+    description=(
+        "書き手の指示で、住民のいまの姿のまま出来事を1件生成して年代記に積む。"
+        "scope は solo(本人だけ) / selected(partner_ids の住民と) / room(同じ部屋の住民と)"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def direct_event(
+    world_id: str, resident_id: str, request: HakoniwaDirectedEventRequest
+) -> HakoniwaDayResponse:
+    result = await _call(
+        hakoniwa_service.directed_event(
+            world_id,
+            resident_id,
+            request.instruction,
+            request.scope,
+            request.partner_ids,
+            request.language,
         )
     )
     return HakoniwaDayResponse(**result)

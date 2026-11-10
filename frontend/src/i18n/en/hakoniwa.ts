@@ -98,6 +98,8 @@ export const hakoniwa = {
     day: "Day {{day}}",
     sourceTemplate: "Template",
     transformMark: "Transformation",
+    directedMark: "Ordered event",
+    instruction: "Order: {{text}}",
     confrontationMark: "Confrontation",
     arcContinue: "Continues the story “{{title}}”",
     arcClimax: "Climax of the story “{{title}}”",
@@ -226,6 +228,9 @@ export const hakoniwa = {
     personality: "Personality",
     relations: "Relationships",
     callsThem: "(calls them “{{address}}”)",
+    modeLabel: "Change a look or start an event",
+    modeTransform: "Transform",
+    modeEvent: "Event",
     transformHeading: "Transform on the spot",
     transformPlaceholder:
       "e.g. Put her in a wedding dress / Give him long silver hair",
@@ -237,6 +242,29 @@ export const hakoniwa = {
     clearTransform: "Change back",
     historyHeading: "Past transformations",
     reapply: "Use this look",
+    eventHeading: "Start an event",
+    eventPlaceholder:
+      "e.g. The two take a bath together / Go shopping in town in the current look",
+    eventNote:
+      "As the writer's order, one scene is generated with the residents in their current looks (transformations, swapped bodies, rule looks) and opened as a scene. Looks do not change. It stays in the chronicle and affects mood, relationships, memories and the world's unease.",
+    eventScopeLabel: "Who takes part",
+    scopeSolo: "Just them",
+    scopeSelected: "Pick residents",
+    scopeRoom: "Roommates",
+    partnersLabel: "Residents who join (up to {{max}})",
+    partnersNote: "Chosen residents gather in the room where {{name}} is.",
+    partnersEmpty: "Choose the residents who join.",
+    roomMembers: "In the same room: {{names}}",
+    roomRandom:
+      "In the same room: {{names}} ({{max}} of them are picked at random)",
+    roomEmpty:
+      'No other resident is in the same room. Choose "Pick residents" to call residents from other rooms.',
+    maleBodyNote:
+      "{{pairs}} both have male bodies right now, so no romantic or sexual scene is written between them (residents now in a female body through TS are not affected).",
+    pairJoin: " and ",
+    listJoin: ", ",
+    runEvent: "Start the event",
+    runningEvent: "Generating the scene…",
     avatarHeading: "Generate a look",
     generateBase: "Generate the usual look",
     generateDress: "Generate the dress look",
@@ -578,6 +606,13 @@ export const hakoniwa = {
       "Too many tags (up to 24 tags and 400 characters for residents, 10 tags for rule looks).",
     tags_gender_mismatch:
       "The gender tag (1girl / 1boy) does not match the resident. Fix the tags or the gender.",
+    invalid_event_text: "Enter the event order in 500 characters or fewer.",
+    invalid_event_scope: "The choice of who takes part is not valid.",
+    event_partners_required: "Choose the residents who join.",
+    event_too_many_partners: "Up to 2 residents can join.",
+    event_room_empty: "No other resident is in the same room.",
+    event_generation_failed:
+      "The event could not be generated. Try rewording the order.",
     world_not_found: "World not found.",
     resident_not_found: "Resident not found.",
     too_few_residents: "A world needs at least 2 residents.",

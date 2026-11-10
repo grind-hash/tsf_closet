@@ -47,6 +47,7 @@ from .hakoniwa_logic import (
     is_feminine_transformation,
     is_male_in_feminine_form,
     look_rule_ids,
+    male_body_pairs,
     resident_gender,
     resident_name,
     resident_text,
@@ -161,6 +162,20 @@ RULE_FOCUS_RETRY_NOTE = (
     "the rule, or a scene that only comments on the rule, is not acceptable. Output "
     "a scene in which the main characters actually live by the rule, in the "
     "specified JSON format."
+)
+
+DIRECTED_EVENT_PRIORITY_NOTE = (
+    " This scene was ordered directly by the player, the writer of this world: "
+    "the order decides the subject matter and tone of this scene, overriding the "
+    "default calm, warm mood described above."
+)
+
+DIRECTED_EVENT_RETRY_NOTE = (
+    "\n\n[Repeated, mandatory] Depicting what the writer's instruction above orders, "
+    "as the center of the scene, is an absolute condition. A scene that swaps it for "
+    "something else or only talks about it is not acceptable. Output the scene in the "
+    "specified JSON format, with every speaker and participant written exactly as "
+    "the names given."
 )
 
 
@@ -615,6 +630,61 @@ def custom_rule_focus_text(state: dict[str, Any], rule_id: str, nsfw: bool) -> s
     )
 
 
+def directed_event_focus_text(
+    state: dict[str, Any],
+    group: tuple[dict[str, Any], ...],
+    instruction: str,
+    language: str,
+    *,
+    nsfw: bool,
+) -> str:
+    """書き手(プレイヤー)が指示して起こす出来事の指示。自作の掟の焦点と同じ強さで書く。"""
+    adult = (
+        " If the instruction names a sexual act between adults, the scene shows that "
+        "act itself taking place, explicitly and faithfully to the instruction's "
+        "wording, along with the residents' bodies, sensations, feelings and "
+        "conversation. A scene that ends just before the act, skips to afterwards, "
+        "fades out, or stops at kissing, touching or undressing does not satisfy the "
+        "order."
+        if nsfw
+        else " Keep it non-explicit even if the instruction touches on adult themes: "
+        "no sexual acts or nudity; express such themes through reactions and emotions "
+        "only."
+    )
+    male = "".join(
+        f" {resident_name(a, language)} and {resident_name(b, language)} both "
+        "currently have male bodies: never depict romantic or sexual feelings or acts "
+        "between the two of them. This limit takes precedence over the writer's "
+        "order: if the order asks for romance or intimacy between them, do not carry "
+        "out that part at all, not even off-screen, as a joke or as a greeting (no "
+        "kiss, embrace or caress), and do not hint at it (no leaning in, getting too "
+        "close, flustered reactions to closeness, romantic tension or lingering "
+        "looks). Keep them friends and give them a different part in the scene."
+        for a, b in male_body_pairs(state, group)
+    )
+    return (
+        "\n\n[Most important: the scene the writer has ordered]\n"
+        "The player, the writer of this world, has directly ordered this event:\n"
+        f'"{instruction}"\n'
+        "The order has the same force as a player-written rule: it simply happens in "
+        "this world. Every main character goes along with it willingly, of their own "
+        "accord; never depict anyone being forced, pressured or coerced, and never have "
+        "one character push past another's refusal. Each still reacts in character "
+        "(embarrassment, nervousness, delight). Do not spend the scene on build-up: "
+        "what the instruction describes is already under way when the scene opens or "
+        "begins within the first two lines, and most of the narration and lines depict "
+        "actually carrying it out. Make it a scene that depicts the act or situation "
+        "itself, not a scene that only talks about it or leads up to it. Replacing it "
+        "with a harmless topic, stopping just before it, or blurring it with metaphors "
+        "is forbidden. Other guidance in this prompt (such as getting used to a new "
+        "body or look) only colors how they feel during it and never replaces it. "
+        "Every main character appears in their current look and body "
+        "exactly as listed under Residents (transformation, swapped body, rule look, "
+        "dress); depict the scene in those bodies and never revert anyone to their "
+        f"original look.{adult}{male}"
+    )
+
+
 def _event_schema(group: tuple[dict[str, Any], ...], language: str) -> str:
     names = [resident_name(resident, language) for resident in group]
     lo, hi = HAKONIWA_EVENT_LINES_RANGE[min(len(group), 3)]
@@ -641,7 +711,9 @@ def event_system_prompt(
     language: str,
     *,
     nsfw: bool,
+    directed: bool = False,
 ) -> str:
+    """出来事の生成の役割と形式。directed は書き手が指示した出来事(指示を雰囲気より優先する)。"""
     if len(group) == 1:
         shape = (
             "Create exactly one event at the boarding house with this single resident "
@@ -664,8 +736,9 @@ def event_system_prompt(
             "Create exactly one event at the boarding house with these two residents as "
             "the main characters. Every speaker must be one of them."
         )
+    brief = world_brief(state) + (DIRECTED_EVENT_PRIORITY_NOTE if directed else "")
     return (
-        f"{world_brief(state)}\n"
+        f"{brief}\n"
         "You are the narrator of this miniature world.\n"
         f"{shape}\n"
         f"{DIALOGUE_CRAFT_GUIDANCE}\n"
@@ -723,8 +796,12 @@ def event_user_prompt(
     arc_climax: bool = False,
     intervention: str | None = None,
     include_theme: bool = True,
+    directed_instruction: str | None = None,
 ) -> str:
-    """出来事の生成の指示。include_theme は自由文の実験テーマを載せるか(1日1件に絞る)。"""
+    """出来事の生成の指示。include_theme は自由文の実験テーマを載せるか(1日1件に絞る)。
+
+    directed_instruction は書き手が指示して起こす出来事の指示文。あれば最優先の焦点にする。
+    """
     names = [resident_name(resident, language) for resident in group]
     if len(group) == 1:
         lead = (
@@ -743,11 +820,22 @@ def event_user_prompt(
                 f"Other events today feature: {groups_text}. Choose a topic and situation "
                 "different from what those groups would likely do.\n"
             )
-    focus = (
-        custom_rule_focus_text(state, rule_focus_rule_id, nsfw)
-        if rule_focus_rule_id
-        else ""
-    )
+    if directed_instruction:
+        lead += f'\nThe scene the writer has ordered: "{directed_instruction}"'
+        focus = directed_event_focus_text(
+            state, group, directed_instruction, language, nsfw=nsfw
+        )
+        variety = "Make the event feel like part of their accumulating relationship."
+    else:
+        focus = (
+            custom_rule_focus_text(state, rule_focus_rule_id, nsfw)
+            if rule_focus_rule_id
+            else ""
+        )
+        variety = (
+            "Avoid topics and developments similar to the recent events, and make the "
+            "event feel like part of their accumulating relationship."
+        )
     return (
         f"Today is day {state['day']} at Stardust House.\n"
         f"{lead}\n"
@@ -759,8 +847,7 @@ def event_user_prompt(
         f"{story_text.memories_context_text(state, group, language)}"
         f"{story_text.arcs_context_text(state, language)}\n"
         f"{others}"
-        "Avoid topics and developments similar to the recent events, and make the "
-        "event feel like part of their accumulating relationship."
+        f"{variety}"
         f"{swap_focus_text(state, group, language)}"
         f"{appearance_focus_text(state, group, language)}"
         f"{story_text.adaptation_focus_text(state, group, language)}"

@@ -46,6 +46,7 @@ from ..consts.hakoniwa_play import (
 )
 from ..consts.hakoniwa_story import (
     DISSONANCE_CUSTOM_RULE_GAIN,
+    DISSONANCE_DIRECTED_EVENT_GAIN,
     DISSONANCE_RULE_GAIN,
     DISSONANCE_TRANSFORM_GAIN,
 )
@@ -77,6 +78,7 @@ from .hakoniwa_generation import (
     expand_appearance_tags,
     generate_chat_reply,
     generate_confrontation_event,
+    generate_directed_event,
     generate_event,
     generate_greeting,
     generate_random_resident_profiles,
@@ -1749,6 +1751,54 @@ class HakoniwaService:
             state, new_events = await self._apply_transform(
                 world_id, state, resident_id, change_text, lang, user_settings
             )
+            view = await self._store_view(world_id, state, lang, user_settings)
+        return {
+            "world": view,
+            "new_events": [_event_view(world_id, event, lang) for event in new_events],
+            "cost_usd": tracker.total_usd or None,
+        }
+
+    async def directed_event(
+        self,
+        world_id: str,
+        resident_id: str,
+        instruction: str,
+        scope: str,
+        partner_ids: list[str] | None = None,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """書き手の指示で、住民のいまの姿のまま出来事を1件起こして年代記に積む。
+
+        場所は本人のいる部屋で、ほかの参加者はそこへ集まる。書き手が直接手を下すので、
+        世界の違和感も溜める(到達点に達したら対面の出来事が続く)。
+        """
+        text = logic.validate_event_instruction(instruction)
+        lang, user_settings = await self._context(language)
+        rng = random.Random()
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                state = _load_state(await self._load(db, world_id))
+            group = logic.directed_event_cast(
+                state, resident_id, scope, partner_ids, rng
+            )
+            area_id = group[0].get("current_area")
+            tracker = begin_cost_tracking()
+            event = await generate_directed_event(
+                state,
+                group,
+                text,
+                lang,
+                novelai_model=user_settings.get("novelai_text_model"),
+                nsfw=bool(user_settings.get("nsfw_mode")),
+                area_id=area_id,
+            )
+            event.update({"source": "player", "kind": "directed", "instruction": text})
+            state = logic.apply_event(state, event, rng)
+            new_events = [state["events"][-1]]
+            state, confrontation = await self._apply_dissonance_gain(
+                state, DISSONANCE_DIRECTED_EVENT_GAIN, lang, user_settings, rng
+            )
+            new_events.extend(confrontation)
             view = await self._store_view(world_id, state, lang, user_settings)
         return {
             "world": view,

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { type HakoniwaResident, hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import HakoniwaEventComposer from "./HakoniwaEventComposer";
 import HakoniwaPortrait from "./HakoniwaPortrait";
 import HakoniwaTouchPreview from "./HakoniwaTouchPreview";
 import {
@@ -14,12 +15,20 @@ import {
 
 const TRANSFORM_MAX = 500;
 
+/** 変身(姿を変える)か、出来事(いまの姿のまま場面を起こす)か */
+type DirectiveMode = "transform" | "event";
+const DIRECTIVE_MODES: DirectiveMode[] = ["transform", "event"];
+const DIRECTIVE_MODE_LABEL_KEYS = {
+  transform: "hakoniwa.panel.modeTransform",
+  event: "hakoniwa.panel.modeEvent",
+} as const;
+
 interface HakoniwaResidentPanelProps {
   resident: HakoniwaResident;
   onEdit: () => void;
 }
 
-/** 選んだ住民の詳細: 話しかける・適応と名残・覚えていること・その場で変身・姿の生成・編集 */
+/** 選んだ住民の詳細: 話しかける・適応と名残・覚えていること・変身／出来事・姿の生成・編集 */
 export default function HakoniwaResidentPanel({
   resident,
   onEdit,
@@ -43,6 +52,7 @@ export default function HakoniwaResidentPanel({
   const transformId = useId();
   // 住民を切り替えても書きかけの指定を残す
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [mode, setMode] = useState<DirectiveMode>("transform");
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   if (!world) return null;
@@ -259,38 +269,61 @@ export default function HakoniwaResidentPanel({
       </dl>
 
       <div className="hakoniwa-resident__block">
-        <label htmlFor={transformId}>
-          <strong>{t("hakoniwa.panel.transformHeading")}</strong>
-        </label>
-        <textarea
-          id={transformId}
-          rows={3}
-          maxLength={TRANSFORM_MAX}
-          value={draft}
-          placeholder={t("hakoniwa.panel.transformPlaceholder")}
-          onChange={(event) =>
-            setDrafts((current) => ({
-              ...current,
-              [resident.id]: event.target.value,
-            }))
-          }
-        />
-        <p className="hakoniwa-note">{t("hakoniwa.panel.transformNote")}</p>
-        <button
-          type="button"
-          className="hakoniwa-button hakoniwa-button--primary"
-          onClick={handleTransform}
-          disabled={!draft.trim() || locked}
+        <div
+          className="hakoniwa-segments"
+          role="group"
+          aria-label={t("hakoniwa.panel.modeLabel")}
         >
-          {busy === "transform" ? (
-            <>
-              <span className="hakoniwa-spinner" aria-hidden />
-              {t("hakoniwa.panel.transforming")}
-            </>
-          ) : (
-            t("hakoniwa.panel.transform")
-          )}
-        </button>
+          {DIRECTIVE_MODES.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={mode === option ? "is-active" : undefined}
+              aria-pressed={mode === option}
+              onClick={() => setMode(option)}
+            >
+              {t(DIRECTIVE_MODE_LABEL_KEYS[option])}
+            </button>
+          ))}
+        </div>
+        {/* 切り替えても書きかけを残すため、両方を置いたまま隠す */}
+        <div className="hakoniwa-resident__mode" hidden={mode !== "transform"}>
+          <label htmlFor={transformId}>
+            <strong>{t("hakoniwa.panel.transformHeading")}</strong>
+          </label>
+          <textarea
+            id={transformId}
+            rows={3}
+            maxLength={TRANSFORM_MAX}
+            value={draft}
+            placeholder={t("hakoniwa.panel.transformPlaceholder")}
+            onChange={(event) =>
+              setDrafts((current) => ({
+                ...current,
+                [resident.id]: event.target.value,
+              }))
+            }
+          />
+          <p className="hakoniwa-note">{t("hakoniwa.panel.transformNote")}</p>
+          <button
+            type="button"
+            className="hakoniwa-button hakoniwa-button--primary"
+            onClick={handleTransform}
+            disabled={!draft.trim() || locked}
+          >
+            {busy === "transform" ? (
+              <>
+                <span className="hakoniwa-spinner" aria-hidden />
+                {t("hakoniwa.panel.transforming")}
+              </>
+            ) : (
+              t("hakoniwa.panel.transform")
+            )}
+          </button>
+        </div>
+        <div className="hakoniwa-resident__mode" hidden={mode !== "event"}>
+          <HakoniwaEventComposer resident={resident} />
+        </div>
         {resident.transformation && (
           <div className="hakoniwa-resident__current">
             <p>

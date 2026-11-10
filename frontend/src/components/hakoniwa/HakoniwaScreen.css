@@ -1015,6 +1015,13 @@
   font-size: 0.8rem;
 }
 
+.hakoniwa-event__instruction {
+  margin: 2px 0 4px;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
 .hakoniwa-event__arc.is-climax {
   color: var(--hk-accent-strong);
   font-weight: 600;
@@ -1545,6 +1552,47 @@
 
 .hakoniwa-resident__block textarea {
   resize: vertical;
+}
+
+/* 住民パネルの「変身」「出来事」の入力。ブロックの幅いっぱいに縦へ並べる */
+.hakoniwa-resident__mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: stretch;
+  gap: 6px;
+}
+
+.hakoniwa-resident__mode[hidden] {
+  display: none;
+}
+
+/* 巻き込み方の3択。幅いっぱいに並べ、狭い画面ではボタンの中で折り返す */
+.hakoniwa-directive__scope {
+  display: flex;
+  align-self: stretch;
+}
+
+.hakoniwa-directive__scope button {
+  flex: 1 1 auto;
+  padding: 5px 10px;
+  font-size: 0.86rem;
+  line-height: 1.3;
+}
+
+.hakoniwa-directive__partners {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hakoniwa-directive__face {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top;
+  background: var(--hk-paper);
 }
 
 .hakoniwa-resident__current {

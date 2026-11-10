@@ -13,7 +13,7 @@ random.Random を渡す。状態の形:
                   rule_images: {掟 id: {image, tags, source_tags}},
                   combo_images: {組み合わせ: {image, tags, source_tags}}}],
      events: [{id, day, title, narration, lines, participants, mood_delta,
-               affinity_delta, source, kind?, change_text?, favorite}]}
+               affinity_delta, source, kind?, change_text?, instruction?, favorite}]}
 
 プリセット住民の名前・性格などは、状態に値が無ければ consts の ja / en から言語で引く。
 世界の違和感・適応と名残・記憶・物語の弧の項目は hakoniwa_story を参照。
@@ -45,8 +45,11 @@ from ..consts.hakoniwa import (
     HAKONIWA_CUSTOM_RULE_NAME_MAX,
     HAKONIWA_CUSTOM_RULE_TEXT_MAX,
     HAKONIWA_CUSTOM_RULES_MAX,
+    HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX,
+    HAKONIWA_DIRECTED_EVENT_TEXT_MAX,
     HAKONIWA_EVENT_AREA_MOVE_CHANCE,
     HAKONIWA_EVENT_LOG_MAX,
+    HAKONIWA_EVENT_SCOPES,
     HAKONIWA_EVENTS_PER_DAY,
     HAKONIWA_FURNITURE_MAP,
     HAKONIWA_FURNITURE_SLOTS,
@@ -78,7 +81,14 @@ __all__ = ["HakoniwaError"]
 
 STATE_VERSION = 1
 # 出来事に付いていれば年代記へそのまま写す項目
-EVENT_EXTRA_KEYS = ("kind", "change_text", "scene_image", "arc_id", "arc_climax")
+EVENT_EXTRA_KEYS = (
+    "kind",
+    "change_text",
+    "instruction",
+    "scene_image",
+    "arc_id",
+    "arc_climax",
+)
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -1511,6 +1521,12 @@ def validate_transform_text(text: Any) -> str:
     )
 
 
+def validate_event_instruction(text: Any) -> str:
+    return _clean_text(
+        text, HAKONIWA_DIRECTED_EVENT_TEXT_MAX, required=True, code="invalid_event_text"
+    )
+
+
 def set_transformation(
     state: dict[str, Any], resident_id: str, transformation: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1588,3 +1604,52 @@ def bystanders(
     if len(others) <= limit:
         return others
     return rng.sample(others, limit)
+
+
+def directed_event_cast(
+    state: dict[str, Any],
+    resident_id: str,
+    scope: str,
+    partner_ids: list[str] | None,
+    rng: random.Random,
+) -> tuple[dict[str, Any], ...]:
+    """書き手が指示して起こす出来事の参加者(先頭が本人、最大で本人＋2人)。
+
+    solo は本人だけ、selected は選んだ住民(本人と重複は除く)、room は本人と同じ部屋の
+    住民から最大 2 人。
+    """
+    if scope not in HAKONIWA_EVENT_SCOPES:
+        raise HakoniwaError("invalid_event_scope", "巻き込み方が正しくありません")
+    target = find_resident(state, resident_id)
+    if scope == "solo":
+        return (target,)
+    if scope == "room":
+        others = bystanders(
+            state, resident_id, rng, limit=HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX
+        )
+        if not others:
+            raise HakoniwaError("event_room_empty", "同じ部屋にほかの住民がいません")
+        return (target, *others)
+    chosen: list[dict[str, Any]] = []
+    for partner_id in partner_ids or []:
+        if partner_id == resident_id or any(
+            item["id"] == partner_id for item in chosen
+        ):
+            continue
+        chosen.append(find_resident(state, partner_id))
+    if not chosen:
+        raise HakoniwaError("event_partners_required", "一緒に出る住民を選んでください")
+    if len(chosen) > HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX:
+        raise HakoniwaError(
+            "event_too_many_partners",
+            f"一緒に出る住民は{HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX}人までです",
+        )
+    return (target, *chosen)
+
+
+def male_body_pairs(
+    state: dict[str, Any], group: tuple[dict[str, Any], ...]
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """いま見えている体がどちらも男性の組(入れ替わり・変身のタグを考える)。"""
+    males = [resident for resident in group if body_gender(state, resident) == "male"]
+    return [(a, b) for index, a in enumerate(males) for b in males[index + 1 :]]

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from io import BytesIO
 
 import pytest
@@ -1044,3 +1045,119 @@ def test_address_style_is_saved_on_edit_and_add(client: TestClient) -> None:
     )
     assert misaki["address_style"] == "given"
     assert misaki["addresses"]["aoi"] == "葵"
+
+
+# --- 指示した出来事 ---
+
+DIRECTED_INSTRUCTION = "二人で一緒にお風呂に入る"
+
+
+def _directed_event_json(names: list[str]) -> str:
+    return json.dumps(
+        {
+            "title": "湯けむり",
+            "narration": "湯気の立つ浴室で、二人は肩を並べて湯船に浸かった。",
+            "lines": [{"speaker": name, "text": "……あったかいね"} for name in names],
+            "participants": names,
+            "mood_delta": {name: 6 for name in names},
+            "affinity_delta": 5,
+        },
+        ensure_ascii=False,
+    )
+
+
+def test_directed_event_is_recorded_and_moves_partners(
+    client: TestClient, llm_outputs: list
+):
+    world = _create(client, ["aoi", "ren", "ritsu"])
+    wid = world["id"]
+    llm_outputs.append(_directed_event_json(["高瀬 葵", "苑田 蓮"]))
+
+    response = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/event",
+        json={
+            "instruction": DIRECTED_INSTRUCTION,
+            "scope": "selected",
+            "partner_ids": ["ren"],
+            "language": "ja",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    event = body["new_events"][0]
+    assert event["kind"] == "directed"
+    assert event["source"] == "player"
+    assert event["instruction"] == DIRECTED_INSTRUCTION
+    assert event["participants"] == ["aoi", "ren"]
+    assert event["area"] == "living"
+    assert body["world"]["events"][-1]["id"] == event["id"]
+    ren = next(r for r in body["world"]["residents"] if r["id"] == "ren")
+    assert ren["current_area"] == "living"
+    assert body["world"]["dissonance"]["value"] == 10
+
+
+def test_directed_event_scene_image_works(
+    client: TestClient, llm_outputs: list, monkeypatch
+):
+    async def fake_scene(request, *, image_model, nsfw_mode):
+        return _png()
+
+    monkeypatch.setattr(service_module, "generate_scene_bytes", fake_scene)
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    llm_outputs.append(_directed_event_json(["高瀬 葵"]))
+    event = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/event",
+        json={"instruction": DIRECTED_INSTRUCTION, "scope": "solo"},
+    ).json()["new_events"][0]
+
+    response = client.post(
+        f"/api/hakoniwa/worlds/{wid}/events/{event['id']}/scene-image", json={}
+    )
+
+    assert response.status_code == 200, response.text
+    updated = next(
+        e for e in response.json()["world"]["events"] if e["id"] == event["id"]
+    )
+    assert updated["scene_image_url"]
+
+
+def test_directed_event_failure_leaves_the_world_unchanged(client: TestClient):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+
+    response = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/event",
+        json={"instruction": DIRECTED_INSTRUCTION, "scope": "solo"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["error"] == "event_generation_failed"
+    after = client.get(f"/api/hakoniwa/worlds/{wid}").json()
+    assert after["events"] == []
+    assert after["dissonance"]["value"] == 0
+
+
+def test_directed_event_request_validation(client: TestClient):
+    world = _create(client, ["aoi", "ren"])
+    path = f"/api/hakoniwa/worlds/{world['id']}/residents/ren/event"
+
+    empty_room = client.post(
+        path, json={"instruction": DIRECTED_INSTRUCTION, "scope": "room"}
+    )
+    too_many = client.post(
+        path,
+        json={
+            "instruction": DIRECTED_INSTRUCTION,
+            "scope": "selected",
+            "partner_ids": ["aoi", "x", "y"],
+        },
+    )
+    blank = client.post(path, json={"instruction": "   ", "scope": "solo"})
+
+    assert empty_room.status_code == 400
+    assert empty_room.json()["detail"]["error"] == "event_room_empty"
+    assert too_many.status_code == 422
+    assert blank.status_code == 400
+    assert blank.json()["detail"]["error"] == "invalid_event_text"

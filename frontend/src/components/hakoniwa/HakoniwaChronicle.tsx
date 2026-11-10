@@ -73,6 +73,11 @@ export default function HakoniwaChronicle() {
                     {t("hakoniwa.chronicle.transformMark")}
                   </span>
                 )}
+                {event.kind === "directed" && (
+                  <span className="hakoniwa-badge hakoniwa-badge--accent">
+                    {t("hakoniwa.chronicle.directedMark")}
+                  </span>
+                )}
                 {event.kind === "confrontation" && (
                   <span className="hakoniwa-badge hakoniwa-badge--accent">
                     {t("hakoniwa.chronicle.confrontationMark")}
@@ -125,6 +130,13 @@ export default function HakoniwaChronicle() {
                         t("hakoniwa.chronicle.arcUnknown"),
                     },
                   )}
+                </p>
+              )}
+              {event.kind === "directed" && event.instruction && (
+                <p className="hakoniwa-event__instruction">
+                  {t("hakoniwa.chronicle.instruction", {
+                    text: event.instruction,
+                  })}
                 </p>
               )}
               <p className="hakoniwa-event__narration">{event.narration}</p>

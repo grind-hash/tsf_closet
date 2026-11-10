@@ -99,6 +99,8 @@ export const hakoniwa = {
     day: "{{day}}日目",
     sourceTemplate: "定型",
     transformMark: "変身",
+    directedMark: "指示した出来事",
+    instruction: "指示: {{text}}",
     confrontationMark: "対面",
     arcContinue: "物語「{{title}}」の続き",
     arcClimax: "物語「{{title}}」の山場",
@@ -226,6 +228,9 @@ export const hakoniwa = {
     personality: "性格",
     relations: "関係",
     callsThem: "（「{{address}}」と呼ぶ）",
+    modeLabel: "姿を変えるか、出来事を起こすか",
+    modeTransform: "変身",
+    modeEvent: "出来事",
     transformHeading: "その場で変身",
     transformPlaceholder:
       "例: ウェディングドレス姿にして／髪を銀色のロングにして",
@@ -237,6 +242,29 @@ export const hakoniwa = {
     clearTransform: "元の姿に戻す",
     historyHeading: "変身の履歴",
     reapply: "この姿にする",
+    eventHeading: "出来事を起こす",
+    eventPlaceholder:
+      "例: 二人で一緒にお風呂に入る／いまの姿のまま商店街へ買い物に出かける",
+    eventNote:
+      "書き手の指示として、住民たちのいまの姿（変身・入れ替わり・掟の姿）のまま場面を1つ生成し、ADVで開きます。姿は変わりません。年代記に残り、気分・関係・記憶と世界の違和感にも響きます。",
+    eventScopeLabel: "巻き込み方",
+    scopeSolo: "本人だけ",
+    scopeSelected: "選んだ住民と",
+    scopeRoom: "同じ部屋の住民と",
+    partnersLabel: "一緒に出る住民（{{max}}人まで）",
+    partnersNote: "選んだ住民は、{{name}}のいる部屋に集まります。",
+    partnersEmpty: "一緒に出る住民を選んでください。",
+    roomMembers: "同じ部屋にいる住民: {{names}}",
+    roomRandom:
+      "同じ部屋にいる住民: {{names}}（このうち{{max}}人を無作為に選びます）",
+    roomEmpty:
+      "同じ部屋にほかの住民がいません。「選んだ住民と」を選ぶと、ほかの部屋の住民を呼べます。",
+    maleBodyNote:
+      "{{pairs}}はいま男性の体どうしのため、この組の恋愛・性的な場面は描きません（TSで女性の体になった住民は対象外です）。",
+    pairJoin: "と",
+    listJoin: "、",
+    runEvent: "出来事を起こす",
+    runningEvent: "場面を生成しています…",
     avatarHeading: "姿の生成",
     generateBase: "いつもの姿を生成",
     generateDress: "ドレス姿を生成",
@@ -568,6 +596,13 @@ export const hakoniwa = {
       "タグが多すぎます（住民のタグは24個・400文字、掟の見た目のタグは10個まで）。",
     tags_gender_mismatch:
       "タグの性別（1girl / 1boy）が住民の性別と合っていません。タグか性別を直してください。",
+    invalid_event_text: "出来事の指示を500文字以内で入力してください。",
+    invalid_event_scope: "巻き込み方の指定が正しくありません。",
+    event_partners_required: "一緒に出る住民を選んでください。",
+    event_too_many_partners: "一緒に出る住民は2人までです。",
+    event_room_empty: "同じ部屋にほかの住民がいません。",
+    event_generation_failed:
+      "出来事を生成できませんでした。指示の文を変えてお試しください。",
     world_not_found: "世界が見つかりません。",
     resident_not_found: "住民が見つかりません。",
     too_few_residents: "住民は2人以上必要です。",

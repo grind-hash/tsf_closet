@@ -36,9 +36,11 @@ export interface HakoniwaEvent {
   affinity_delta: number;
   /** llm / template / player */
   source: string;
-  /** transform(変身の出来事)など */
+  /** transform(変身の出来事)・directed(指示した出来事)など */
   kind?: string | null;
   change_text?: string | null;
+  /** 指示した出来事(directed)の指示文 */
+  instruction?: string | null;
   favorite: boolean;
   /** 出来事の起きた場所(エリア id) */
   area: string;
@@ -810,6 +812,33 @@ export function transformHakoniwaResident(
   return requestJson<HakoniwaDayResult>(
     `${WORLDS}/${worldId}/residents/${encodeURIComponent(residentId)}/transform`,
     jsonInit("POST", { instruction, language }),
+  );
+}
+
+/** 指示した出来事の巻き込み方: 本人だけ / 選んだ住民と / 同じ部屋の住民と */
+export type HakoniwaEventScope = "solo" | "selected" | "room";
+
+export interface HakoniwaDirectedEventInput {
+  instruction: string;
+  scope: HakoniwaEventScope;
+  /** scope が selected のときに一緒に出る住民の id(最大2人) */
+  partnerIds: string[];
+}
+
+export function createHakoniwaDirectedEvent(
+  worldId: string,
+  residentId: string,
+  input: HakoniwaDirectedEventInput,
+  language: string,
+): Promise<HakoniwaDayResult> {
+  return requestJson<HakoniwaDayResult>(
+    `${WORLDS}/${worldId}/residents/${encodeURIComponent(residentId)}/event`,
+    jsonInit("POST", {
+      instruction: input.instruction,
+      scope: input.scope,
+      partner_ids: input.scope === "selected" ? input.partnerIds : [],
+      language,
+    }),
   );
 }
 
