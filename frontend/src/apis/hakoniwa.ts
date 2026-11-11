@@ -43,6 +43,8 @@ export interface HakoniwaEvent {
   instruction?: string | null;
   /** エリアの外で起きた出来事の場所(浴室・商店街など)。無ければ area で起きた */
   location?: string | null;
+  /** 続きとして起こした出来事の、元になった出来事の id */
+  continues?: string | null;
   favorite: boolean;
   /** 出来事の起きた場所(エリア id) */
   area: string;
@@ -851,6 +853,19 @@ export function createHakoniwaDirectedEvent(
       location: input.location,
       language,
     }),
+  );
+}
+
+/** 今日の出来事の続きを指示して起こす(参加者と場所は元の場面のまま) */
+export function continueHakoniwaEvent(
+  worldId: string,
+  eventId: string,
+  instruction: string,
+  language: string,
+): Promise<HakoniwaDayResult> {
+  return requestJson<HakoniwaDayResult>(
+    `${WORLDS}/${worldId}/events/${encodeURIComponent(eventId)}/continue`,
+    jsonInit("POST", { instruction, language }),
   );
 }
 

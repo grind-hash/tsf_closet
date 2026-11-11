@@ -79,7 +79,9 @@ export default function HakoniwaChronicle() {
                 )}
                 {event.kind === "directed" && (
                   <span className="hakoniwa-badge hakoniwa-badge--accent">
-                    {t("hakoniwa.chronicle.directedMark")}
+                    {event.continues
+                      ? t("hakoniwa.chronicle.continuedMark")
+                      : t("hakoniwa.chronicle.directedMark")}
                   </span>
                 )}
                 {event.kind === "confrontation" && (

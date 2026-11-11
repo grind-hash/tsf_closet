@@ -9,13 +9,13 @@ import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import {
   chosenPartners,
   EVENT_PARTNERS_MAX,
+  EVENT_TEXT_MAX,
   maleBodyPairs,
   roomMates,
   togglePartner,
 } from "./eventCast";
 import HakoniwaPortrait from "./HakoniwaPortrait";
 
-const EVENT_TEXT_MAX = 500;
 const SCOPES: HakoniwaEventScope[] = ["solo", "selected", "room"];
 const SCOPE_LABEL_KEYS = {
   solo: "hakoniwa.panel.scopeSolo",

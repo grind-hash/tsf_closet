@@ -1,7 +1,24 @@
-import type { HakoniwaResident } from "../../apis/hakoniwa";
+import type { HakoniwaEvent, HakoniwaResident } from "../../apis/hakoniwa";
 
 /** 指示した出来事に本人と一緒に出られる住民の上限(バックエンドと同じ) */
 export const EVENT_PARTNERS_MAX = 2;
+/** 出来事の指示文の上限(バックエンドと同じ) */
+export const EVENT_TEXT_MAX = 500;
+
+/**
+ * 続きを指示できる出来事か。今日の出来事で、参加者がまだ住んでいるもの
+ * (前の日の出来事は、住民の姿や居場所が変わっているため続けられない)
+ */
+export function canContinueEvent(
+  event: Pick<HakoniwaEvent, "day" | "participants">,
+  day: number,
+  residents: HakoniwaResident[],
+): boolean {
+  return (
+    event.day === day &&
+    event.participants.some((id) => residents.some((item) => item.id === id))
+  );
+}
 
 /** 本人と同じ部屋にいるほかの住民 */
 export function roomMates(

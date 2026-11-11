@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HakoniwaResident } from "../../apis/hakoniwa";
 import {
+  canContinueEvent,
   chosenPartners,
   maleBodyPairs,
   roomMates,
@@ -68,5 +69,19 @@ describe("maleBodyPairs", () => {
   it("ignores a former man who now has a female body", () => {
     const transformed = resident("kenta", "living", "female");
     expect(maleBodyPairs([transformed, daiki])).toEqual([]);
+  });
+});
+
+describe("canContinueEvent", () => {
+  it("allows today's events whose residents still live here", () => {
+    const event = { day: 3, participants: ["sakura", "kenta"] };
+
+    expect(canContinueEvent(event, 3, all)).toBe(true);
+    // 前の日の出来事は続けられない
+    expect(canContinueEvent(event, 4, all)).toBe(false);
+    // 参加者が誰も残っていなければ続けられない
+    expect(canContinueEvent({ day: 3, participants: ["gone"] }, 3, all)).toBe(
+      false,
+    );
   });
 });

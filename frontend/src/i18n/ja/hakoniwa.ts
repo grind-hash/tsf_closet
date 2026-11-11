@@ -100,6 +100,7 @@ export const hakoniwa = {
     sourceTemplate: "定型",
     transformMark: "変身",
     directedMark: "指示した出来事",
+    continuedMark: "指示した続き",
     instruction: "指示: {{text}}",
     confrontationMark: "対面",
     arcContinue: "物語「{{title}}」の続き",
@@ -116,6 +117,18 @@ export const hakoniwa = {
     suggest:
       "絵にしたい場面です（{{reason}}）。右上の「場面の絵を生成」で1枚描けます。",
     close: "閉じる",
+    log: "ログ",
+    logTitle: "場面のログ",
+    logClose: "ログを閉じる",
+    continue: "続きを指示",
+    continueHeading: "この場面の続きを指示",
+    continuePlaceholder:
+      "例: そのまま二人で朝まで過ごす／場所を浴室に移して続ける",
+    continueNote:
+      "同じ住民・同じ場所のまま、この場面の続きを1つ生成して開きます（指示で場所を移せます）。年代記に「指示した続き」として残り、世界の違和感は少しだけ溜まります。",
+    continueSubmit: "続きを生成",
+    continuing: "続きを生成しています…",
+    continueCancel: "やめる",
   },
   digest: {
     theme: "実験テーマ",
@@ -608,6 +621,9 @@ export const hakoniwa = {
     event_generation_failed:
       "出来事を生成できませんでした。指示の文を変えてお試しください。",
     invalid_location: "出来事の場所の指定が正しくありません。",
+    event_not_today: "続きを指示できるのは今日の出来事だけです。",
+    event_cast_gone:
+      "この出来事に出た住民がもういないため、続きを指示できません。",
     world_not_found: "世界が見つかりません。",
     resident_not_found: "住民が見つかりません。",
     too_few_residents: "住民は2人以上必要です。",

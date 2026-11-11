@@ -87,6 +87,7 @@ EVENT_EXTRA_KEYS = (
     "change_text",
     "instruction",
     "location",
+    "continues",
     "scene_image",
     "arc_id",
     "arc_climax",
@@ -1649,6 +1650,36 @@ def directed_event_cast(
     return (target, *chosen)
 
 
+def continuation_source(state: dict[str, Any], event_id: str) -> dict[str, Any]:
+    """続きを指示できる出来事(今日起きたもの)を返す。
+
+    前の日の出来事は、住民の姿や居場所が変わっているため続けられない。
+    """
+    event = next((item for item in state["events"] if item["id"] == event_id), None)
+    if event is None:
+        raise HakoniwaError("event_not_found", "出来事が見つかりません")
+    if int(event.get("day") or 0) != int(state["day"]):
+        raise HakoniwaError(
+            "event_not_today", "続きを指示できるのは今日の出来事だけです"
+        )
+    return event
+
+
+def continuation_cast(
+    state: dict[str, Any], event: dict[str, Any]
+) -> tuple[dict[str, Any], ...]:
+    """続きの出来事の参加者。元の出来事の参加者のうち、いまも住んでいる住民(最大3人)。"""
+    by_id = {resident["id"]: resident for resident in state["residents"]}
+    group = tuple(
+        by_id[resident_id]
+        for resident_id in event.get("participants") or []
+        if resident_id in by_id
+    )[: HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX + 1]
+    if not group:
+        raise HakoniwaError("event_cast_gone", "この出来事の住民がもういません")
+    return group
+
+
 def validate_event_location(location: Any) -> str | None:
     """指示した出来事の場所。空ならおまかせ(None)。"""
     text = str(location or "").strip()
@@ -1660,13 +1691,22 @@ def validate_event_location(location: Any) -> str | None:
 
 
 def settle_event_location(
-    event: dict[str, Any], area_id: str | None, location: Any
+    event: dict[str, Any],
+    area_id: str | None,
+    location: Any,
+    *,
+    fallback: str | None = None,
 ) -> dict[str, Any]:
     """出来事の場所を決める。3つのエリアならそこで起き(参加者もそこへ移る)、
-    エリアの外の場所なら area はそのままで location に残す。"""
+    エリアの外の場所なら area はそのままで location に残す。
+
+    fallback は location が一覧に無いときに使う場所(続きの出来事なら前の場面の場所)。
+    """
     settled = {**event}
     settled.pop("location", None)
     place = str(location or "")
+    if place not in HAKONIWA_LOCATION_MAP:
+        place = str(fallback or "")
     if place in HAKONIWA_AREA_MAP:
         settled["area"] = place
     else:

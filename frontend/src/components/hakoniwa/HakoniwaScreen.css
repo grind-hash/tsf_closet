@@ -1287,14 +1287,18 @@
 
 .hakoniwa-adv__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   margin-left: auto;
 }
 
+/* 狭い画面では、ボタンの文字を折らずにボタンの並びを折り返す */
 .hakoniwa-adv__actions .hakoniwa-button {
   padding: 4px 12px;
   font-size: 0.84rem;
+  white-space: nowrap;
 }
 
 .hakoniwa-adv__suggest {
@@ -1326,6 +1330,33 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* 続きの指示: 窓の中身を入力欄に替える */
+.hakoniwa-adv__compose {
+  margin-top: 10px;
+}
+
+.hakoniwa-adv__compose textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.hakoniwa-adv__compose .hakoniwa-adv__controls {
+  margin-top: 8px;
+}
+
+.hakoniwa-adv__error {
+  margin: 6px 0;
+  color: var(--hk-danger);
+  font-size: 0.88rem;
 }
 
 .hakoniwa-adv__show {
@@ -2122,6 +2153,46 @@
 
 .hakoniwa-chat__entry.is-system {
   color: var(--hk-muted);
+}
+
+/* 広い画面では、ログを開いている間メッセージ窓を縮めてログ(幅 360px)を横に並べる。
+   ログを開いたまま幕を送ったり、続きの指示を書いたりできる
+   (幅は HakoniwaAdv.tsx の LOG_BESIDE_WINDOW_QUERY と同じ) */
+@media (min-width: 900px) {
+  .hakoniwa-adv.is-log-open .hakoniwa-adv__window {
+    right: max(392px, calc((100% - 1100px) / 2));
+  }
+}
+
+/* ADV のログ: 場面(出来事)ごとに見出しを付け、続きの場面は区切り線で分ける */
+.hakoniwa-adv__log-scene {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hakoniwa-adv__log-scene + .hakoniwa-adv__log-scene {
+  padding-top: 8px;
+  border-top: 1px solid var(--hk-border-strong);
+}
+
+.hakoniwa-adv__log-title {
+  color: var(--hk-text);
+  font-size: 0.92rem;
+}
+
+.hakoniwa-adv__log-order {
+  color: var(--hk-muted);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-adv__log-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* --- はじまりの案内(1日目・出来事0件の世界だけ。右パネルのタブの上) --- */

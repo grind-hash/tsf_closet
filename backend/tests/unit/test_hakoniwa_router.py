@@ -1187,3 +1187,78 @@ def test_directed_event_at_an_outside_place(client: TestClient, llm_outputs: lis
     )
     assert bad.status_code == 400
     assert bad.json()["detail"]["error"] == "invalid_location"
+
+
+# --- 続きを指示 ---
+
+
+def _directed(client: TestClient, wid: str, llm_outputs: list, **extra) -> dict:
+    llm_outputs.append(_directed_event_json(["高瀬 葵", "苑田 蓮"]))
+    response = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/event",
+        json={
+            "instruction": DIRECTED_INSTRUCTION,
+            "scope": "selected",
+            "partner_ids": ["ren"],
+            **extra,
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["new_events"][0]
+
+
+def test_continue_event_is_recorded_as_a_follow_up(
+    client: TestClient, llm_outputs: list
+):
+    wid = _create(client, ["aoi", "ren", "ritsu"])["id"]
+    first = _directed(client, wid, llm_outputs, location="hotel")
+    llm_outputs.append(_directed_event_json(["高瀬 葵", "苑田 蓮"]))
+
+    response = client.post(
+        f"/api/hakoniwa/worlds/{wid}/events/{first['id']}/continue",
+        json={"instruction": "そのまま寄り添う", "language": "ja"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    event = body["new_events"][0]
+    assert event["id"] != first["id"]
+    assert event["kind"] == "directed"
+    assert event["source"] == "player"
+    assert event["instruction"] == "そのまま寄り添う"
+    assert event["continues"] == first["id"]
+    assert event["participants"] == ["aoi", "ren"]
+    # 生成が場所を示さなければ、前の場面の場所で続く
+    assert event["location"] == "hotel"
+    assert [e["id"] for e in body["world"]["events"][-2:]] == [first["id"], event["id"]]
+    # 続きは同じ介入の延長なので、違和感は小さく溜まる(10 + 3)
+    assert body["world"]["dissonance"]["value"] == 13
+
+
+def test_continue_event_failure_leaves_the_world_unchanged(
+    client: TestClient, llm_outputs: list
+):
+    wid = _create(client, ["aoi", "ren"])["id"]
+    first = _directed(client, wid, llm_outputs)
+
+    failed = client.post(
+        f"/api/hakoniwa/worlds/{wid}/events/{first['id']}/continue",
+        json={"instruction": "そのまま寄り添う"},
+    )
+    missing = client.post(
+        f"/api/hakoniwa/worlds/{wid}/events/nope/continue",
+        json={"instruction": "そのまま寄り添う"},
+    )
+    blank = client.post(
+        f"/api/hakoniwa/worlds/{wid}/events/{first['id']}/continue",
+        json={"instruction": "   "},
+    )
+
+    assert failed.status_code == 502
+    assert failed.json()["detail"]["error"] == "event_generation_failed"
+    assert missing.status_code == 404
+    assert blank.status_code == 400
+    assert blank.json()["detail"]["error"] == "invalid_event_text"
+    after = client.get(f"/api/hakoniwa/worlds/{wid}").json()
+    assert [e["id"] for e in after["events"]] == [first["id"]]
+    assert after["dissonance"]["value"] == 10

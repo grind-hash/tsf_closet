@@ -24,6 +24,7 @@ import {
   advanceHakoniwaDay,
   chatHakoniwaResident,
   clearHakoniwaTransform,
+  continueHakoniwaEvent,
   createHakoniwaDirectedEvent,
   createHakoniwaWorld,
   deleteHakoniwaCustomRule,
@@ -161,6 +162,8 @@ export const HAKONIWA_ERROR_CODES = [
   "event_room_empty",
   "event_generation_failed",
   "invalid_location",
+  "event_not_today",
+  "event_cast_gone",
 ] as const;
 type HakoniwaErrorCode = (typeof HAKONIWA_ERROR_CODES)[number];
 
@@ -245,6 +248,11 @@ interface HakoniwaContextValue {
     residentId: string,
     input: HakoniwaDirectedEventInput,
   ) => Promise<void>;
+  /**
+   * 今日の出来事の続きを指示して起こし、できた場面を ADV で開く。成功したら true
+   * (参加者と場所は元の場面のまま)
+   */
+  continueEvent: (eventId: string, instruction: string) => Promise<boolean>;
   clearTransform: (residentId: string) => Promise<void>;
   reapplyTransform: (residentId: string, image: string) => Promise<void>;
   generateAvatar: (residentId: string, variant: "base" | "dress") => void;
@@ -853,6 +861,24 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     [applyWorld, language, recordCost, run, worldId],
   );
 
+  const continueEvent = useCallback(
+    async (eventId: string, instruction: string) => {
+      if (!worldId) return false;
+      const result = await run("event", () =>
+        continueHakoniwaEvent(worldId, eventId, instruction, language),
+      );
+      if (!result) return false;
+      applyWorld(result.world);
+      recordCost(result.cost_usd);
+      const [scene, ...followUps] = result.new_events;
+      if (!scene) return false;
+      setAdvFollowUps((current) => [...current, ...followUps]);
+      setAdvEventId(scene.id);
+      return true;
+    },
+    [applyWorld, language, recordCost, run, worldId],
+  );
+
   const generateAvatar = useCallback(
     (residentId: string, variant: "base" | "dress") => {
       if (!worldId) return;
@@ -1243,6 +1269,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       dismissGreeting,
       transform,
       directEvent,
+      continueEvent,
       clearTransform,
       reapplyTransform,
       generateAvatar,
@@ -1312,6 +1339,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       dismissGreeting,
       transform,
       directEvent,
+      continueEvent,
       clearTransform,
       reapplyTransform,
       generateAvatar,

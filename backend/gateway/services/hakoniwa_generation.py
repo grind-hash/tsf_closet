@@ -34,6 +34,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_TAGS_MAX_COUNT,
     HAKONIWA_TAGS_MAX_LENGTH,
     HAKONIWA_TEMPLATES,
+    event_location,
 )
 from ..consts.hakoniwa_play import (
     CHAT_FALLBACKS,
@@ -379,10 +380,13 @@ async def generate_directed_event(
     nsfw: bool,
     area_id: str | None,
     location_id: str | None = None,
+    previous_event: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """書き手が指示した出来事を1件生成する。
 
     location_id はプレイヤーが決めた場所(無ければ内容に合う場所を生成が選ぶ)。
+    previous_event は続きを指示した元の出来事。直前の場面として渡し、生成が場所を
+    示さなければ同じ場所で続ける。
 
     指示を無視した場面を積まないよう、定型の出来事には落とさない。検証に落ちたら指示を
     再掲してもう一度だけ生成し、それも落ちたら event_generation_failed を投げる。
@@ -400,7 +404,9 @@ async def generate_directed_event(
         include_theme=False,
         directed_instruction=instruction,
         location_id=location_id,
+        continues_event=previous_event,
     )
+    stay = event_location(previous_event)["id"] if previous_event else None
 
     async def generate(system: str, user: str) -> str:
         return await _generate_text(system, user, novelai_model=novelai_model)
@@ -425,7 +431,9 @@ async def generate_directed_event(
             )
             continue
         event = _event_from_output(output, group, language)
-        return settle_event_location(event, area_id, location_id or output.location)
+        return settle_event_location(
+            event, area_id, location_id or output.location, fallback=stay
+        )
     raise HakoniwaError(
         "event_generation_failed",
         "出来事を生成できませんでした。指示の文を変えてお試しください",

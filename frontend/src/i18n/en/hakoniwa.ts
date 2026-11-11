@@ -99,6 +99,7 @@ export const hakoniwa = {
     sourceTemplate: "Template",
     transformMark: "Transformation",
     directedMark: "Ordered event",
+    continuedMark: "Ordered continuation",
     instruction: "Order: {{text}}",
     confrontationMark: "Confrontation",
     arcContinue: "Continues the story “{{title}}”",
@@ -115,6 +116,18 @@ export const hakoniwa = {
     suggest:
       'This moment is worth a picture ({{reason}}). Use "Draw this scene" at the top right to draw one.',
     close: "Close",
+    log: "Log",
+    logTitle: "Scene log",
+    logClose: "Close the log",
+    continue: "Continue scene",
+    continueHeading: "Order how this scene continues",
+    continuePlaceholder:
+      "e.g. They stay together until morning / Move to the bathroom and go on",
+    continueNote:
+      "Generates one more scene that continues this one, with the same residents in the same place (your order can move them), and opens it. It stays in the chronicle as an “Ordered continuation”, and world strangeness rises only a little.",
+    continueSubmit: "Generate what happens next",
+    continuing: "Generating what happens next…",
+    continueCancel: "Cancel",
   },
   digest: {
     theme: "Experiment theme",
@@ -246,7 +259,7 @@ export const hakoniwa = {
     eventPlaceholder:
       "e.g. The two take a bath together / Go shopping in town in the current look",
     eventNote:
-      "As the writer's order, one scene is generated with the residents in their current looks (transformations, swapped bodies, rule looks) and opened as a scene. Looks do not change. It stays in the chronicle and affects mood, relationships, memories and the world's unease.",
+      "As the writer's order, one scene is generated with the residents in their current looks (transformations, swapped bodies, rule looks) and opened as a scene. Looks do not change. It stays in the chronicle and affects mood, relationships, memories and world strangeness.",
     eventScopeLabel: "Who takes part",
     scopeSolo: "Just them",
     scopeSelected: "Pick residents",
@@ -618,6 +631,9 @@ export const hakoniwa = {
     event_generation_failed:
       "The event could not be generated. Try rewording the order.",
     invalid_location: "The place of the event is not valid.",
+    event_not_today: "Only events from today can be continued.",
+    event_cast_gone:
+      "The residents of this event are gone, so it cannot be continued.",
     world_not_found: "World not found.",
     resident_not_found: "Resident not found.",
     too_few_residents: "A world needs at least 2 residents.",

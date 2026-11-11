@@ -357,3 +357,113 @@ async def test_generate_directed_event_retries_then_fails(monkeypatch):
     # 1回目は指示だけ、2回目は指示を再掲して生成する(各回に JSON の修復依頼が挟まる)
     assert DIRECTED_EVENT_RETRY_NOTE not in calls[0][1]
     assert any(DIRECTED_EVENT_RETRY_NOTE in user for _, user in calls[1:])
+
+
+# --- 続きを指示 ---
+
+PREVIOUS = {
+    "id": "ev1",
+    "day": 1,
+    "title": "初めての夜",
+    "narration": "薄暗いホテルの部屋で、二人はベッドに並んで腰を下ろした。",
+    "lines": [
+        {"speaker": "aoi", "text": "ねえ、もう少しそばに来て"},
+        {"speaker": "tamako", "text": "あら、甘えん坊ね"},
+    ],
+    "participants": ["aoi", "tamako"],
+    "area": "living",
+    "location": "hotel",
+    "kind": "directed",
+    "instruction": "ホテルで二人きりになる",
+}
+CONTINUE = "そのまま抱き合う"
+
+
+def _with_previous(state):
+    return {**state, "events": [dict(PREVIOUS)]}
+
+
+def test_continuation_source_must_be_from_today():
+    state = _with_previous(_state())
+
+    assert logic.continuation_source(state, "ev1")["title"] == "初めての夜"
+    with pytest.raises(HakoniwaError) as missing:
+        logic.continuation_source(state, "nope")
+    with pytest.raises(HakoniwaError) as old:
+        logic.continuation_source({**state, "day": 2}, "ev1")
+
+    assert missing.value.code == "event_not_found"
+    assert old.value.code == "event_not_today"
+
+
+def test_continuation_cast_keeps_the_residents_who_still_live_here():
+    state = _state()
+
+    group = logic.continuation_cast(state, PREVIOUS)
+    partly = logic.continuation_cast(
+        state, {**PREVIOUS, "participants": ["gone", "tamako"]}
+    )
+
+    assert _ids(group) == ["aoi", "tamako"]
+    assert _ids(partly) == ["tamako"]
+    with pytest.raises(HakoniwaError) as error:
+        logic.continuation_cast(state, {**PREVIOUS, "participants": ["gone"]})
+    assert error.value.code == "event_cast_gone"
+
+
+def test_continuation_prompt_carries_the_previous_scene():
+    state = _with_previous(_state())
+    group = (logic.find_resident(state, "aoi"), logic.find_resident(state, "tamako"))
+
+    prompt = event_user_prompt(
+        state,
+        group,
+        "ja",
+        nsfw=True,
+        area_id="living",
+        include_theme=False,
+        directed_instruction=CONTINUE,
+        continues_event=state["events"][0],
+    )
+
+    assert f'how the previous scene continues: "{CONTINUE}"' in prompt
+    assert "[The previous scene: this event continues directly from it]" in prompt
+    assert 'The order it followed: "ホテルで二人きりになる"' in prompt
+    assert PREVIOUS["narration"] in prompt
+    # 台詞は話し手の名前つきの全文を、出力と同じ JSON の形で渡す
+    # (「」で囲むと、生成が JSON の text にも「」を書き写して壊れる)
+    assert '{"speaker": "高瀬 葵", "text": "ねえ、もう少しそばに来て"}' in prompt
+    assert "「ねえ、もう少しそばに来て」" not in prompt
+    assert "Do not restart or re-introduce the situation" in prompt
+    # 場所は前の場面の場所(エリアの外でも)に留まるのが既定
+    assert 'the previous scene took place at "hotel"' in prompt
+    assert "(where the previous scene took place)" in prompt
+    assert "Place: not fixed." not in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("generated", "expected"),
+    [(None, "hotel"), ("the moon", "hotel"), ("bathroom", "bathroom")],
+)
+async def test_continued_event_stays_unless_the_scene_moves(
+    monkeypatch, generated, expected
+):
+    overrides = {"location": generated} if generated else {}
+    _stub(monkeypatch, [_event_json(["高瀬 葵", "大島 珠子"], **overrides)])
+    state = _with_previous(_state())
+    group = (logic.find_resident(state, "aoi"), logic.find_resident(state, "tamako"))
+
+    event = await gen.generate_directed_event(
+        state,
+        group,
+        CONTINUE,
+        "ja",
+        novelai_model=None,
+        nsfw=True,
+        area_id="living",
+        previous_event=state["events"][0],
+    )
+
+    assert event["area"] == "living"
+    assert event["location"] == expected

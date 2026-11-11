@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..consts.hakoniwa import (
@@ -27,6 +28,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_TRANSFORM_DESC_PROMPT_MAX,
     RULE_PRIORITY_NOTE,
     WORLD_BRIEF,
+    event_location,
 )
 from ..consts.hakoniwa_play import (
     HAKONIWA_CHAT_HISTORY_CONTEXT,
@@ -880,17 +882,37 @@ def location_choice_text(place_id: str, *, fixed: bool) -> str:
     )
 
 
-def directed_place_text(place_id: str) -> str:
+def directed_place_text(place_id: str, *, continuing: bool = False) -> str:
     """指示した出来事で場所をおまかせにしたときの場所の決め方。
 
     いまいる場所の情景を先に書くと、指示が別の場所を示しても場面がそこに留まるため、
     場所は指示から決めさせ、いまいる場所は指示が場所を示さないときの既定として並べるだけにする。
+    continuing は続きの出来事(前の場面の場所に留まるのが既定で、指示が移すときだけ移る)。
     """
+    here = (
+        "where the previous scene took place"
+        if continuing
+        else "where the main character is now"
+    )
     options = "; ".join(
         f"{location['id']}: {location['scene']}"
-        + (" (where the main character is now)" if location["id"] == place_id else "")
+        + (f" ({here})" if location["id"] == place_id else "")
         for location in HAKONIWA_LOCATIONS
     )
+    if continuing:
+        return (
+            f'Place: the previous scene took place at "{place_id}". This event '
+            f'continues there: set "location" to "{place_id}" and keep the scene '
+            "there, unless the order clearly moves them to a different place (then "
+            'set "location" to that id and open the scene with them already there, '
+            "never on the way; moving to another room counts, so a bathroom next to "
+            'the room they were in is "bathroom"). Places (id: description): '
+            f"{options}. When the place "
+            "the order names is not among these (a school, an office, a train and so "
+            "on), still set the scene at that place as the order says, and set "
+            '"location" to the closest id. Weave in the atmosphere and small details '
+            "of the place where it takes place."
+        )
     return (
         "Place: not fixed. First decide from the order where the ordered scene takes "
         'place, set "location" to that id, and set the whole scene there from the '
@@ -903,6 +925,49 @@ def directed_place_text(place_id: str) -> str:
         "office, a train and so on), still set the scene at that place as the order "
         'says, and set "location" to the closest id. Weave in the atmosphere and '
         "small details of the place where it takes place."
+    )
+
+
+def previous_scene_text(
+    state: dict[str, Any], event: dict[str, Any], language: str
+) -> str:
+    """続きの出来事に渡す直前の場面(地の文と台詞の全文)。
+
+    台詞は出力と同じ JSON の形で渡す(「」で囲んで渡すと、生成が JSON の text にも
+    「」を書き写して壊れる)。
+    """
+    names = {
+        resident["id"]: resident_name(resident, language)
+        for resident in state["residents"]
+    }
+    lines = "\n".join(
+        json.dumps(
+            {
+                "speaker": names.get(
+                    str(line.get("speaker")), str(line.get("speaker"))
+                ),
+                "text": str(line.get("text") or ""),
+            },
+            ensure_ascii=False,
+        )
+        for line in event.get("lines") or []
+    )
+    order = (
+        f'The order it followed: "{event["instruction"]}"\n'
+        if event.get("instruction")
+        else ""
+    )
+    return (
+        "\n\n[The previous scene: this event continues directly from it]\n"
+        f"Title: {event.get('title') or ''}\n"
+        f"{order}"
+        f"Narration: {event.get('narration') or ''}\n"
+        f"Lines:\n{lines}\n"
+        "This event is its direct continuation: the same people, moments later, in "
+        "the state the previous scene ended in (place, clothes or lack of them, "
+        "position, mood). Do not restart or re-introduce the situation, and do not "
+        "repeat what was already shown or said; pick up where it left off and carry "
+        "the scene forward as the new order says. Give it a new title."
     )
 
 
@@ -921,11 +986,13 @@ def event_user_prompt(
     include_theme: bool = True,
     directed_instruction: str | None = None,
     location_id: str | None = None,
+    continues_event: dict[str, Any] | None = None,
 ) -> str:
     """出来事の生成の指示。include_theme は自由文の実験テーマを載せるか(1日1件に絞る)。
 
     directed_instruction は書き手が指示して起こす出来事の指示文。あれば最優先の焦点にする。
     location_id はプレイヤーが決めた場所。無ければ area_id を既定に、内容に合う場所を選ばせる。
+    continues_event は続きを指示した元の出来事。直前の場面として載せ、場所の既定にもする。
     """
     names = [resident_name(resident, language) for resident in group]
     if len(group) == 1 and directed_instruction:
@@ -947,8 +1014,16 @@ def event_user_prompt(
                 f"Other events today feature: {groups_text}. Choose a topic and situation "
                 "different from what those groups would likely do.\n"
             )
+    previous = ""
     if directed_instruction:
-        lead += f'\nThe scene the writer has ordered: "{directed_instruction}"'
+        if continues_event:
+            lead += (
+                "\nThe writer has ordered how the previous scene continues: "
+                f'"{directed_instruction}"'
+            )
+            previous = previous_scene_text(state, continues_event, language)
+        else:
+            lead += f'\nThe scene the writer has ordered: "{directed_instruction}"'
         focus = directed_event_focus_text(
             state, group, directed_instruction, language, nsfw=nsfw
         )
@@ -964,9 +1039,15 @@ def event_user_prompt(
             "event feel like part of their accumulating relationship."
         )
     fixed = location_id if location_id in HAKONIWA_LOCATION_MAP else None
-    place_id = fixed or (area_id if area_id in HAKONIWA_AREA_MAP else DEFAULT_AREA_ID)
+    continuing = bool(directed_instruction and continues_event)
+    if fixed:
+        place_id = fixed
+    elif continuing:
+        place_id = event_location(continues_event or {})["id"]
+    else:
+        place_id = area_id if area_id in HAKONIWA_AREA_MAP else DEFAULT_AREA_ID
     if directed_instruction and fixed is None:
-        place = directed_place_text(place_id)
+        place = directed_place_text(place_id, continuing=continuing)
     else:
         place = place_text(state, place_id) + location_choice_text(
             place_id, fixed=fixed is not None
@@ -997,6 +1078,7 @@ def event_user_prompt(
         f"{story_text.arcs_context_text(state, language)}\n"
         f"{others}"
         f"{variety}"
+        f"{previous}"
         f"{circumstances}"
         f"{focus}"
         f"{INTERVENTION_DIRECTIVES.get(str(intervention or ''), '')}"

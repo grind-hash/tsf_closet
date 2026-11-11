@@ -235,6 +235,12 @@ class HakoniwaDirectedEventRequest(HakoniwaLanguageRequest):
     )
 
 
+class HakoniwaContinueEventRequest(HakoniwaLanguageRequest):
+    instruction: str = Field(
+        ..., min_length=1, max_length=HAKONIWA_DIRECTED_EVENT_TEXT_MAX
+    )
+
+
 class HakoniwaReapplyRequest(HakoniwaLanguageRequest):
     image: str = Field(..., description="履歴の変身の画像ファイル名")
 
@@ -276,6 +282,9 @@ class HakoniwaEvent(BaseModel):
     )
     location: str | None = Field(
         None, description="エリアの外で起きた出来事の場所(浴室・商店街など)"
+    )
+    continues: str | None = Field(
+        None, description="続きとして起こした出来事の、元になった出来事の id"
     )
     favorite: bool = False
     area: str = Field("living", description="出来事の起きた場所")

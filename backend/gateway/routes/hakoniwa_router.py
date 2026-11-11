@@ -20,6 +20,7 @@ from ..schemas.hakoniwa import (
     HakoniwaChatHistoryResponse,
     HakoniwaChatRequest,
     HakoniwaChatResponse,
+    HakoniwaContinueEventRequest,
     HakoniwaCreateRequest,
     HakoniwaCustomRuleRequest,
     HakoniwaDayResponse,
@@ -568,6 +569,23 @@ async def direct_event(
             request.partner_ids,
             request.language,
             request.location,
+        )
+    )
+    return HakoniwaDayResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/events/{event_id}/continue",
+    response_model=HakoniwaDayResponse,
+    summary="今日の出来事の続きを指示して起こす",
+    responses=_ERROR_RESPONSES,
+)
+async def continue_event(
+    world_id: str, event_id: str, request: HakoniwaContinueEventRequest
+) -> HakoniwaDayResponse:
+    result = await _call(
+        hakoniwa_service.continue_event(
+            world_id, event_id, request.instruction, request.language
         )
     )
     return HakoniwaDayResponse(**result)

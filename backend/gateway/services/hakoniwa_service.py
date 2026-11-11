@@ -46,6 +46,7 @@ from ..consts.hakoniwa_play import (
     INTERVENTION_REWRITE_DISSONANCE,
 )
 from ..consts.hakoniwa_story import (
+    DISSONANCE_CONTINUED_EVENT_GAIN,
     DISSONANCE_CUSTOM_RULE_GAIN,
     DISSONANCE_DIRECTED_EVENT_GAIN,
     DISSONANCE_RULE_GAIN,
@@ -1809,6 +1810,58 @@ class HakoniwaService:
             new_events = [state["events"][-1]]
             state, confrontation = await self._apply_dissonance_gain(
                 state, DISSONANCE_DIRECTED_EVENT_GAIN, lang, user_settings, rng
+            )
+            new_events.extend(confrontation)
+            view = await self._store_view(world_id, state, lang, user_settings)
+        return {
+            "world": view,
+            "new_events": [_event_view(world_id, event, lang) for event in new_events],
+            "cost_usd": tracker.total_usd or None,
+        }
+
+    async def continue_event(
+        self,
+        world_id: str,
+        event_id: str,
+        instruction: str,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """今日の出来事の続きを、書き手の指示で1件起こして年代記に積む。
+
+        参加者は元の出来事と同じ(いまも住んでいる住民)。場所は元の場面の場所が既定で、
+        指示が別の場所を示せば移る。同じ介入の延長なので、違和感は小さく溜める。
+        """
+        text = logic.validate_event_instruction(instruction)
+        lang, user_settings = await self._context(language)
+        rng = random.Random()
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                state = _load_state(await self._load(db, world_id))
+            previous = logic.continuation_source(state, event_id)
+            group = logic.continuation_cast(state, previous)
+            tracker = begin_cost_tracking()
+            event = await generate_directed_event(
+                state,
+                group,
+                text,
+                lang,
+                novelai_model=user_settings.get("novelai_text_model"),
+                nsfw=bool(user_settings.get("nsfw_mode")),
+                area_id=previous.get("area"),
+                previous_event=previous,
+            )
+            event.update(
+                {
+                    "source": "player",
+                    "kind": "directed",
+                    "instruction": text,
+                    "continues": previous["id"],
+                }
+            )
+            state = logic.apply_event(state, event, rng)
+            new_events = [state["events"][-1]]
+            state, confrontation = await self._apply_dissonance_gain(
+                state, DISSONANCE_CONTINUED_EVENT_GAIN, lang, user_settings, rng
             )
             new_events.extend(confrontation)
             view = await self._store_view(world_id, state, lang, user_settings)
