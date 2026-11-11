@@ -11,6 +11,7 @@ import {
   type SettingsState,
 } from "../../contexts/SettingsContext";
 import i18n from "../../i18n";
+import { guide as enGuide } from "../../i18n/en/guide";
 import { guide as jaGuide } from "../../i18n/ja/guide";
 import { getMenuItems } from "../layout/SideMenu";
 import {
@@ -100,8 +101,14 @@ describe("buildSerenaAppGuide", () => {
       title: jaGuide.salon.title,
       desc: jaGuide.salon.desc,
       note: jaGuide.salon.note,
+      details: jaGuide.salon.details.map((section) => ({
+        heading: section.heading,
+        items: [...section.items],
+      })),
       available: false,
     });
+    // 細かい仕様の無い項目は空の配列で渡す
+    expect(features.find((f) => f.id === "gallery")?.details).toEqual([]);
   });
 
   it("有効にすると available: true、基本の画面は切り替えが無いので null", () => {
@@ -127,5 +134,73 @@ describe("buildSerenaAppGuide", () => {
     expect(features.find((f) => f.id === "salon")?.title).toBe(
       "Salon Management",
     );
+  });
+});
+
+/**
+ * セレナへ送る遊び方ガイドの長さの上限。バックエンドの consts/character_chat.py の
+ * APP_GUIDE_* と同じ値にする。超えると送信がまるごと弾かれ、セレナと話せなくなる
+ * (2026-11 に AI箱庭の note が 1000 字を超えて実際に起きた)。
+ */
+const APP_GUIDE_TITLE_MAX = 80;
+const APP_GUIDE_TEXT_MAX = 1000;
+const APP_GUIDE_DETAIL_SECTIONS_MAX = 12;
+const APP_GUIDE_DETAIL_ITEMS_MAX = 10;
+const APP_GUIDE_DETAIL_ITEM_MAX = 400;
+
+describe("セレナへ送るガイドの長さ", () => {
+  for (const [lang, t] of [
+    ["ja", i18n.getFixedT("ja")],
+    ["en", i18n.getFixedT("en")],
+  ] as const) {
+    it(`${lang}: どの項目もバックエンドの上限に収まる`, () => {
+      const features = buildSerenaAppGuide(
+        t as unknown as TFunction,
+        defaultState,
+      );
+      for (const feature of features) {
+        const where = `${lang}/${feature.id}`;
+        expect(feature.title.length, `${where} title`).toBeLessThanOrEqual(
+          APP_GUIDE_TITLE_MAX,
+        );
+        expect(feature.desc.length, `${where} desc`).toBeLessThanOrEqual(
+          APP_GUIDE_TEXT_MAX,
+        );
+        expect(feature.note?.length ?? 0, `${where} note`).toBeLessThanOrEqual(
+          APP_GUIDE_TEXT_MAX,
+        );
+        expect(feature.details.length, `${where} details`).toBeLessThanOrEqual(
+          APP_GUIDE_DETAIL_SECTIONS_MAX,
+        );
+        for (const section of feature.details) {
+          expect(
+            section.heading.length,
+            `${where} ${section.heading}`,
+          ).toBeLessThanOrEqual(APP_GUIDE_TITLE_MAX);
+          expect(
+            section.items.length,
+            `${where} ${section.heading}`,
+          ).toBeLessThanOrEqual(APP_GUIDE_DETAIL_ITEMS_MAX);
+          for (const item of section.items) {
+            expect(
+              item.length,
+              `${where} ${item.slice(0, 20)}`,
+            ).toBeLessThanOrEqual(APP_GUIDE_DETAIL_ITEM_MAX);
+          }
+        }
+      }
+    });
+  }
+
+  it("日本語と英語で、くわしく見るの見出しの数がそろっている", () => {
+    const sections = (entry: object) =>
+      "details" in entry && Array.isArray(entry.details)
+        ? entry.details.length
+        : 0;
+    for (const feature of GUIDE_FEATURES) {
+      expect(sections(enGuide[feature.key]), feature.key).toBe(
+        sections(jaGuide[feature.key]),
+      );
+    }
   });
 });

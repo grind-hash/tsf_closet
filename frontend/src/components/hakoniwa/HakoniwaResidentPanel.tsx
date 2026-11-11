@@ -1,7 +1,8 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type HakoniwaResident, hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
+import { readStorage, writeStorage } from "../../utils/storage";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaEventComposer from "./HakoniwaEventComposer";
 import HakoniwaPortrait from "./HakoniwaPortrait";
@@ -23,12 +24,34 @@ const DIRECTIVE_MODE_LABEL_KEYS = {
   event: "hakoniwa.panel.modeEvent",
 } as const;
 
+/**
+ * 住民パネルのタブ。名前の下に置き、いちばん使う「変身・出来事」がいつも同じ位置に来るようにする
+ * (性格・関係・記憶が増えても、入力欄を押し下げない)
+ */
+const PANEL_TABS = ["directive", "profile", "looks"] as const;
+type ResidentPanelTab = (typeof PANEL_TABS)[number];
+const PANEL_TAB_LABEL_KEYS = {
+  directive: "hakoniwa.panel.tabDirective",
+  profile: "hakoniwa.panel.tabProfile",
+  looks: "hakoniwa.panel.tabLooks",
+} as const;
+// 選んだタブは、ブラウザのタブを開いている間だけ覚えておく
+const PANEL_TAB_STORAGE_KEY = "hakoniwa_resident_panel_tab";
+
+function savedPanelTab(): ResidentPanelTab {
+  const saved = readStorage("session", PANEL_TAB_STORAGE_KEY);
+  return PANEL_TABS.find((tab) => tab === saved) ?? "directive";
+}
+
 interface HakoniwaResidentPanelProps {
   resident: HakoniwaResident;
   onEdit: () => void;
 }
 
-/** 選んだ住民の詳細: 話しかける・適応と名残・覚えていること・変身／出来事・姿の生成・編集 */
+/**
+ * 選んだ住民の詳細。名前・立ち絵・話しかけるの下に、タブで
+ * 変身・出来事 ／ プロフィール(性格・関係・名残・覚えていること) ／ 姿・編集 を切り替える
+ */
 export default function HakoniwaResidentPanel({
   resident,
   onEdit,
@@ -54,6 +77,33 @@ export default function HakoniwaResidentPanel({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<DirectiveMode>("transform");
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [panelTab, setPanelTab] = useState<ResidentPanelTab>(savedPanelTab);
+  const tabsId = useId();
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const tabRefs = useRef<Partial<Record<ResidentPanelTab, HTMLButtonElement>>>(
+    {},
+  );
+  const panelTabRef = useRef(panelTab);
+  panelTabRef.current = panelTab;
+  const residentId = resident.id;
+
+  useEffect(() => {
+    writeStorage("session", PANEL_TAB_STORAGE_KEY, panelTab);
+  }, [panelTab]);
+
+  // 住民を選んだら(開いたときも)、選んでいるタブへフォーカスを移す。一覧の下の方で選んだときは、
+  // タブの領域だけをパネルの先頭まで戻す(縦長の画面でページごとスクロールさせない)
+  useEffect(() => {
+    if (!residentId) return;
+    tabRefs.current[panelTabRef.current]?.focus({ preventScroll: true });
+    const section = sectionRef.current;
+    const container = section?.closest(".hakoniwa-world__tabpanel");
+    if (!section || !container) return;
+    const offset =
+      section.getBoundingClientRect().top -
+      container.getBoundingClientRect().top;
+    if (offset < 0) container.scrollTop += offset;
+  }, [residentId]);
 
   if (!world) return null;
   const draft = drafts[resident.id] ?? "";
@@ -75,7 +125,11 @@ export default function HakoniwaResidentPanel({
   };
 
   return (
-    <section className="hakoniwa-resident" aria-label={resident.name}>
+    <section
+      ref={sectionRef}
+      className="hakoniwa-resident"
+      aria-label={resident.name}
+    >
       <div className="hakoniwa-resident__head">
         <div className="hakoniwa-resident__look">
           {resident.display_avatar_url ? (
@@ -201,74 +255,39 @@ export default function HakoniwaResidentPanel({
         </div>
       </div>
 
-      <dl className="hakoniwa-resident__details">
-        <dt>{t("hakoniwa.panel.personality")}</dt>
-        <dd>{resident.personality}</dd>
-        {relations.length > 0 && (
-          <>
-            <dt>{t("hakoniwa.panel.relations")}</dt>
-            <dd>
-              <ul className="hakoniwa-resident__relations">
-                {relations.map(([id, value]) => (
-                  <li key={id}>
-                    <span>
-                      {names[id]}
-                      {resident.addresses[id] && (
-                        <span className="hakoniwa-resident__relation-address">
-                          {t("hakoniwa.panel.callsThem", {
-                            address: resident.addresses[id],
-                          })}
-                        </span>
-                      )}
-                    </span>
-                    <span className="hakoniwa-resident__relation-level">
-                      {t(
-                        `hakoniwa.residents.affinityLabels.${affinityLevel(value)}`,
-                      )}
-                      （{value}）
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </dd>
-          </>
-        )}
-        {resident.remnant && (
-          <>
-            <dt>{t("hakoniwa.story.remnantHeading")}</dt>
-            <dd>
-              {t("hakoniwa.story.remnant", {
-                text: resident.remnant.text,
-                days: resident.remnant.days_left,
-              })}
-            </dd>
-          </>
-        )}
-        <dt>{t("hakoniwa.story.memoriesHeading")}</dt>
-        <dd>
-          {resident.memories.length === 0 ? (
-            <span className="hakoniwa-note">
-              {t("hakoniwa.story.memoriesEmpty")}
-            </span>
-          ) : (
-            <ul className="hakoniwa-resident__memories">
-              {resident.memories.map((memory, index) => (
-                <li
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 同じ日に同じ記憶が並ぶことがあり、並び順が識別子になる
-                  key={`${memory.day}:${memory.kind}:${index}`}
-                >
-                  <span className="hakoniwa-resident__memory-day">
-                    {t("hakoniwa.chronicle.day", { day: memory.day })}
-                  </span>
-                  <span>{memory.text}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </dd>
-      </dl>
+      <div
+        className="hakoniwa-resident__tabs"
+        role="tablist"
+        aria-label={t("hakoniwa.panel.tabsLabel", { name: resident.name })}
+      >
+        {PANEL_TABS.map((tab) => (
+          <button
+            key={tab}
+            ref={(element) => {
+              if (element) tabRefs.current[tab] = element;
+            }}
+            type="button"
+            role="tab"
+            id={`${tabsId}-${tab}`}
+            aria-selected={panelTab === tab}
+            aria-controls={`${tabsId}-${tab}-panel`}
+            tabIndex={panelTab === tab ? 0 : -1}
+            className={`hakoniwa-resident__tab${panelTab === tab ? " is-active" : ""}`}
+            onClick={() => setPanelTab(tab)}
+          >
+            {t(PANEL_TAB_LABEL_KEYS[tab])}
+          </button>
+        ))}
+      </div>
 
-      <div className="hakoniwa-resident__block">
+      {/* 切り替えても書きかけの指示を残すため、3つのタブの中身は置いたまま隠す */}
+      <div
+        className="hakoniwa-resident__tabpanel"
+        role="tabpanel"
+        id={`${tabsId}-directive-panel`}
+        aria-labelledby={`${tabsId}-directive`}
+        hidden={panelTab !== "directive"}
+      >
         <div
           className="hakoniwa-segments"
           role="group"
@@ -376,7 +395,88 @@ export default function HakoniwaResidentPanel({
         )}
       </div>
 
-      <div className="hakoniwa-resident__block">
+      <div
+        className="hakoniwa-resident__tabpanel"
+        role="tabpanel"
+        id={`${tabsId}-profile-panel`}
+        aria-labelledby={`${tabsId}-profile`}
+        hidden={panelTab !== "profile"}
+      >
+        <dl className="hakoniwa-resident__details">
+          <dt>{t("hakoniwa.panel.personality")}</dt>
+          <dd>{resident.personality}</dd>
+          {relations.length > 0 && (
+            <>
+              <dt>{t("hakoniwa.panel.relations")}</dt>
+              <dd>
+                <ul className="hakoniwa-resident__relations">
+                  {relations.map(([id, value]) => (
+                    <li key={id}>
+                      <span>
+                        {names[id]}
+                        {resident.addresses[id] && (
+                          <span className="hakoniwa-resident__relation-address">
+                            {t("hakoniwa.panel.callsThem", {
+                              address: resident.addresses[id],
+                            })}
+                          </span>
+                        )}
+                      </span>
+                      <span className="hakoniwa-resident__relation-level">
+                        {t(
+                          `hakoniwa.residents.affinityLabels.${affinityLevel(value)}`,
+                        )}
+                        （{value}）
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          )}
+          {resident.remnant && (
+            <>
+              <dt>{t("hakoniwa.story.remnantHeading")}</dt>
+              <dd>
+                {t("hakoniwa.story.remnant", {
+                  text: resident.remnant.text,
+                  days: resident.remnant.days_left,
+                })}
+              </dd>
+            </>
+          )}
+          <dt>{t("hakoniwa.story.memoriesHeading")}</dt>
+          <dd>
+            {resident.memories.length === 0 ? (
+              <span className="hakoniwa-note">
+                {t("hakoniwa.story.memoriesEmpty")}
+              </span>
+            ) : (
+              <ul className="hakoniwa-resident__memories">
+                {resident.memories.map((memory, index) => (
+                  <li
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 同じ日に同じ記憶が並ぶことがあり、並び順が識別子になる
+                    key={`${memory.day}:${memory.kind}:${index}`}
+                  >
+                    <span className="hakoniwa-resident__memory-day">
+                      {t("hakoniwa.chronicle.day", { day: memory.day })}
+                    </span>
+                    <span>{memory.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+        </dl>
+      </div>
+
+      <div
+        className="hakoniwa-resident__tabpanel"
+        role="tabpanel"
+        id={`${tabsId}-looks-panel`}
+        aria-labelledby={`${tabsId}-looks`}
+        hidden={panelTab !== "looks"}
+      >
         <strong>{t("hakoniwa.panel.avatarHeading")}</strong>
         <p className="hakoniwa-note">{t("hakoniwa.panel.avatarNote")}</p>
         <div className="hakoniwa-resident__buttons">
@@ -404,25 +504,27 @@ export default function HakoniwaResidentPanel({
             {t("hakoniwa.panel.generateDress")}
           </button>
         </div>
-      </div>
-
-      <div className="hakoniwa-resident__buttons">
-        <button
-          type="button"
-          className="hakoniwa-button"
-          onClick={onEdit}
-          disabled={locked}
-        >
-          {t("hakoniwa.panel.edit")}
-        </button>
-        <button
-          type="button"
-          className="hakoniwa-button hakoniwa-button--ghost"
-          onClick={() => setConfirmRemove(true)}
-          disabled={locked || world.residents.length <= 2}
-        >
-          {t("hakoniwa.panel.remove")}
-        </button>
+        <strong className="hakoniwa-resident__section-heading">
+          {t("hakoniwa.panel.editHeading")}
+        </strong>
+        <div className="hakoniwa-resident__buttons">
+          <button
+            type="button"
+            className="hakoniwa-button"
+            onClick={onEdit}
+            disabled={locked}
+          >
+            {t("hakoniwa.panel.edit")}
+          </button>
+          <button
+            type="button"
+            className="hakoniwa-button hakoniwa-button--ghost"
+            onClick={() => setConfirmRemove(true)}
+            disabled={locked || world.residents.length <= 2}
+          >
+            {t("hakoniwa.panel.remove")}
+          </button>
+        </div>
       </div>
 
       <ConfirmDialog

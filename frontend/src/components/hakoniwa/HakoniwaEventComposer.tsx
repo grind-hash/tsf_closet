@@ -36,7 +36,7 @@ export default function HakoniwaEventComposer({
   const inputId = useId();
   const scopeLabelId = useId();
   const partnersLabelId = useId();
-  const locationLabelId = useId();
+  const locationId = useId();
   // 住民を切り替えても書きかけの指示と選んだ相手を残す
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [partnerIds, setPartnerIds] = useState<Record<string, string[]>>({});
@@ -183,30 +183,24 @@ export default function HakoniwaEventComposer({
               )}
         </p>
       )}
-      <span id={locationLabelId} className="hakoniwa-resident__subheading">
-        {t("hakoniwa.panel.locationLabel")}
-      </span>
-      <div
-        className="hakoniwa-directive__chips"
-        role="group"
-        aria-labelledby={locationLabelId}
-      >
-        {[null, ...world.locations.map((item) => item.id)].map((id) => (
-          <button
-            key={id ?? "auto"}
-            type="button"
-            className={`hakoniwa-areas__chip${location === id ? " is-active" : ""}`}
-            aria-pressed={location === id}
-            onClick={() => setLocation(id)}
-          >
-            {id === null
-              ? t("hakoniwa.panel.locationAuto")
-              : world.locations.find((item) => item.id === id)?.name}
-          </button>
-        ))}
+      {/* 場所は12か所あり、チップで並べるとパネルを押し下げるため、1行のプルダウンにする */}
+      <div className="hakoniwa-directive__place">
+        <label htmlFor={locationId} className="hakoniwa-resident__subheading">
+          {t("hakoniwa.panel.locationLabel")}
+        </label>
+        <select
+          id={locationId}
+          value={location ?? ""}
+          onChange={(event) => setLocation(event.target.value || null)}
+        >
+          <option value="">{t("hakoniwa.panel.locationAuto")}</option>
+          {world.locations.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
       </div>
-      <p className="hakoniwa-note">{t("hakoniwa.panel.locationNote")}</p>
-      <p className="hakoniwa-note">{t("hakoniwa.panel.eventNote")}</p>
       {malePairs.length > 0 && (
         <p className="hakoniwa-note">
           {t("hakoniwa.panel.maleBodyNote", { pairs: pairsText })}
@@ -227,6 +221,7 @@ export default function HakoniwaEventComposer({
           t("hakoniwa.panel.runEvent")
         )}
       </button>
+      <p className="hakoniwa-note">{t("hakoniwa.panel.eventNote")}</p>
     </>
   );
 }

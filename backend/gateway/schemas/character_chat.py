@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from ..consts.character_chat import (
+    APP_GUIDE_DETAIL_ITEM_MAX,
+    APP_GUIDE_DETAIL_ITEMS_MAX,
+    APP_GUIDE_DETAIL_SECTIONS_MAX,
     APP_GUIDE_MAX_ITEMS,
     APP_GUIDE_TEXT_MAX,
     APP_GUIDE_TITLE_MAX,
@@ -70,6 +73,15 @@ class CharacterChatAppearanceRequest(CharacterChatSourceRequest):
     """既存スレッドの姿の差し替え。"""
 
 
+class AppGuideDetail(BaseModel):
+    """遊び方ガイドの「くわしく見る」の1見出しと、その箇条書き。"""
+
+    heading: str = Field(..., min_length=1, max_length=APP_GUIDE_TITLE_MAX)
+    items: list[
+        Annotated[str, Field(min_length=1, max_length=APP_GUIDE_DETAIL_ITEM_MAX)]
+    ] = Field(default_factory=list, max_length=APP_GUIDE_DETAIL_ITEMS_MAX)
+
+
 class AppGuideFeature(BaseModel):
     """遊び方ガイドの1項目(フロントの i18n の文面)。案内役キャラの機能知識になる。"""
 
@@ -77,6 +89,11 @@ class AppGuideFeature(BaseModel):
     title: str = Field(..., min_length=1, max_length=APP_GUIDE_TITLE_MAX)
     desc: str = Field(..., min_length=1, max_length=APP_GUIDE_TEXT_MAX)
     note: str | None = Field(None, max_length=APP_GUIDE_TEXT_MAX)
+    details: list[AppGuideDetail] = Field(
+        default_factory=list,
+        max_length=APP_GUIDE_DETAIL_SECTIONS_MAX,
+        description="ガイドの「くわしく見る」の細かい仕様(見出しごとの箇条書き)",
+    )
     available: bool | None = Field(
         None, description="いま使えるか。切り替えの無い機能は null"
     )

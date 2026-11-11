@@ -4,9 +4,13 @@
  * 機能の説明はガイドの文面(i18n の guide.<key>)を唯一の情報源にする。案内役のセレナにも
  * buildSerenaAppGuide で同じ文面を発言ごとに渡す。メニュー項目や機能フラグを足したら
  * ここにも足すこと(足し忘れると guideFeatures.test.ts が落ちる)。
+ *
+ * desc と note はカードにそのまま出るので短く保ち、長い機能の細かい仕様は details
+ * (「くわしく見る」の見出しごとの箇条書き)に書く。どれもバックエンドの受け取りに長さの上限が
+ * あり、超えるとセレナへの送信が弾かれる(上限は guideFeatures.test.ts で確かめる)。
  */
 import type { TFunction } from "i18next";
-import type { AppGuideFeature } from "../../apis/characterChat";
+import type { AppGuideDetail, AppGuideFeature } from "../../apis/characterChat";
 import type { SettingsState } from "../../contexts/SettingsContext";
 import type { guide as jaGuide } from "../../i18n/ja/guide";
 
@@ -19,10 +23,12 @@ export type GuideEntryKey = {
     : never;
 }[keyof GuideTexts];
 
-interface GuideEntryText {
+/** ガイドの1項目の文面。details は「くわしく見る」で開く細かい仕様(長い機能だけ) */
+export interface GuideEntryText {
   title: string;
   desc: string;
   note?: string;
+  details?: readonly AppGuideDetail[];
 }
 
 export interface GuideFeature {
@@ -183,6 +189,10 @@ export function buildSerenaAppGuide(
       title: entry.title,
       desc: entry.desc,
       note: entry.note ?? null,
+      details: (entry.details ?? []).map((section) => ({
+        heading: section.heading,
+        items: [...section.items],
+      })),
       available:
         feature.settingKeys.length === 0
           ? null

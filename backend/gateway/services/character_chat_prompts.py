@@ -265,6 +265,18 @@ def app_guide_block(app_guide: Sequence[Mapping[str, Any]], language: str) -> st
         if feature.get("available") is False:
             text += f" {APP_GUIDE_UNAVAILABLE[lang]}"
         lines.append(text)
+        # 「くわしく見る」の細かい仕様は、見出しごとに一段下げた箇条書きにする
+        for section in feature.get("details") or []:
+            heading = str(section.get("heading") or "").strip()
+            items = [
+                str(item).strip()
+                for item in section.get("items") or []
+                if str(item).strip()
+            ]
+            if not heading or not items:
+                continue
+            lines.append(f"  - {heading}")
+            lines.extend(f"    - {item}" for item in items)
     if not lines:
         return APP_GUIDE_MISSING[lang]
     return "\n".join((APP_GUIDE_HEADER[lang], *lines, APP_GUIDE_GROUNDING[lang]))

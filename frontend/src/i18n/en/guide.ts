@@ -4,6 +4,8 @@ export const guide = {
     "A list of play styles. Those that are off by default can be turned on here, which adds them to the main menu. You can change these settings anytime from the settings screen.",
   enable: "Enable",
   addedToMenu: "Added to the menu",
+  detailsShow: "Show details",
+  detailsHide: "Hide details",
   openSettings: "Open settings",
   sections: {
     basics: "Basic screens",
@@ -72,13 +74,123 @@ export const guide = {
   salon: {
     title: "Salon Management",
     desc: "Run a salon, making your customers' wishes come true with a change of look. Choose a season of 4 weeks (quick) or 12 weeks (full), and after each settlement you can carry your cash and reputation into the next season. Serving works like request mode: ask counselling questions to draw out clues to tastes the customer keeps unsaid, then finish the look in 3 styling turns. The satisfaction at checkout decides sales and reputation, and higher reputation brings more bookings and bigger tips when you grant a wish.",
-    note: 'The difficulty and season length you choose when opening set the opening funds. Customer type, on the opening screen and in the owner’s room, picks the customers (everyone, men or women) and the body they wish for (auto, female or male): men wishing for a female body brings only men who want to become women. The customer setting applies from next week and the body from the next customer you serve. Cover the weekly fixed costs with your sales and end the season with more cash than you started it with. The top of the serving screen shows the satisfaction (with the change since the last styling turn and the line that grants the wish), and the message window shows a chart of the kinds of taste the customer keeps unsaid (✓ when granted, ◆ for the one on their mind). In counselling, press a kind on the chart to write a question about it. A perfect finish (satisfaction 100) doubles the course price, and granting the wish of a regular who came back in your look adds a regular\'s fee. You can send home a customer you have not styled yet (reputation −3), and you can close the week while serving (a styled customer is checked out at the current satisfaction). Each styling turn generates an image, and the questions and reviews use text generation. Opening a salon and closing a week play a short scene; choose Full, Short or Off in the owner\'s office. The ⚙ on the serving screen changes the direct prompt, negative prompt, i2i strength, and the image and text models (shared with the right panel in normal play). "Select area" next to the styling instruction lets you paint or pick a mask for the part to restyle (NovelAI only; the area is kept while you serve that customer). While styling, "Compare" at the top right of the message window shows each look side by side with the previous one or the look on arrival.',
+    note: "The difficulty and season length you choose when opening set the opening funds. Each styling turn generates an image, and the questions and reviews use text generation.",
+    details: [
+      {
+        heading: "Running the salon",
+        items: [
+          "Cover the weekly fixed costs with your sales and end the season with more cash than you started it with.",
+          "Customer type, on the opening screen and in the owner’s office, picks the customers (everyone, men or women) and the body they wish for (auto, female or male). Men wishing for a female body brings only men who want to become women. The customer setting applies from next week’s bookings and the body from the next customer you serve.",
+          "Opening a salon and closing a week play a short scene; choose Full, Short or Off in the owner’s office.",
+        ],
+      },
+      {
+        heading: "Serving",
+        items: [
+          "The top of the serving screen shows the satisfaction, with the change since the last styling turn and the line that grants the wish.",
+          "The message window shows a chart of the kinds of taste the customer keeps unsaid (✓ when granted, ◆ for the one on their mind). In counselling, press a kind on the chart to write a question about it.",
+          "A perfect finish (satisfaction 100) doubles the course price, and granting the wish of a regular who came back in your look adds a regular’s fee.",
+          "You can send home a customer you have not styled yet (reputation −3). You can close the week while serving; a styled customer is checked out at the current satisfaction.",
+        ],
+      },
+      {
+        heading: "Styling tools",
+        items: [
+          "The ⚙ on the serving screen changes the direct prompt, negative prompt, i2i strength, and the image and text models (shared with the right panel in normal play).",
+          '"Select area" next to the styling instruction lets you paint or pick a mask for the part to restyle (NovelAI only; the area is kept while you serve that customer).',
+          'While styling, "Compare" at the top right of the message window shows the look side by side with the previous one or the look on arrival.',
+        ],
+      },
+    ],
     open: "Open Salon Management",
   },
   hakoniwa: {
     title: "AI Dollhouse",
-    desc: 'Watch residents live on their own in Stardust House, a small boarding house. Besides its 5 residents, you can bring in characters you made on the Characters screen (those with a portrait) or residents you write yourself. Press "Advance the day" and three events happen: the residents gather in the room and talk in speech bubbles (click or Enter for next, Esc to skip). Events are kept in the chronicle, and the residents\' moods and relationships change little by little. After playback, a "Day N recap" shows the highlight, what changed most, and a hint of tomorrow. Stardust House has three places (living room, garden, study); switch the place you watch with the chips above the room. Residents move to where their events happen and wander between places as days pass. "Read as a scene" in the chronicle lets you read an event one beat at a time with a background and portraits. Residents remember transformations, swaps and events that moved a relationship a lot ("Remembers" on the Residents tab), and may bring them up later. Multi-day stories (swapped days, a new look, the distance between two residents, investigating the world) also arise and reach their climax on their third event.',
-    note: 'Up to 3 rules (Ladylike Speech, The Swapped Morning, Rule of Dresses, Romance Ban, Confession Week, and rules you write) can be active at once, and they affect every event from the next day on. Switching a rule makes the residents nearby react briefly (not kept in the chronicle). On day 1 of a new world, a getting-started guide appears (you can fold or close it). When creating a world, "Random residents" puts together residents with different names, personalities and looks (swap them out one by one; uses text generation), and "Generate looks for residents without a portrait" on the Residents tab draws their portraits one at a time. Pick an experiment theme (keep the swap going, a week of the dress rule, grow the strangeness to a confrontation, transformation experiment, free experiment, or write your own) and its progress appears in the day recap; a theme you write also gently shapes events and conversations (set it when creating the world or on the Settings tab). What you observe in the dollhouse (days, events, rules, transformations, dresses, swaps, strangeness and more, 17 records) is counted across all worlds and recorded under AI Dollhouse on the Achievements screen. Click a resident in the room to hear a word from them, and use "Transform on the spot" on the Residents tab to generate a new look (nearby residents\' reactions are added to the chronicle). Switch the toggle above it to "Event" to generate one scene that follows your order with the residents in their current looks, without changing them, and read it as a scene (choose who takes part: only them, chosen residents (up to 2) or roommates. It stays in the chronicle as an "Ordered event" and affects mood, relationships, memories and world strangeness. No romantic or sexual scene is written between two residents who both have male bodies right now. It uses text generation). Besides Auto, the place can be the bathroom, bedroom, kitchen, shopping street, cafe, park, beach or hotel, which becomes the background of the scene picture (daily events also happen there when they fit). In the scene view, "Log" at the top right of the message window lets you reread the narration and lines you have already read (for a continued scene, it goes back through the earlier scenes). In the scene view, "Continue scene" lets you order how any of today’s events continues, with the same residents in the same place (your order can move them. It stays in the chronicle as an "Ordered continuation" and world strangeness rises only a little. It uses text generation). Events and greetings use text generation; transformations and looks use image generation. With NAI Diffusion V5, looks are generated with a transparent background; with other settings (V4.5 or other providers) they are generated on white and made transparent when shown. Choose the image model per world on the Settings tab. Your own rules can have a look description (if empty, the look is worked out from the rule text), and "Generate looks" on the Rules tab generates a rule look for every resident, one at a time. When two or more look rules overlap (the Rule of Dresses counts too), you can also generate a combined look. Looks are shown in the order transformation → combined look → rule look (the rule turned on last) → dress → usual, and events and scene pictures use the same look. Built-in rules have combos (such as swap and dresses): with both active, the Rules tab shows "In effect" and events reflect it. "Tomorrow\'s intervention" next to "Advance the day" lets you pick one push for the next day, such as a gentle nudge or stronger rewrites (the choices change with the situation, and the result appears in the recap). On the Residents tab, press a portrait to enlarge it and touch the head, chest or below the waist (the mood shifts a little and nothing goes into the chronicle), and "Start a conversation" lets you talk with a resident inside the dollhouse. Asking "Put on ..." or "Change back" in a conversation transforms them or undoes it on the spot. When editing a resident, choose how they call the other residents (given name, family name, with or without an honorific); event and chat lines use it, and much older housemates get an honorific. Random residents get a style that fits their personality, and "Relationships" on the Residents tab shows what each resident calls the others. When editing a resident (usual look, dress look) or one of your own rules (look), you can edit the English image tags by hand. Tags you edit are kept even when the description changes, and are remade only when you press "Remake from the description" and save (generate the look again afterwards to redraw it). Whatever you write in the world memo on the Settings tab takes precedence over the rules in every generation. On the Furniture tab, place up to four pieces in each place (each piece is one of a kind, and placed furniture may appear in events when it fits). A transformation belongs to the body: transforming a swapped resident changes the body they are in now, and when the swap ends the transformed body goes back to its owner. Transformed or swapped residents get used to it day by day (bewildered → trial and error → getting used to it → accepted), and the others get used to the look too; after changing back, a remnant lingers for a few days. In worlds that use "world strangeness" (set when creating the world or on the Settings tab; on by default), switching rules and transforming residents makes them notice the rewrites (stillness → stirring → probing), and at 80 they call out to the writer once (the stage and value appear in the top bar). In the scene view, "Draw this scene" at the top right of the message window generates one picture of the event\'s residents in their current looks (uses image generation; events with contact or closeness are marked "Worth a picture"). The outfit changes to fit the scene only in the picture (nude or a towel in the bathroom, a swimsuit at the beach and so on; nude only with NSFW mode on), and the residents’ looks and portraits stay the same.',
+    desc: 'Watch residents live on their own in Stardust House, a small boarding house. Each time you press "Advance the day", three events happen and pile up in the chronicle. As the unseen writer, you can rewrite how the world works with rules, transform the residents, and order scenes.',
+    note: "Events, words and chats use text generation; transformations, looks and scene pictures use image generation (choose the image model per world on the Settings tab).",
+    details: [
+      {
+        heading: "A day in the dollhouse",
+        items: [
+          'Press "Advance the day" and three events happen: the residents gather in the room and talk in speech bubbles (click or Enter for next, Esc to skip).',
+          'Events are kept in the chronicle, and moods and relationships change little by little. After playback, a "Day N recap" shows the highlight, what changed most, and a hint of tomorrow.',
+          '"Tomorrow’s intervention" next to "Advance the day" lets you pick one push for the next day, such as a gentle nudge or stronger rewrites. The choices change with the situation, and the result appears in the recap.',
+          "Multi-day stories (swapped days, a new look, the distance between two residents, investigating the world) arise and reach their climax on their third event.",
+        ],
+      },
+      {
+        heading: "Creating a world",
+        items: [
+          "Besides the 5 residents of Stardust House, you can bring in characters you made on the Characters screen (those with a portrait) or residents you write yourself.",
+          '"Random residents" puts together residents with different names, personalities and looks (swap them out one by one; uses text generation). "Generate looks for residents without a portrait" on the Residents tab draws missing portraits one at a time.',
+          "Pick an experiment theme (keep the swap going, a week of the dress rule, grow the strangeness to a confrontation, transformation experiment, free experiment, or write your own) and its progress appears in the recap. A theme you write also gently shapes events and conversations.",
+          "On day 1 of a new world, a getting-started guide appears (you can fold or close it).",
+          "Whatever you write in the world memo on the Settings tab takes precedence over the rules in every generation.",
+        ],
+      },
+      {
+        heading: "Places and furniture",
+        items: [
+          "Stardust House has a living room, a garden and a study; switch the place you watch with the chips above the room. Residents move to where their events happen and wander between places as days pass.",
+          "On the Furniture tab, place up to four pieces in each place (each piece is one of a kind, and placed furniture may appear in events when it fits).",
+        ],
+      },
+      {
+        heading: "Talking with residents",
+        items: [
+          'Click a resident in the room, or press "Hear a word" on the Residents tab, to hear a word that fits their mood.',
+          '"Chat" lets you type messages and talk for as long as you like. Asking "Put on ..." or "Change back" transforms them or undoes it on the spot.',
+          'When you pick a resident on the Residents tab, the tabs under their name switch between "Transform / Event", "Profile" (personality, relationships and memories) and "Looks & edit".',
+          "Press a portrait to enlarge it and touch the head, chest or below the waist (the mood shifts a little and nothing goes into the chronicle).",
+          'Residents remember transformations, swaps and events that moved a relationship a lot ("Remembers" under "Profile"), and may bring them up later.',
+          'When editing a resident, choose how they call the other residents (given name, family name, with or without an honorific); event and chat lines use it. Random residents get a style that fits their personality, and much older housemates get an honorific. "Relationships" under "Profile" shows what each resident calls the others.',
+        ],
+      },
+      {
+        heading: "Rules",
+        items: [
+          "Up to 3 rules (Ladylike Speech, The Swapped Morning, Rule of Dresses, Romance Ban, Confession Week, and rules you write) can be active at once, and they affect every event from the next day on. Switching a rule makes the residents nearby react briefly (not kept in the chronicle).",
+          'Built-in rules have combos (such as swap and dresses): with both active, the Rules tab shows "In effect" and events reflect it.',
+          'Your own rules can have a look description (if empty, the look is worked out from the rule text). "Generate looks" on the Rules tab generates a rule look for every resident, one at a time. When two or more look rules overlap (the Rule of Dresses counts too), you can also generate a combined look.',
+        ],
+      },
+      {
+        heading: "Transformations and looks",
+        items: [
+          '"Transform on the spot" under "Transform / Event" generates a new look (nearby residents’ reactions are added to the chronicle).',
+          "Looks are shown in the order transformation → combined look → rule look (the rule turned on last) → dress → usual, and events and scene pictures use the same look.",
+          "A transformation belongs to the body: transforming a swapped resident changes the body they are in now, and when the swap ends the transformed body goes back to its owner.",
+          "The resident and the others get used to a transformation or swap day by day (bewildered → trial and error → getting used to it → accepted). After changing back, a remnant lingers for a few days.",
+          'When editing a resident (usual look, dress look) or one of your own rules (look), you can edit the English image tags by hand. Edited tags are kept even when the description changes, and are remade only when you press "Remake from the description" and save (generate the look again afterwards to redraw it).',
+          "With NAI Diffusion V5, looks are generated with a transparent background; with other settings (V4.5 or other providers) they are generated on white and made transparent when shown.",
+        ],
+      },
+      {
+        heading: "Ordering events",
+        items: [
+          'Switch the toggle under "Transform / Event" to "Event" to generate one scene that follows your order with the residents in their current looks, without changing them, and read it as a scene (uses text generation).',
+          'Choose who takes part: only them, chosen residents (up to 2) or roommates. It stays in the chronicle as an "Ordered event" and affects mood, relationships, memories and world strangeness.',
+          "Besides Auto, the place can be the bathroom, bedroom, kitchen, shopping street, cafe, park, beach or hotel, which becomes the background of the scene picture (daily events also happen there when they fit).",
+          "No romantic or sexual scene is written between two residents who both have male bodies right now.",
+        ],
+      },
+      {
+        heading: "Scenes and scene pictures",
+        items: [
+          '"Read as a scene" in the chronicle lets you read an event one beat at a time with a background and portraits. "Log" at the top right of the message window lets you reread what you have already read (for a continued scene, it goes back through the earlier scenes).',
+          '"Continue scene" lets you order how any of today’s events continues, with the same residents in the same place (your order can move them). It stays in the chronicle as an "Ordered continuation", and world strangeness rises only a little.',
+          '"Draw this scene" generates one picture of the event’s residents in their current looks. Events with contact or closeness are marked "Worth a picture".',
+          "The outfit changes to fit the scene only in the picture (nude or a towel in the bathroom, a swimsuit at the beach and so on; nude only with NSFW mode on). The residents’ looks and portraits stay the same.",
+        ],
+      },
+      {
+        heading: "World strangeness and records",
+        items: [
+          'In worlds that use "world strangeness" (set when creating the world or on the Settings tab; on by default), switching rules and transforming residents makes them notice the rewrites (stillness → stirring → probing), and at 80 they call out to the writer once. The stage and value appear in the top bar.',
+          "What you observe in the dollhouse (days, events, rules, transformations, dresses, swaps, strangeness and more, 17 records) is counted across all worlds and recorded under AI Dollhouse on the Achievements screen.",
+        ],
+      },
+    ],
     open: "Open AI Dollhouse",
   },
   voice: {

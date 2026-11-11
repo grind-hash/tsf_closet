@@ -621,12 +621,20 @@ export interface CharacterChatMessageRequest {
   app_guide?: AppGuideFeature[];
 }
 
+/** 遊び方ガイドの「くわしく見る」の1見出しと、その箇条書き */
+export interface AppGuideDetail {
+  heading: string;
+  items: string[];
+}
+
 /** 遊び方ガイドの1項目。available は切り替えの無い機能なら null */
 export interface AppGuideFeature {
   id: string;
   title: string;
   desc: string;
   note: string | null;
+  /** 「くわしく見る」の細かい仕様(無ければ空) */
+  details: AppGuideDetail[];
   available: boolean | null;
 }
 

@@ -180,7 +180,7 @@ export const hakoniwa = {
     hintMoreRules: "You can add {{remaining}} more rules.",
     hintGeneric: {
       furniture: "Move the furniture around, and it may turn up in events.",
-      talk: "Click a resident to talk and see how they are feeling.",
+      talk: 'Click a resident to hear a word that fits their mood. To talk at length, use "Chat" on the Residents tab.',
       transform:
         "Transform a resident, and the others' reactions go into the chronicle.",
     },
@@ -228,19 +228,24 @@ export const hakoniwa = {
     comboLook: "Combined look",
     noAvatar: "No look yet",
     selectHint:
-      "Choose a resident in the room or in the list below to talk to them or transform them.",
+      "Choose a resident in the room or in the list below to hear a word from them, chat with them or transform them.",
     tagExpansionFailedTitle: "Could not turn the appearance into tags",
     tagExpansionFailed:
       "The description was saved, but image generation keeps using the previous tags. Rewrite the description or write English tags and try again.",
   },
   panel: {
     close: "Deselect",
-    talk: "Say hello",
-    chat: "Start a conversation",
+    talk: "Hear a word",
+    chat: "Chat",
     talking: "Thinking…",
     personality: "Personality",
     relations: "Relationships",
     callsThem: "(calls them “{{address}}”)",
+    tabsLabel: "{{name}} details",
+    tabDirective: "Transform / Event",
+    tabProfile: "Profile",
+    tabLooks: "Looks & edit",
+    editHeading: "Resident settings",
     modeLabel: "Change a look or start an event",
     modeTransform: "Transform",
     modeEvent: "Event",
@@ -259,7 +264,7 @@ export const hakoniwa = {
     eventPlaceholder:
       "e.g. The two take a bath together / Go shopping in town in the current look",
     eventNote:
-      "As the writer's order, one scene is generated with the residents in their current looks (transformations, swapped bodies, rule looks) and opened as a scene. Looks do not change. It stays in the chronicle and affects mood, relationships, memories and world strangeness.",
+      "As the writer's order, one scene is generated with the residents in their current looks (transformations, swapped bodies, rule looks) and opened as a scene. Looks do not change. It stays in the chronicle and affects mood, relationships, memories and world strangeness. With Auto, a place that fits the order is chosen; the living room, garden and study move the residents there (other places become the background of the scene picture).",
     eventScopeLabel: "Who takes part",
     scopeSolo: "Just them",
     scopeSelected: "Pick residents",
@@ -278,8 +283,6 @@ export const hakoniwa = {
     listJoin: ", ",
     locationLabel: "Place",
     locationAuto: "Auto",
-    locationNote:
-      "Auto picks a place that fits the order. The living room, garden and study move the residents there; other places become the background of the scene picture.",
     runEvent: "Start the event",
     runningEvent: "Generating the scene…",
     avatarHeading: "Generate a look",
@@ -520,7 +523,7 @@ export const hakoniwa = {
     lead: "The residents live as they please and keep stirring up small events. You are the unseen writer who rewrites the world with rules and transforms the residents.",
     stepRules: "Turn on one rule to change how the world works",
     stepClick:
-      "Click a resident in the room to hear a word from them (you can transform them from the Residents tab)",
+      'Click a resident in the room to hear a word from them (on the Residents tab, "Chat" lets you talk at length, and you can transform them too)',
     stepAdvance: 'Press "Advance the day" and three events happen that day',
     noteAchievements:
       "Your observation records are on the Achievements screen under AI Dollhouse.",
