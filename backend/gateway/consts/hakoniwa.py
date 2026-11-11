@@ -252,6 +252,18 @@ HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
             "beach, sand, ocean, waves, blue sky, outdoors, scenery, anime background"
         ),
     },
+    {
+        "id": "hotel",
+        "name": {"ja": "ホテル", "en": "Hotel"},
+        "scene": (
+            "A hotel room in town (a city hotel or a love hotel): a large bed, soft "
+            "dim lighting and a window with city lights."
+        ),
+        "scene_tags": (
+            "hotel room, large bed, pillows, dim lighting, night, window, city lights, "
+            "indoors, scenery, anime background"
+        ),
+    },
 ]
 HAKONIWA_LOCATIONS: list[dict[str, Any]] = [*HAKONIWA_AREAS, *HAKONIWA_EXTRA_LOCATIONS]
 HAKONIWA_LOCATION_MAP: dict[str, dict[str, Any]] = {

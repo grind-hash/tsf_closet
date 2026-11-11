@@ -120,6 +120,11 @@ def test_directed_auto_place_follows_the_order():
 
     assert "takes place at the destination" in prompt
     assert "Usually set" not in prompt
+    # いまいる場所の情景を先に書かず、指示が場所を示さないときの既定として並べるだけにする
+    assert "Place: not fixed." in prompt
+    assert "(where the main character is now)" in prompt
+    assert "The event takes place here" not in prompt
+    assert "hotel:" in prompt
 
 
 def test_fixed_place_uses_its_scene_and_no_choice():

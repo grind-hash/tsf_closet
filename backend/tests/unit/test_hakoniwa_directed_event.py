@@ -14,7 +14,10 @@ from gateway.services import hakoniwa_generation as gen
 from gateway.services import hakoniwa_logic as logic
 from gateway.services.hakoniwa_errors import HakoniwaError
 from gateway.services.hakoniwa_prompts import (
+    DIALOGUE_CRAFT_GUIDANCE,
+    DIRECTED_DIALOGUE_CRAFT_GUIDANCE,
     DIRECTED_EVENT_RETRY_NOTE,
+    event_system_prompt,
     event_user_prompt,
 )
 
@@ -138,7 +141,7 @@ def test_male_body_pairs_follow_the_current_body():
 # --- プロンプト ---
 
 
-def _prompt(state, ids, *, nsfw: bool) -> str:
+def _prompt(state, ids, *, nsfw: bool, instruction: str = INSTRUCTION) -> str:
     group = tuple(logic.find_resident(state, pid) for pid in ids)
     return event_user_prompt(
         state,
@@ -147,7 +150,7 @@ def _prompt(state, ids, *, nsfw: bool) -> str:
         nsfw=nsfw,
         area_id="living",
         include_theme=False,
-        directed_instruction=INSTRUCTION,
+        directed_instruction=instruction,
     )
 
 
@@ -169,7 +172,8 @@ def test_directed_prompt_puts_the_instruction_first_and_keeps_current_looks():
 def test_directed_prompt_depicts_adult_acts_when_nsfw_is_on():
     prompt = _prompt(_state(), ["aoi", "tamako"], nsfw=True)
 
-    assert "shows that act itself taking place" in prompt
+    assert "the scene opens in the middle of that act" in prompt
+    assert "every line is spoken while doing it" in prompt
     assert "skips to afterwards" in prompt
     assert "Keep it non-explicit even if the instruction" not in prompt
 
@@ -189,6 +193,94 @@ def test_directed_prompt_allows_a_man_with_a_transformed_former_man():
     prompt = _prompt(state, ["ren", "ritsu"], nsfw=True)
 
     assert "both currently have male bodies" not in prompt
+
+
+def _investigating_state():
+    """九条 薫(調べ役)が妖艶な女性の姿に変身し、違和感が探り合いの段階にある世界。"""
+    state = logic.set_transformation(
+        _state(),
+        "ritsu",
+        {
+            "description": "妖艶な美女にして",
+            "tags": "1girl, long black hair, seductive smile, black dress, cleavage",
+            "image": "tf.png",
+            "day": 1,
+        },
+    )
+    return {**state, "dissonance": 62}
+
+
+def test_directed_prompt_drops_the_daily_focus_sections():
+    state = _investigating_state()
+
+    daily = event_user_prompt(
+        state,
+        (logic.find_resident(state, "ritsu"), logic.find_resident(state, "ren")),
+        "ja",
+        nsfw=True,
+    )
+    directed = _prompt(state, ["ritsu", "ren"], nsfw=True)
+
+    # 日常の出来事では調査・姿への反応・適応を主題にする
+    assert "make this an event about investigating" in daily
+    assert "[Important: always include reactions to the current look]" in daily
+    # 指示した出来事では、それらが場面を乗っ取るため載せず、色付けだけにする
+    for section in (
+        "make this an event about investigating",
+        "[Important: always include reactions to the current look]",
+        "[Important: follow each adaptation stage]",
+        "[Important: follow how the world is adapting]",
+        "[Important: thicken the reactions to the daring look]",
+    ):
+        assert section not in directed
+    assert "[Their current bodies: color only]" in directed
+    assert "九条 薫 is originally a man, now in a woman's body" in directed
+
+
+def test_directed_prompt_keeps_the_swap_as_color_only():
+    state = logic.new_world_state(
+        [logic.preset_resident("aoi"), logic.preset_resident("ren")]
+    )
+    state = {**state, "active_rules": ["swap"], "swap_pair": ["aoi", "ren"]}
+
+    prompt = _prompt(state, ["aoi", "ren"], nsfw=True)
+
+    assert "make the reaction to the body swap the theme" not in prompt
+    assert "高瀬 葵 and 苑田 蓮 have swapped bodies." in prompt
+
+
+def test_directed_prompt_tells_the_residents_never_hear_the_order():
+    prompt = _prompt(_state(), ["aoi", "tamako"], nsfw=True)
+
+    assert "a stage direction that the residents never hear" in prompt
+    assert "never quote or restate it" in prompt
+
+
+def test_masked_words_are_read_as_plain_words():
+    masked = _prompt(
+        _state(), ["aoi", "tamako"], nsfw=True, instruction="セッ〇スをする"
+    )
+    plain = _prompt(_state(), ["aoi", "tamako"], nsfw=True)
+
+    assert "hidden with symbols" in masked
+    assert "hidden with symbols" not in plain
+
+
+def test_directed_system_prompt_decides_the_place_first():
+    state = _state()
+    group = (logic.find_resident(state, "aoi"), logic.find_resident(state, "tamako"))
+
+    directed = event_system_prompt(group, state, "ja", nsfw=True, directed=True)
+    daily = event_system_prompt(group, state, "ja", nsfw=True)
+
+    assert '{"location": ' in directed
+    assert "at the boarding house" not in directed
+    assert DIRECTED_DIALOGUE_CRAFT_GUIDANCE in directed
+    assert DIALOGUE_CRAFT_GUIDANCE not in directed
+    # 日常の出来事の形は変えない
+    assert '{"title": ' in daily
+    assert "at the boarding house" in daily
+    assert DIALOGUE_CRAFT_GUIDANCE in daily
 
 
 def test_regular_event_prompt_is_unchanged_without_instruction():

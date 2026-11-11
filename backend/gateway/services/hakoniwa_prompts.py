@@ -65,6 +65,15 @@ DIALOGUE_CRAFT_GUIDANCE = (
     "feeling or a piece of information."
 )
 
+# 指示した出来事の台詞の組み立て。日常向けの「次への含み」で締めると行為の手前で終わるため、
+# 場面の途中から始めて山場で締める
+DIRECTED_DIALOGUE_CRAFT_GUIDANCE = (
+    "Build the dialogue as: an opening line spoken already in the middle of the "
+    "ordered scene, the main exchange while carrying it out, back-and-forth "
+    "reactions as it builds, and a closing line at its height. Do not trade short "
+    "one-word replies; every line should carry a feeling or a piece of information."
+)
+
 MALE_CONFUSION_GUIDANCE = (
     "In particular, {name} is originally a man and is strongly bewildered and "
     "flustered at being in a feminine form. Depict it richly in both lines and "
@@ -172,6 +181,9 @@ DIRECTED_EVENT_PRIORITY_NOTE = (
     "the order decides the subject matter and tone of this scene, overriding the "
     "default calm, warm mood described above."
 )
+
+# 指示文で伏せ字に使われる記号(セッ〇ス など)。含まれていれば元の語として読ませる
+DIRECTED_EVENT_MASK_CHARS = ("〇", "○", "●", "◯", "◎", "□", "■", "×", "✕", "*", "＊")
 
 DIRECTED_EVENT_RETRY_NOTE = (
     "\n\n[Repeated, mandatory] Depicting what the writer's instruction above orders, "
@@ -643,12 +655,15 @@ def directed_event_focus_text(
 ) -> str:
     """書き手(プレイヤー)が指示して起こす出来事の指示。自作の掟の焦点と同じ強さで書く。"""
     adult = (
-        " If the instruction names a sexual act between adults, the scene shows that "
-        "act itself taking place, explicitly and faithfully to the instruction's "
-        "wording, along with the residents' bodies, sensations, feelings and "
-        "conversation. A scene that ends just before the act, skips to afterwards, "
-        "fades out, or stops at kissing, touching or undressing does not satisfy the "
-        "order."
+        " If the instruction names a sexual act between adults, the scene opens in "
+        "the middle of that act: the narration describes them already doing it, "
+        "explicitly and faithfully to the instruction's wording (bodies, how they are "
+        "joined, sensations), and every line is spoken while doing it (voices, "
+        "sensations, words of affection, how the current body feels). Asking whether "
+        "the other is ready, talking about the body or the relationship, or a line "
+        "announcing that they will start does not count as the act. A scene that "
+        "ends just before the act, skips to afterwards, fades out or goes to sleep, "
+        "or stops at kissing, touching or undressing does not satisfy the order."
         if nsfw
         else " Keep it non-explicit even if the instruction touches on adult themes: "
         "no sexual acts or nudity; express such themes through reactions and emotions "
@@ -665,22 +680,35 @@ def directed_event_focus_text(
         "looks). Keep them friends and give them a different part in the scene."
         for a, b in male_body_pairs(state, group)
     )
+    masked = (
+        "Some words in the order are hidden with symbols such as 〇 (for example "
+        "セッ〇ス means セックス, sex): read each as the plain word it stands for and "
+        "carry it out as such.\n"
+        if any(mark in instruction for mark in DIRECTED_EVENT_MASK_CHARS)
+        else ""
+    )
     return (
         "\n\n[Most important: the scene the writer has ordered]\n"
         "The player, the writer of this world, has directly ordered this event:\n"
         f'"{instruction}"\n'
+        f"{masked}"
         "The order has the same force as a player-written rule: it simply happens in "
         "this world. Every main character goes along with it willingly, of their own "
         "accord; never depict anyone being forced, pressured or coerced, and never have "
         "one character push past another's refusal. Each still reacts in character "
-        "(embarrassment, nervousness, delight). Do not spend the scene on build-up: "
+        "(embarrassment, nervousness, delight). The order is a stage direction that the "
+        "residents never hear: never quote or restate it in the lines, and never have "
+        "them discuss whether to do it, what it means or who arranged it. The decision "
+        "is already made before the scene opens, and an order to go somewhere opens "
+        "with them already there. Do not spend the scene on build-up: "
         "what the instruction describes is already under way when the scene opens or "
         "begins within the first two lines, and most of the narration and lines depict "
         "actually carrying it out. Make it a scene that depicts the act or situation "
         "itself, not a scene that only talks about it or leads up to it. Replacing it "
         "with a harmless topic, stopping just before it, or blurring it with metaphors "
-        "is forbidden. Other guidance in this prompt (such as getting used to a new "
-        "body or look) only colors how they feel during it and never replaces it. "
+        "is forbidden. The premise and circumstances given above (the world's "
+        "strangeness, getting used to a new body or look) only color how they feel "
+        "during it and never replace it. "
         "Every main character appears in their current look and body "
         "exactly as listed under Residents (transformation, swapped body, rule look, "
         "dress); depict the scene in those bodies and never revert anyone to their "
@@ -688,7 +716,48 @@ def directed_event_focus_text(
     )
 
 
-def _event_schema(group: tuple[dict[str, Any], ...], language: str) -> str:
+def directed_body_color_text(
+    state: dict[str, Any], group: tuple[dict[str, Any], ...], language: str
+) -> str:
+    """指示した出来事で、いまの姿・体への気持ちを場面の色付けとしてだけ渡す。
+
+    日常の出来事向けの焦点(姿・入れ替わりへの反応や調査を主題にする指示)は、
+    指示した場面を乗っ取るため、指示した出来事では代わりにこれだけを載せる。
+    """
+    lines = []
+    swap = _swap_members(state, group)
+    if swap is not None:
+        a, b = swap
+        lines.append(
+            f"{resident_name(a, language)} and {resident_name(b, language)} have "
+            "swapped bodies."
+        )
+    for resident in group:
+        name = resident_name(resident, language)
+        summary = current_appearance_summary(state, resident)
+        if is_male_in_feminine_form(state, resident):
+            look = f" ({summary})" if summary else ""
+            lines.append(f"{name} is originally a man, now in a woman's body{look}.")
+        elif summary:
+            lines.append(f"{name}: {summary}.")
+    if not lines:
+        return ""
+    return (
+        "\n\n[Their current bodies: color only]\n"
+        + "\n".join(lines)
+        + "\nLet how each of them feels in that body (unfamiliar sensations, "
+        "embarrassment, delight, following each one's adaptation stage under "
+        "Residents) show as part of the ordered scene itself, such as how unfamiliar "
+        "the body's sensations feel while doing it. Do not spend lines asking about "
+        "or discussing the body; it colors the ordered scene and never delays, "
+        "interrupts or replaces it."
+    )
+
+
+def _event_schema(
+    group: tuple[dict[str, Any], ...], language: str, *, location_first: bool = False
+) -> str:
+    """出来事の JSON の形。location_first は場所を先に決めさせる(指示した出来事)。"""
     names = [resident_name(resident, language) for resident in group]
     lo, hi = HAKONIWA_EVENT_LINES_RANGE[min(len(group), 3)]
     participants = ", ".join(f'"{name}"' for name in names)
@@ -698,13 +767,14 @@ def _event_schema(group: tuple[dict[str, Any], ...], language: str) -> str:
         if len(group) >= 2
         else ""
     )
+    location = '"location": "id of the place where it happens (see Place)", '
     return (
-        '{"title": "short heading", '
+        "{" + (location if location_first else "") + '"title": "short heading", '
         '"narration": "narration without any dialogue, 2-3 sentences", '
         '"lines": [{"speaker": "name of the speaking resident", "text": "one line of dialogue"}], '
         f'"participants": [{participants}], '
-        '"location": "id of the place where it happens (see Place)", '
-        f'"mood_delta": {{{moods}}}{affinity}}}\n'
+        + ("" if location_first else location)
+        + f'"mood_delta": {{{moods}}}{affinity}}}\n'
         f"Write {lo}-{hi} lines."
     )
 
@@ -718,9 +788,11 @@ def event_system_prompt(
     directed: bool = False,
 ) -> str:
     """出来事の生成の役割と形式。directed は書き手が指示した出来事(指示を雰囲気より優先する)。"""
+    # 指示した出来事は下宿の外(ホテル・海辺など)でも起きる
+    where = "" if directed else " at the boarding house"
     if len(group) == 1:
         shape = (
-            "Create exactly one event at the boarding house with this single resident "
+            f"Create exactly one event{where} with this single resident "
             "as the main character. The lines are the character's own monologue or "
             "mutterings, and every speaker must be that character. Other residents do "
             "not appear (mentioning their names in narration is fine). Do not output an "
@@ -729,7 +801,7 @@ def event_system_prompt(
         )
     elif len(group) >= 3:
         shape = (
-            "Create exactly one event at the boarding house with these three residents "
+            f"Create exactly one event{where} with these three residents "
             "as the main characters. Every speaker must be one of them. Give each of the "
             "three a line or a memorable role; do not let it become one person's "
             "conversation. affinity_delta is the change in the three's relationship as "
@@ -737,7 +809,7 @@ def event_system_prompt(
         )
     else:
         shape = (
-            "Create exactly one event at the boarding house with these two residents as "
+            f"Create exactly one event{where} with these two residents as "
             "the main characters. Every speaker must be one of them."
         )
     brief = world_brief(state) + (DIRECTED_EVENT_PRIORITY_NOTE if directed else "")
@@ -745,14 +817,14 @@ def event_system_prompt(
         f"{brief}\n"
         "You are the narrator of this miniature world.\n"
         f"{shape}\n"
-        f"{DIALOGUE_CRAFT_GUIDANCE}\n"
+        f"{DIRECTED_DIALOGUE_CRAFT_GUIDANCE if directed else DIALOGUE_CRAFT_GUIDANCE}\n"
         "Narration must not contain dialogue in quotation marks. Speakers and "
         "participants must be written exactly as the names given.\n"
         f"{gender_address_rules(language)}\n"
         f"{NO_MALE_ROMANCE_RULE}\n"
         f"{content_rule(nsfw)}\n"
         "Output only one JSON object in this format, with no preface or code fence:\n"
-        f"{_event_schema(group, language)}\n"
+        f"{_event_schema(group, language, location_first=directed)}\n"
         f"Write the title, narration and lines in {response_language(language)}."
     )
 
@@ -791,7 +863,7 @@ def place_text(state: dict[str, Any], area_id: str | None) -> str:
     )
 
 
-def location_choice_text(place_id: str, *, fixed: bool, directed: bool) -> str:
+def location_choice_text(place_id: str, *, fixed: bool) -> str:
     """出来事の場所(location)の選び方。fixed ならプレイヤーが決めた場所のまま。"""
     if fixed:
         return f'\nSet "location" to "{place_id}".'
@@ -800,20 +872,37 @@ def location_choice_text(place_id: str, *, fixed: bool, directed: bool) -> str:
         for location in HAKONIWA_LOCATIONS
         if location["id"] != place_id
     )
-    if directed:
-        return (
-            '\nSet "location" to the id of the place where the ordered scene takes '
-            "place. When the order names or implies a place (a bath or shower, "
-            "shopping, a cafe, the beach and so on), use that place and set the scene "
-            "there; an order to go somewhere takes place at the destination, not while "
-            f'getting ready to leave. Otherwise use "{place_id}" (the place above). '
-            f"The other places: {options}."
-        )
     return (
         f'\nUsually set "location" to "{place_id}" (the place above). Only when '
         "the event clearly happens somewhere else (for example taking a shower or "
         "going shopping), set it to one of these ids instead and set the scene "
         f"there: {options}."
+    )
+
+
+def directed_place_text(place_id: str) -> str:
+    """指示した出来事で場所をおまかせにしたときの場所の決め方。
+
+    いまいる場所の情景を先に書くと、指示が別の場所を示しても場面がそこに留まるため、
+    場所は指示から決めさせ、いまいる場所は指示が場所を示さないときの既定として並べるだけにする。
+    """
+    options = "; ".join(
+        f"{location['id']}: {location['scene']}"
+        + (" (where the main character is now)" if location["id"] == place_id else "")
+        for location in HAKONIWA_LOCATIONS
+    )
+    return (
+        "Place: not fixed. First decide from the order where the ordered scene takes "
+        'place, set "location" to that id, and set the whole scene there from the '
+        "first line. When the order names or implies a place (a bath or shower, a "
+        "bed, a hotel, shopping, a cafe, the beach and so on), use that place. An "
+        "order to go somewhere takes place at the destination: the scene opens with "
+        "them already there, never at the starting point or on the way. Only when "
+        f'the order implies no place, use "{place_id}". Places (id: description): '
+        f"{options}. When the place the order names is not among these (a school, an "
+        "office, a train and so on), still set the scene at that place as the order "
+        'says, and set "location" to the closest id. Weave in the atmosphere and '
+        "small details of the place where it takes place."
     )
 
 
@@ -839,7 +928,9 @@ def event_user_prompt(
     location_id はプレイヤーが決めた場所。無ければ area_id を既定に、内容に合う場所を選ばせる。
     """
     names = [resident_name(resident, language) for resident in group]
-    if len(group) == 1:
+    if len(group) == 1 and directed_instruction:
+        lead = f"Main character: {names[0]} (the only main character)."
+    elif len(group) == 1:
         lead = (
             f"Main character: {names[0]} (the only main character). Depict time alone, "
             "small discoveries or reflection, centered on the character's monologue."
@@ -874,9 +965,26 @@ def event_user_prompt(
         )
     fixed = location_id if location_id in HAKONIWA_LOCATION_MAP else None
     place_id = fixed or (area_id if area_id in HAKONIWA_AREA_MAP else DEFAULT_AREA_ID)
-    place = place_text(state, place_id) + location_choice_text(
-        place_id, fixed=fixed is not None, directed=bool(directed_instruction)
-    )
+    if directed_instruction and fixed is None:
+        place = directed_place_text(place_id)
+    else:
+        place = place_text(state, place_id) + location_choice_text(
+            place_id, fixed=fixed is not None
+        )
+    if directed_instruction:
+        # 日常向けの焦点(姿・入れ替わりへの反応や調査を主題にする指示)は指示した場面を
+        # 乗っ取るため、いまの体への気持ちを色付けとして渡すだけにする
+        circumstances = directed_body_color_text(state, group, language)
+    else:
+        circumstances = (
+            f"{swap_focus_text(state, group, language)}"
+            f"{appearance_focus_text(state, group, language)}"
+            f"{story_text.adaptation_focus_text(state, group, language)}"
+            f"{story_text.world_adaptation_focus_text(state, group, language)}"
+            f"{risque_focus_text(state, group, language)}"
+            f"{story_text.investigation_focus_text(state, group, language)}"
+            f"{story_text.arc_focus_text(state, arc_focus_id, arc_climax, language)}"
+        )
     return (
         f"Today is day {state['day']} at Stardust House.\n"
         f"{lead}\n"
@@ -889,13 +997,7 @@ def event_user_prompt(
         f"{story_text.arcs_context_text(state, language)}\n"
         f"{others}"
         f"{variety}"
-        f"{swap_focus_text(state, group, language)}"
-        f"{appearance_focus_text(state, group, language)}"
-        f"{story_text.adaptation_focus_text(state, group, language)}"
-        f"{story_text.world_adaptation_focus_text(state, group, language)}"
-        f"{risque_focus_text(state, group, language)}"
-        f"{story_text.investigation_focus_text(state, group, language)}"
-        f"{story_text.arc_focus_text(state, arc_focus_id, arc_climax, language)}"
+        f"{circumstances}"
         f"{focus}"
         f"{INTERVENTION_DIRECTIVES.get(str(intervention or ''), '')}"
         f"{theme_section(state) if include_theme else ''}{memo_section(state)}"
