@@ -1161,3 +1161,29 @@ def test_directed_event_request_validation(client: TestClient):
     assert too_many.status_code == 422
     assert blank.status_code == 400
     assert blank.json()["detail"]["error"] == "invalid_event_text"
+
+
+def test_directed_event_at_an_outside_place(client: TestClient, llm_outputs: list):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    assert {"id": "shopping_street", "name": "商店街"} in world["locations"]
+    llm_outputs.append(_directed_event_json(["高瀬 葵"]))
+
+    body = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/event",
+        json={
+            "instruction": "商店街へ買い物に出かける",
+            "scope": "solo",
+            "location": "shopping_street",
+        },
+    ).json()
+
+    event = body["new_events"][0]
+    assert event["location"] == "shopping_street"
+    assert event["area"] == "living"
+    bad = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/event",
+        json={"instruction": "月へ行く", "scope": "solo", "location": "moon"},
+    )
+    assert bad.status_code == 400
+    assert bad.json()["detail"]["error"] == "invalid_location"

@@ -567,6 +567,7 @@ async def direct_event(
             request.scope,
             request.partner_ids,
             request.language,
+            request.location,
         )
     )
     return HakoniwaDayResponse(**result)

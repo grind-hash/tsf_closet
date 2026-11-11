@@ -41,6 +41,8 @@ export interface HakoniwaEvent {
   change_text?: string | null;
   /** 指示した出来事(directed)の指示文 */
   instruction?: string | null;
+  /** エリアの外で起きた出来事の場所(浴室・商店街など)。無ければ area で起きた */
+  location?: string | null;
   favorite: boolean;
   /** 出来事の起きた場所(エリア id) */
   area: string;
@@ -456,6 +458,8 @@ export interface HakoniwaWorld {
   residents: HakoniwaResident[];
   events: HakoniwaEvent[];
   areas: HakoniwaArea[];
+  /** 出来事の場所(場面の絵の背景)。エリアとエリアの外の場所 */
+  locations: HakoniwaLocation[];
   furniture_catalog: HakoniwaFurniture[];
   last_digest: HakoniwaDigest | null;
   dissonance: HakoniwaDissonance;
@@ -815,6 +819,11 @@ export function transformHakoniwaResident(
   );
 }
 
+export interface HakoniwaLocation {
+  id: string;
+  name: string;
+}
+
 /** 指示した出来事の巻き込み方: 本人だけ / 選んだ住民と / 同じ部屋の住民と */
 export type HakoniwaEventScope = "solo" | "selected" | "room";
 
@@ -823,6 +832,8 @@ export interface HakoniwaDirectedEventInput {
   scope: HakoniwaEventScope;
   /** scope が selected のときに一緒に出る住民の id(最大2人) */
   partnerIds: string[];
+  /** 出来事の場所の id(null ならおまかせ) */
+  location: string | null;
 }
 
 export function createHakoniwaDirectedEvent(
@@ -837,6 +848,7 @@ export function createHakoniwaDirectedEvent(
       instruction: input.instruction,
       scope: input.scope,
       partner_ids: input.scope === "selected" ? input.partnerIds : [],
+      location: input.location,
       language,
     }),
   );

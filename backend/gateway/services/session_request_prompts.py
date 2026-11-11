@@ -49,6 +49,7 @@ def build_request_generation_prompt(
     sensitive: bool = False,
     desires: Sequence[SensitiveDesire] | None = None,
     motive: str = "self",
+    target_body: str | None = None,
 ) -> tuple[str, str]:
     """依頼生成の (system, user) を返す。
 
@@ -127,6 +128,11 @@ Keep everything consistent with the character's personality and background. {con
             for desire in desires
         ]
         payload["motive"] = motive
+    if target_body in ("female", "male"):
+        # 願う体は Python が決める(サロンの来客の種類)。TSF への態度は願いの言い方にだけ効かせる
+        payload["target_body"] = target_body
+        system += f"""
+target_body is given: the look the wish asks for has a {target_body} body. When it differs from the character's gender (man matches male, woman matches female), the wish clearly asks to be turned into the other sex, in the character's own words; when it is the same, the character stays their own sex in an ideal look. Let tsf_attitude shape only how they say it."""
     if previous_visit:
         system += """
 previous_visit is given: on that visit the character was styled into current_look, loved it, and came back still in it (current_look may differ from the character's original sex; gender is the original one). Make the wish an additional request that builds on current_look, such as taking it further or adding something new, and never a request to undo it. The wish may refer to the last visit."""

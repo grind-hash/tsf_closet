@@ -263,6 +263,10 @@ export const hakoniwa = {
       "{{pairs}}はいま男性の体どうしのため、この組の恋愛・性的な場面は描きません（TSで女性の体になった住民は対象外です）。",
     pairJoin: "と",
     listJoin: "、",
+    locationLabel: "場所",
+    locationAuto: "おまかせ",
+    locationNote:
+      "おまかせでは、指示に合う場所を選びます。リビング・庭・書斎なら住民はそこへ移り、ほかの場所は場面の絵の背景になります。",
     runEvent: "出来事を起こす",
     runningEvent: "場面を生成しています…",
     avatarHeading: "姿の生成",
@@ -603,6 +607,7 @@ export const hakoniwa = {
     event_room_empty: "同じ部屋にほかの住民がいません。",
     event_generation_failed:
       "出来事を生成できませんでした。指示の文を変えてお試しください。",
+    invalid_location: "出来事の場所の指定が正しくありません。",
     world_not_found: "世界が見つかりません。",
     resident_not_found: "住民が見つかりません。",
     too_few_residents: "住民は2人以上必要です。",

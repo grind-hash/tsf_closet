@@ -61,6 +61,8 @@ function run(overrides: Partial<SalonRun>): SalonRun {
     season_start_cash: 2_000_000,
     seasons: [],
     sensitive: false,
+    customer_gender: "any",
+    desired_body: "any",
     extra_turn_price: 50_000,
     extra_turns_max: 1,
     weekly_fixed_cost: 300_000,

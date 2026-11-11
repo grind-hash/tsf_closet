@@ -173,6 +173,124 @@ HAKONIWA_AREA_MAP: dict[str, dict[str, Any]] = {
     area["id"]: area for area in HAKONIWA_AREAS
 }
 
+# 出来事の場所(場面の絵の背景)。住民がいる3つのエリアに加えて、エリアの外の場所を持つ。
+# エリアの外の場所は場面の絵と年代記の表示だけに使い、住民の居場所(current_area)は変えない。
+HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
+    {
+        "id": "bathroom",
+        "name": {"ja": "浴室", "en": "Bathroom"},
+        "scene": (
+            "The bathroom of Stardust House: a tiled room with a bathtub and a "
+            "shower, steam and warm light."
+        ),
+        "scene_tags": (
+            "bathroom interior, tiled walls, bathtub, shower, steam, warm light, "
+            "scenery, anime background"
+        ),
+    },
+    {
+        "id": "bedroom",
+        "name": {"ja": "寝室", "en": "Bedroom"},
+        "scene": (
+            "A resident's private bedroom at Stardust House: a bed, curtains and soft "
+            "lamp light."
+        ),
+        "scene_tags": (
+            "bedroom interior, bed, pillows, curtains, soft lamp light, scenery, "
+            "anime background"
+        ),
+    },
+    {
+        "id": "kitchen",
+        "name": {"ja": "台所", "en": "Kitchen"},
+        "scene": (
+            "The shared kitchen of Stardust House: counters, a stove and a small "
+            "dining table."
+        ),
+        "scene_tags": (
+            "kitchen interior, kitchen counter, stove, small dining table, warm light, "
+            "scenery, anime background"
+        ),
+    },
+    {
+        "id": "shopping_street",
+        "name": {"ja": "商店街", "en": "Shopping street"},
+        "scene": (
+            "The little shopping street near Stardust House: small shops, signboards "
+            "and people passing by."
+        ),
+        "scene_tags": (
+            "shopping street, shopfronts, signboards, daytime, outdoors, scenery, "
+            "anime background"
+        ),
+    },
+    {
+        "id": "cafe",
+        "name": {"ja": "カフェ", "en": "Cafe"},
+        "scene": (
+            "The cafe in the neighborhood: wooden tables, a counter and large windows."
+        ),
+        "scene_tags": (
+            "cafe interior, wooden tables, counter, large windows, warm light, "
+            "scenery, anime background"
+        ),
+    },
+    {
+        "id": "park",
+        "name": {"ja": "公園", "en": "Park"},
+        "scene": "A park near Stardust House: trees, benches, a path and open grass.",
+        "scene_tags": (
+            "park, trees, bench, path, grass, blue sky, outdoors, scenery, "
+            "anime background"
+        ),
+    },
+    {
+        "id": "beach",
+        "name": {"ja": "海辺", "en": "Beach"},
+        "scene": "A beach a short train ride away: sand, waves and a wide sky.",
+        "scene_tags": (
+            "beach, sand, ocean, waves, blue sky, outdoors, scenery, anime background"
+        ),
+    },
+]
+HAKONIWA_LOCATIONS: list[dict[str, Any]] = [*HAKONIWA_AREAS, *HAKONIWA_EXTRA_LOCATIONS]
+HAKONIWA_LOCATION_MAP: dict[str, dict[str, Any]] = {
+    location["id"]: location for location in HAKONIWA_LOCATIONS
+}
+
+
+# 場面の絵だけで変える服装(住民の姿・立ち絵は変えない)。体の性別ごとのタグ。
+# as_is はいまの服のまま。nude は NSFW モードが OFF なら towel にする
+HAKONIWA_SCENE_ATTIRES: dict[str, dict[str, str]] = {
+    "as_is": {"female": "", "male": ""},
+    "nude": {"female": "nude, completely nude", "male": "nude, completely nude"},
+    "towel": {
+        "female": "naked towel, bath towel",
+        "male": "towel around waist, topless male",
+    },
+    "swimsuit": {"female": "swimsuit, bikini", "male": "swim trunks, topless male"},
+    "underwear": {
+        "female": "underwear only, bra, panties",
+        "male": "underwear only, boxer briefs, topless male",
+    },
+    "pajamas": {"female": "pajamas", "male": "pajamas"},
+}
+# 裸以外の服装に選ばれた人物のネガティブ。NSFW の場面では水や濡れのタグで裸に寄るため
+HAKONIWA_SCENE_COVERED_NEGATIVE: dict[str, str] = {
+    "female": "nude, completely nude, nipples, topless",
+    "male": "nude, completely nude, penis",
+}
+
+
+def event_location(event: dict[str, Any]) -> dict[str, Any]:
+    """出来事の場所(location があればそれ、無ければ起きたエリア)。"""
+    return (
+        HAKONIWA_LOCATION_MAP.get(str(event.get("location") or ""))
+        or HAKONIWA_AREA_MAP.get(str(event.get("area") or ""))
+        or HAKONIWA_AREA_MAP[DEFAULT_AREA_ID]
+    )
+
+
 HAKONIWA_FURNITURE: list[dict[str, Any]] = [
     {
         "id": "houseplant",

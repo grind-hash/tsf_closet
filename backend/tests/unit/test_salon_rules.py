@@ -17,6 +17,7 @@ from gateway.services.salon_rules import (
     bookings_count,
     clamp_reputation,
     declined_reputation_delta,
+    filter_customers,
     keeps_look,
     normalize_season_length,
     pick_customers,
@@ -260,3 +261,15 @@ def test_salon_achievement_conditions() -> None:
     stats.salon_best_profit = 1_999_999
     assert check_achievement(ACHIEVEMENTS["salon_profit_100"], stats)
     assert not check_achievement(ACHIEVEMENTS["salon_profit_200"], stats)
+
+
+def test_filter_customers_by_gender() -> None:
+    pool = [
+        Customer("template", "a", "A", "man"),
+        Customer("template", "b", "B", "woman"),
+        Customer("custom", "c", "C", "other"),
+    ]
+
+    assert [item.id for item in filter_customers(pool, "man")] == ["a"]
+    assert [item.id for item in filter_customers(pool, "woman")] == ["b"]
+    assert [item.id for item in filter_customers(pool, "any")] == ["a", "b", "c"]

@@ -23,16 +23,17 @@ from sqlalchemy import select
 from ..consts.hakoniwa import (
     DEFAULT_AREA_ID,
     DEFAULT_BASE_TAGS,
-    HAKONIWA_AREA_MAP,
     HAKONIWA_AREAS,
     HAKONIWA_FURNITURE,
     HAKONIWA_IMAGE_MODEL_DEFAULT,
+    HAKONIWA_LOCATIONS,
     HAKONIWA_PRESET_MAP,
     HAKONIWA_PRESET_RESIDENTS,
     HAKONIWA_ROOM_BACKGROUND_URL,
     HAKONIWA_RULE_CARDS,
     HAKONIWA_WORLD_NAME_MAX,
     area_background_url,
+    event_location,
     furniture_url,
     preset_bundled_avatar_url,
 )
@@ -421,6 +422,13 @@ def _world_view(
         ],
         "events": [_event_view(world.id, event, language) for event in state["events"]],
         "areas": _areas_view(state, language),
+        "locations": [
+            {
+                "id": location["id"],
+                "name": location["name"]["ja" if language == "ja" else "en"],
+            }
+            for location in HAKONIWA_LOCATIONS
+        ],
         "last_digest": state.get("last_digest"),
         "dissonance": _dissonance_view(state),
         "story_arcs": _arcs_view(state),
@@ -1766,13 +1774,16 @@ class HakoniwaService:
         scope: str,
         partner_ids: list[str] | None = None,
         language: str | None = None,
+        location: str | None = None,
     ) -> dict[str, Any]:
         """書き手の指示で、住民のいまの姿のまま出来事を1件起こして年代記に積む。
 
-        場所は本人のいる部屋で、ほかの参加者はそこへ集まる。書き手が直接手を下すので、
+        場所は location(空なら内容に合う場所を生成が選ぶ)。エリアなら参加者はそこへ、
+        エリアの外の場所なら本人のいる部屋へ集まる扱いにする。書き手が直接手を下すので、
         世界の違和感も溜める(到達点に達したら対面の出来事が続く)。
         """
         text = logic.validate_event_instruction(instruction)
+        location_id = logic.validate_event_location(location)
         lang, user_settings = await self._context(language)
         rng = random.Random()
         async with self._world_locks[world_id]:
@@ -1791,6 +1802,7 @@ class HakoniwaService:
                 novelai_model=user_settings.get("novelai_text_model"),
                 nsfw=bool(user_settings.get("nsfw_mode")),
                 area_id=area_id,
+                location_id=location_id,
             )
             event.update({"source": "player", "kind": "directed", "instruction": text})
             state = logic.apply_event(state, event, rng)
@@ -2034,17 +2046,22 @@ class HakoniwaService:
                 resident["id"]: logic.resident_name(resident, lang)
                 for resident in state["residents"]
             }
-            area = (
-                HAKONIWA_AREA_MAP.get(str(event.get("area") or ""))
-                or (HAKONIWA_AREA_MAP[DEFAULT_AREA_ID])
-            )
-            scene_tags = await convert_scene_to_tags(
+            nsfw = bool(user_settings.get("nsfw_mode"))
+            scene = await convert_scene_to_tags(
                 event,
                 names,
-                area["scene"],
+                event_location(event)["scene"],
                 novelai_model=user_settings.get("novelai_text_model"),
+                nsfw=nsfw,
             )
-            request = scene_request(state, event, scene_tags or "")
+            # 服装は場面の絵だけで変える(浴室なら裸・タオルなど)。住民の姿は変えない
+            request = scene_request(
+                state,
+                event,
+                scene.tags if scene else "",
+                scene.attire if scene else None,
+                nsfw=nsfw,
+            )
             try:
                 data = await generate_scene_bytes(
                     request,

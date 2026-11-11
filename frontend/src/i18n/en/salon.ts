@@ -295,6 +295,19 @@ export const salon = {
     notFound: "This booking was not found",
     closed: "This visit is already over",
   },
+  customerType: {
+    genderLabel: "Customers",
+    gender: { any: "Everyone", man: "Men", woman: "Women" },
+    bodyLabel: "Body they wish for",
+    body: { any: "Auto", female: "Female", male: "Male" },
+    count: "Matching customers: {{count}}",
+    countZero:
+      "No customer matches, so no bookings will come in. Add characters on the Characters screen or choose another option.",
+    bodyHint:
+      "Set Customers to Men and Body they wish for to Female to get only men who want to become women. With Auto, it follows how each customer feels about TSF.",
+    officeTiming:
+      "The customer setting applies from next week's bookings, and the body from the next customer you serve. Regulars who kept their look ask for more in their current look.",
+  },
   bgm: {
     settings: "Sound settings",
     enable: "Play BGM",

@@ -92,10 +92,16 @@ def portrait_png_bytes(path: Path) -> bytes:
 
 
 async def list_salon_preset_customers(db: AsyncSession) -> list[dict[str, Any]]:
-    """サロンに来店するキャラクター(来店する設定で、立ち絵があるもの)の id と名前。"""
+    """サロンに来店するキャラクター(来店する設定で、立ち絵があるもの)の id・名前・性別。"""
     presets = await fetch_character_presets(db)
     return [
-        {"id": preset.id, "name": preset.name}
+        {
+            "id": preset.id,
+            "name": preset.name,
+            "gender": normalize_gender(
+                normalize_character_profile(record_profile(preset) or {})["gender"]
+            ),
+        }
         for preset in presets
         if preset.salon_enabled and preset_portrait_file(preset) is not None
     ]

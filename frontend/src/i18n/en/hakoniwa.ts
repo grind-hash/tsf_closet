@@ -263,6 +263,10 @@ export const hakoniwa = {
       "{{pairs}} both have male bodies right now, so no romantic or sexual scene is written between them (residents now in a female body through TS are not affected).",
     pairJoin: " and ",
     listJoin: ", ",
+    locationLabel: "Place",
+    locationAuto: "Auto",
+    locationNote:
+      "Auto picks a place that fits the order. The living room, garden and study move the residents there; other places become the background of the scene picture.",
     runEvent: "Start the event",
     runningEvent: "Generating the scene…",
     avatarHeading: "Generate a look",
@@ -613,6 +617,7 @@ export const hakoniwa = {
     event_room_empty: "No other resident is in the same room.",
     event_generation_failed:
       "The event could not be generated. Try rewording the order.",
+    invalid_location: "The place of the event is not valid.",
     world_not_found: "World not found.",
     resident_not_found: "Resident not found.",
     too_few_residents: "A world needs at least 2 residents.",

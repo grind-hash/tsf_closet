@@ -11,6 +11,7 @@ import json
 import logging
 import random
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
@@ -29,6 +30,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_RECENT_EVENTS_CONTEXT,
     HAKONIWA_RESIDENT_NAME_MAX,
     HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT,
+    HAKONIWA_SCENE_ATTIRES,
     HAKONIWA_TAGS_MAX_COUNT,
     HAKONIWA_TAGS_MAX_LENGTH,
     HAKONIWA_TEMPLATES,
@@ -55,6 +57,7 @@ from .hakoniwa_logic import (
     is_male_in_feminine_form,
     resident_name,
     resident_text,
+    settle_event_location,
     tags_gender,
 )
 from .hakoniwa_prompts import (
@@ -122,6 +125,8 @@ class EventOutput(BaseModel):
     narration: str = Field(min_length=10)
     lines: list[_Line] = Field(min_length=1, max_length=HAKONIWA_EVENT_LINES_MAX)
     participants: list[str] | None = None
+    # 出来事の場所の id。一覧に無ければ Python が無視して起きたエリアにする
+    location: Any = None
     mood_delta: dict[str, Any] = Field(default_factory=dict)
     affinity_delta: Any = 0
 
@@ -354,8 +359,7 @@ async def generate_event(
                 context={"names": names},
             )
             event = _event_from_output(output, group, language)
-            event["area"] = area_id
-            return event
+            return settle_event_location(event, area_id, output.location)
         except Exception as error:
             logger.warning(
                 "Hakoniwa event generation failed: %s: %s", type(error).__name__, error
@@ -374,8 +378,11 @@ async def generate_directed_event(
     novelai_model: str | None,
     nsfw: bool,
     area_id: str | None,
+    location_id: str | None = None,
 ) -> dict[str, Any]:
     """書き手が指示した出来事を1件生成する。
+
+    location_id はプレイヤーが決めた場所(無ければ内容に合う場所を生成が選ぶ)。
 
     指示を無視した場面を積まないよう、定型の出来事には落とさない。検証に落ちたら指示を
     再掲してもう一度だけ生成し、それも落ちたら event_generation_failed を投げる。
@@ -392,6 +399,7 @@ async def generate_directed_event(
         area_id=area_id,
         include_theme=False,
         directed_instruction=instruction,
+        location_id=location_id,
     )
 
     async def generate(system: str, user: str) -> str:
@@ -417,8 +425,7 @@ async def generate_directed_event(
             )
             continue
         event = _event_from_output(output, group, language)
-        event["area"] = area_id
-        return event
+        return settle_event_location(event, area_id, location_id or output.location)
     raise HakoniwaError(
         "event_generation_failed",
         "出来事を生成できませんでした。指示の文を変えてお試しください",
@@ -713,28 +720,64 @@ async def generate_confrontation_event(
 SCENE_TAGS_MAX_COUNT = 12
 
 
+class _SceneTagsOutput(BaseModel):
+    tags: str = Field(min_length=1)
+    attire: dict[str, Any] = Field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SceneTags:
+    """場面の絵の動作・構図のタグと、住民 id ごとのその場面での服装。"""
+
+    tags: str
+    attire: dict[str, str]
+
+
 async def convert_scene_to_tags(
     event: dict[str, Any],
     names: dict[str, str],
     area_label: str,
     *,
     novelai_model: str | None,
-) -> str | None:
-    """出来事の山場の動作・表情・構図のタグを作る。失敗したら None(呼び出し側が定型にする)。"""
-    system_prompt, user_prompt = scene_tags_prompts(event, names, area_label)
+    nsfw: bool = False,
+) -> SceneTags | None:
+    """出来事の山場の動作・表情・構図のタグと、参加者ごとの場面の服装を作る。
+
+    失敗したら None(呼び出し側が定型のタグ・いまの服にする)。服装は一覧にある id だけを残す。
+    """
+    system_prompt, user_prompt = scene_tags_prompts(event, names, area_label, nsfw=nsfw)
+
+    async def generate(system: str, user: str) -> str:
+        return await _generate_text(
+            system, user, novelai_model=novelai_model, max_tokens=400
+        )
+
     try:
-        raw = await _generate_text(
-            system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=400
+        output = await generate_validated(
+            _SceneTagsOutput,
+            generate=generate,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
         )
     except Exception as error:
         logger.warning(
             "Hakoniwa scene tags failed: %s: %s", type(error).__name__, error
         )
         return None
-    tags = clean_tags(raw)
+    tags = clean_tags(output.tags)
     if not tags:
         return None
-    return ", ".join(tags.split(", ")[:SCENE_TAGS_MAX_COUNT])
+    id_by_name = {
+        _norm_name(names.get(str(resident_id), "")): str(resident_id)
+        for resident_id in event.get("participants") or []
+    }
+    attire = {
+        id_by_name[_norm_name(name)]: str(value).strip()
+        for name, value in output.attire.items()
+        if _norm_name(name) in id_by_name
+        and str(value).strip() in HAKONIWA_SCENE_ATTIRES
+    }
+    return SceneTags(", ".join(tags.split(", ")[:SCENE_TAGS_MAX_COUNT]), attire)
 
 
 # --- タッチ ---

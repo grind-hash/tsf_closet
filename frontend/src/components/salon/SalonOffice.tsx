@@ -25,6 +25,7 @@ import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import SalonBgmControl from "./SalonBgmControl";
 import SalonCashChart from "./SalonCashChart";
+import SalonCustomerTypeFields from "./SalonCustomerTypeFields";
 import SalonCutscene from "./SalonCutscene";
 
 /** 開業・週の締めの演出の設定。端末ごとの好みなのでブラウザに保存する */
@@ -254,6 +255,15 @@ export default function SalonOffice({ runId }: { runId: string }) {
               />
               <span className="salon-toggle__switch" aria-hidden />
             </label>
+            <SalonCustomerTypeFields
+              variant="office"
+              value={{
+                customer_gender: run.customer_gender,
+                desired_body: run.desired_body,
+              }}
+              disabled={busy !== null}
+              onChange={(change) => void updateRunSettings(change)}
+            />
             <div className="salon-office__setting">
               <span className="salon-toggle__info">
                 <strong id={cutsceneLabelId}>

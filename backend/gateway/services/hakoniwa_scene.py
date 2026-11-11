@@ -10,7 +10,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..consts.hakoniwa import DEFAULT_AREA_ID, HAKONIWA_AREA_MAP
+from ..consts.hakoniwa import (
+    HAKONIWA_SCENE_ATTIRES,
+    HAKONIWA_SCENE_COVERED_NEGATIVE,
+    event_location,
+)
 from .hakoniwa_logic import (
     ensure_gender_token,
     find_resident,
@@ -129,6 +133,45 @@ def look_tags(state: dict[str, Any], resident: dict[str, Any]) -> str:
     return ensure_gender_token(tags, resident_gender(owner))
 
 
+# 場面の服装に着替えさせるとき外す、服・靴・帽子・持ち物のタグ。髪・体・眼鏡などは残す。
+# 合成語(sundress, swimsuit, underwear)も拾うよう、長い語は前の境界を問わない
+_CLOTHING_TAG = re.compile(
+    r"(?:dress|shirt|skirt|wear|coat|suit|jacket|sweater|uniform|kimono|yukata|"
+    r"apron|hoodie|cardigan|blouse|pants|jeans|shorts|trousers|boots|shoes|"
+    r"sneakers|sandals|heels|socks|stockings|thighhighs|pantyhose|gloves|"
+    r"leotard|lingerie|panties|bikini|pajamas|outfit|costume|clothes|clothing|"
+    r"collar|sleeves?|necktie|scarf|overalls|crossdressing)\b"
+    r"|\b(?:cap|hat|top|bra|tie|vest|belt|beret|holding)\b",
+    re.IGNORECASE,
+)
+
+
+def strip_clothing_tags(tags: str) -> str:
+    """姿のタグから服・靴・帽子・持ち物のタグを外す(場面の服装に差し替えるため)。"""
+    return ", ".join(
+        tag.strip()
+        for tag in str(tags or "").split(",")
+        if tag.strip() and not _CLOTHING_TAG.search(tag)
+    )
+
+
+def dress_for_scene(tags: str, attire: str | None, gender: str, *, nsfw: bool) -> str:
+    """場面の服装(HAKONIWA_SCENE_ATTIRES)に着替えさせたタグ。as_is や不明な値はそのまま。"""
+    if attire == "nude" and not nsfw:
+        attire = "towel"
+    if not attire or attire == "as_is" or attire not in HAKONIWA_SCENE_ATTIRES:
+        return tags
+    worn = HAKONIWA_SCENE_ATTIRES[attire]["male" if gender == "male" else "female"]
+    return ", ".join(part for part in (strip_clothing_tags(tags), worn) if part)
+
+
+def scene_attire_negative(attire: str | None, gender: str, *, nsfw: bool) -> str:
+    """裸以外の服装に選ばれた人物のネガティブ(服を着たまま描かせる)。選ばれていなければ空。"""
+    if attire not in HAKONIWA_SCENE_ATTIRES or (attire == "nude" and nsfw):
+        return ""
+    return HAKONIWA_SCENE_COVERED_NEGATIVE["male" if gender == "male" else "female"]
+
+
 def _strip_solo(tags: str) -> str:
     return ", ".join(
         tag.strip()
@@ -149,12 +192,18 @@ def _count_tokens(genders: list[str]) -> str:
 
 
 def scene_request(
-    state: dict[str, Any], event: dict[str, Any], scene_tags: str
+    state: dict[str, Any],
+    event: dict[str, Any],
+    scene_tags: str,
+    attire: dict[str, str] | None = None,
+    *,
+    nsfw: bool = False,
 ) -> dict[str, Any]:
     """場面絵の生成に渡す土台のプロンプトとキャラクター枠を組み立てる。
 
     戻り値 {prompt, characters, flat_prompt}。characters は NovelAI のキャラクター枠
     (左から順、2人以上は位置を固定)、flat_prompt は NovelAI 以外へ送る1行のプロンプト。
+    attire は住民 id ごとの場面の服装(浴室なら裸・タオルなど)。住民の姿そのものは変えない。
     """
     participants = [
         find_resident(state, resident_id)
@@ -167,16 +216,19 @@ def scene_request(
         tags_gender(item) or resident_gender(resident)
         for item, resident in zip(tags, participants, strict=True)
     ]
-    area = (
-        HAKONIWA_AREA_MAP.get(str(event.get("area") or ""))
-        or HAKONIWA_AREA_MAP[DEFAULT_AREA_ID]
-    )
+    if attire:
+        tags = [
+            dress_for_scene(item, attire.get(resident["id"]), gender, nsfw=nsfw)
+            for item, resident, gender in zip(tags, participants, genders, strict=True)
+        ]
+    # 背景は出来事の場所(浴室・商店街など)。無ければ起きたエリア
+    place = event_location(event)
     scene = scene_tags.strip() or SCENE_TAGS_FALLBACK
     prompt = ", ".join(
         part
         for part in (
             _count_tokens(genders),
-            area["scene_tags"],
+            place["scene_tags"],
             scene,
             "cinematic composition",
         )
@@ -187,7 +239,18 @@ def scene_request(
     for index, own in enumerate(tags):
         others = [item for other, item in enumerate(tags) if other != index]
         frame: dict[str, Any] = {"prompt": own, "position": positions[index]}
-        negative = cross_identity_negative(own, others) if others else ""
+        negative = ", ".join(
+            part
+            for part in (
+                cross_identity_negative(own, others) if others else "",
+                scene_attire_negative(
+                    (attire or {}).get(participants[index]["id"]),
+                    genders[index],
+                    nsfw=nsfw,
+                ),
+            )
+            if part
+        )
         if negative:
             frame["negative_prompt"] = negative
         if len(participants) >= 2:

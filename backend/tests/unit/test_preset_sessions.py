@@ -201,7 +201,8 @@ async def test_salon_customers_need_a_portrait_and_the_visit_setting(
     async with isolated_db.async_factory() as db:
         customers = await list_salon_preset_customers(db)
 
-    assert customers == [{"id": "a", "name": "アオイ"}]
+    # 来客の種類(お客様の性別)で絞れるよう、性別も返す
+    assert customers == [{"id": "a", "name": "アオイ", "gender": "man"}]
 
 
 async def test_upload_portrait_stores_the_image_as_a_source_portrait(

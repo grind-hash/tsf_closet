@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { HakoniwaEvent } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import HakoniwaDigest from "./HakoniwaDigest";
 import { arcTitle } from "./hakoniwaLabels";
@@ -29,8 +30,11 @@ export default function HakoniwaChronicle() {
 
   if (!world) return null;
   const nameOf = (id: string) => names[id] ?? "?";
-  const areaName = (id: string) =>
-    world.areas.find((area) => area.id === id)?.name ?? "";
+  // エリアの外で起きた出来事は、その場所(浴室・商店街など)を出す
+  const placeName = (event: HakoniwaEvent) =>
+    (event.location &&
+      world.locations.find((item) => item.id === event.location)?.name) ||
+    (world.areas.find((area) => area.id === event.area)?.name ?? "");
   const arcName = (id: string) => {
     const arc = world.story_arcs.find((item) => item.id === id);
     return arc ? arcTitle(t, arc.kind, arc.resident_ids, nameOf) : "";
@@ -113,7 +117,7 @@ export default function HakoniwaChronicle() {
                   names: event.participants.map(nameOf).join("・"),
                 })}
                 <span className="hakoniwa-event__place">
-                  {areaName(event.area)}
+                  {placeName(event)}
                 </span>
               </p>
               {event.arc_id && (

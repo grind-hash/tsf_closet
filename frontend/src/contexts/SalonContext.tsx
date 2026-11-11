@@ -24,8 +24,10 @@ import {
   fetchSalonRuns,
   type SalonAchievementUnlocked,
   type SalonCloseWeek,
+  type SalonCustomerType,
   type SalonDifficulty,
   type SalonRun,
+  type SalonRunSettings,
   type SalonSeasonLength,
   type SalonVisit,
   type SalonVisitStart,
@@ -66,17 +68,18 @@ interface SalonContextValue {
   openRun: (runId: string) => Promise<SalonRun | null>;
   /**
    * 開店する。sensitive は過激施術の初期値(開店後もオーナー室で切り替えられる)、
-   * seasonLength は 1 期の長さ
+   * seasonLength は 1 期の長さ、customerType は来客の種類
    */
   createRun: (
     name: string,
     difficulty: SalonDifficulty,
     sensitive: boolean,
     seasonLength: SalonSeasonLength,
+    customerType: SalonCustomerType,
   ) => Promise<SalonRun | null>;
   deleteRun: (runId: string) => Promise<void>;
-  /** 開いているサロンの設定(過激施術)を変える */
-  updateRunSettings: (settings: { sensitive: boolean }) => Promise<void>;
+  /** 開いているサロンの設定(過激施術・来客の種類)を変える */
+  updateRunSettings: (settings: SalonRunSettings) => Promise<void>;
   declineVisit: (visitId: string) => Promise<void>;
   /** 接客を始めてまだ施術していないお客様にお帰りいただく。成功したら true */
   sendHomeVisit: (visitId: string) => Promise<boolean>;
@@ -162,6 +165,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
       difficulty: SalonDifficulty,
       sensitive: boolean,
       seasonLength: SalonSeasonLength,
+      customerType: SalonCustomerType,
     ) =>
       run("create", async () => {
         const created = await createSalonRun(
@@ -169,6 +173,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
           difficulty,
           sensitive,
           seasonLength,
+          customerType,
         );
         setRuns((current) => [created, ...current]);
         setActiveRun(created);
@@ -189,7 +194,7 @@ export function SalonProvider({ children }: { children: ReactNode }) {
   );
 
   const updateRunSettings = useCallback(
-    async (settings: { sensitive: boolean }) => {
+    async (settings: SalonRunSettings) => {
       if (!activeRun) return;
       const updated = await run("settings", () =>
         updateSalonRunSettings(activeRun.id, settings),

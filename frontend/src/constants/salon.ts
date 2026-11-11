@@ -3,7 +3,29 @@
  * 開店後の数値はサロンの応答(initial_cash・weekly_fixed_cost など)を使う。
  */
 
-import type { SalonDifficulty, SalonSeasonLength } from "../apis/salon";
+import type {
+  SalonCustomerGender,
+  SalonCustomerType,
+  SalonDesiredBody,
+  SalonDifficulty,
+  SalonSeasonLength,
+} from "../apis/salon";
+
+/** 来客の種類: お客様の性別と願う体の選択肢 */
+export const SALON_CUSTOMER_GENDERS: readonly SalonCustomerGender[] = [
+  "any",
+  "man",
+  "woman",
+];
+export const SALON_DESIRED_BODIES: readonly SalonDesiredBody[] = [
+  "any",
+  "female",
+  "male",
+];
+export const SALON_DEFAULT_CUSTOMER_TYPE: SalonCustomerType = {
+  customer_gender: "any",
+  desired_body: "any",
+};
 
 export const SALON_DIFFICULTIES: readonly SalonDifficulty[] = [
   "easy",

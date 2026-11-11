@@ -160,6 +160,7 @@ export const HAKONIWA_ERROR_CODES = [
   "event_too_many_partners",
   "event_room_empty",
   "event_generation_failed",
+  "invalid_location",
 ] as const;
 type HakoniwaErrorCode = (typeof HAKONIWA_ERROR_CODES)[number];
 

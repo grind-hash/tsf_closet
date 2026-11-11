@@ -54,6 +54,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_FURNITURE_MAP,
     HAKONIWA_FURNITURE_SLOTS,
     HAKONIWA_IMAGE_MODEL_DEFAULT,
+    HAKONIWA_LOCATION_MAP,
     HAKONIWA_MAX_ACTIVE_RULES,
     HAKONIWA_MAX_RESIDENTS,
     HAKONIWA_MIN_RESIDENTS,
@@ -85,6 +86,7 @@ EVENT_EXTRA_KEYS = (
     "kind",
     "change_text",
     "instruction",
+    "location",
     "scene_image",
     "arc_id",
     "arc_climax",
@@ -1645,6 +1647,33 @@ def directed_event_cast(
             f"一緒に出る住民は{HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX}人までです",
         )
     return (target, *chosen)
+
+
+def validate_event_location(location: Any) -> str | None:
+    """指示した出来事の場所。空ならおまかせ(None)。"""
+    text = str(location or "").strip()
+    if not text:
+        return None
+    if text not in HAKONIWA_LOCATION_MAP:
+        raise HakoniwaError("invalid_location", "出来事の場所が正しくありません")
+    return text
+
+
+def settle_event_location(
+    event: dict[str, Any], area_id: str | None, location: Any
+) -> dict[str, Any]:
+    """出来事の場所を決める。3つのエリアならそこで起き(参加者もそこへ移る)、
+    エリアの外の場所なら area はそのままで location に残す。"""
+    settled = {**event}
+    settled.pop("location", None)
+    place = str(location or "")
+    if place in HAKONIWA_AREA_MAP:
+        settled["area"] = place
+    else:
+        settled["area"] = area_id
+        if place in HAKONIWA_LOCATION_MAP:
+            settled["location"] = place
+    return settled
 
 
 def male_body_pairs(

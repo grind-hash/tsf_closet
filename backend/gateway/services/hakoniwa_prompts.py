@@ -15,11 +15,14 @@ from ..consts.hakoniwa import (
     HAKONIWA_CUSTOM_RULE_PROMPT_MAX,
     HAKONIWA_EVENT_LINES_RANGE,
     HAKONIWA_FURNITURE_MAP,
+    HAKONIWA_LOCATION_MAP,
+    HAKONIWA_LOCATIONS,
     HAKONIWA_PERSONALITY_PROMPT_MAX,
     HAKONIWA_RECENT_EVENTS_CONTEXT,
     HAKONIWA_RECENT_NARRATION_SNIPPET,
     HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT,
     HAKONIWA_RULE_MAP,
+    HAKONIWA_SCENE_ATTIRES,
     HAKONIWA_TAGS_MAX_COUNT,
     HAKONIWA_TRANSFORM_DESC_PROMPT_MAX,
     RULE_PRIORITY_NOTE,
@@ -700,6 +703,7 @@ def _event_schema(group: tuple[dict[str, Any], ...], language: str) -> str:
         '"narration": "narration without any dialogue, 2-3 sentences", '
         '"lines": [{"speaker": "name of the speaking resident", "text": "one line of dialogue"}], '
         f'"participants": [{participants}], '
+        '"location": "id of the place where it happens (see Place)", '
         f'"mood_delta": {{{moods}}}{affinity}}}\n'
         f"Write {lo}-{hi} lines."
     )
@@ -761,9 +765,13 @@ def area_name(area_id: str | None, language: str) -> str:
 
 
 def place_text(state: dict[str, Any], area_id: str | None) -> str:
-    """出来事の場所の情景と、そこに置かれた家具(場面に合えば顔を出す程度)。"""
+    """出来事の場所の情景と、そこに置かれた家具(場面に合えば顔を出す程度)。
+
+    area_id はエリアのほか、エリアの外の場所(浴室・商店街など)の id でもよい。
+    """
     area = (
-        HAKONIWA_AREA_MAP.get(str(area_id or "")) or HAKONIWA_AREA_MAP[DEFAULT_AREA_ID]
+        HAKONIWA_LOCATION_MAP.get(str(area_id or ""))
+        or HAKONIWA_AREA_MAP[DEFAULT_AREA_ID]
     )
     text = f"Place: {area['scene']}"
     layout = (state.get("furniture_layout") or {}).get(area["id"]) or []
@@ -783,6 +791,32 @@ def place_text(state: dict[str, Any], area_id: str | None) -> str:
     )
 
 
+def location_choice_text(place_id: str, *, fixed: bool, directed: bool) -> str:
+    """出来事の場所(location)の選び方。fixed ならプレイヤーが決めた場所のまま。"""
+    if fixed:
+        return f'\nSet "location" to "{place_id}".'
+    options = "; ".join(
+        f"{location['id']}: {location['scene']}"
+        for location in HAKONIWA_LOCATIONS
+        if location["id"] != place_id
+    )
+    if directed:
+        return (
+            '\nSet "location" to the id of the place where the ordered scene takes '
+            "place. When the order names or implies a place (a bath or shower, "
+            "shopping, a cafe, the beach and so on), use that place and set the scene "
+            "there; an order to go somewhere takes place at the destination, not while "
+            f'getting ready to leave. Otherwise use "{place_id}" (the place above). '
+            f"The other places: {options}."
+        )
+    return (
+        f'\nUsually set "location" to "{place_id}" (the place above). Only when '
+        "the event clearly happens somewhere else (for example taking a shower or "
+        "going shopping), set it to one of these ids instead and set the scene "
+        f"there: {options}."
+    )
+
+
 def event_user_prompt(
     state: dict[str, Any],
     group: tuple[dict[str, Any], ...],
@@ -797,10 +831,12 @@ def event_user_prompt(
     intervention: str | None = None,
     include_theme: bool = True,
     directed_instruction: str | None = None,
+    location_id: str | None = None,
 ) -> str:
     """出来事の生成の指示。include_theme は自由文の実験テーマを載せるか(1日1件に絞る)。
 
     directed_instruction は書き手が指示して起こす出来事の指示文。あれば最優先の焦点にする。
+    location_id はプレイヤーが決めた場所。無ければ area_id を既定に、内容に合う場所を選ばせる。
     """
     names = [resident_name(resident, language) for resident in group]
     if len(group) == 1:
@@ -836,10 +872,15 @@ def event_user_prompt(
             "Avoid topics and developments similar to the recent events, and make the "
             "event feel like part of their accumulating relationship."
         )
+    fixed = location_id if location_id in HAKONIWA_LOCATION_MAP else None
+    place_id = fixed or (area_id if area_id in HAKONIWA_AREA_MAP else DEFAULT_AREA_ID)
+    place = place_text(state, place_id) + location_choice_text(
+        place_id, fixed=fixed is not None, directed=bool(directed_instruction)
+    )
     return (
         f"Today is day {state['day']} at Stardust House.\n"
         f"{lead}\n"
-        f"{place_text(state, area_id)}"
+        f"{place}"
         f"{story_text.dissonance_context_text(state)}\n\n"
         f"World rules:\n{active_rules_text(state, language)}\n\n"
         f"Residents:\n{residents_text(state, language)}\n\n"
@@ -1245,18 +1286,34 @@ def confrontation_prompts(
 
 
 def scene_tags_prompts(
-    event: dict[str, Any], names: dict[str, str], area_label: str
+    event: dict[str, Any], names: dict[str, str], area_label: str, *, nsfw: bool = False
 ) -> tuple[str, str]:
-    """出来事の山場を1枚の絵にするための、動作・表情・構図のタグを作らせる。"""
+    """出来事の山場を1枚の絵にするための、動作・表情・構図のタグと、参加者ごとの
+    その場面での服装(HAKONIWA_SCENE_ATTIRES の id)を作らせる。"""
+    cast = [
+        names.get(str(resident_id), "?")
+        for resident_id in event.get("participants") or []
+    ]
+    options = [attire for attire in HAKONIWA_SCENE_ATTIRES if nsfw or attire != "nude"]
+    undressed = (
+        "bathing or showering: nude or towel; undressing or sex: nude or underwear"
+        if nsfw
+        else "bathing or showering: towel; undressing: underwear"
+    )
+    attire_shape = ", ".join(f'"{name}": "one of the attire ids"' for name in cast)
     system_prompt = (
         "You design tags for image generation. You are given an event from a "
-        "miniature-world story. Pick the climactic moment of the event and output "
-        "English Danbooru-style tags that describe only actions, facial expressions, "
-        "the relationship between the characters, composition, lighting and mood. "
-        "Do not include tags for appearance, hair, eyes, clothing, gender or the "
-        "number of people.\n"
-        "Output at most 12 tags, comma-separated, on a single line. No explanation, "
-        "preface or code fence."
+        "miniature-world story. Pick the climactic moment of the event.\n"
+        "tags: English Danbooru-style tags that describe only actions, facial "
+        "expressions, the relationship between the characters, composition, "
+        "lighting and mood, at most 12, comma-separated. Do not include tags for "
+        "appearance, hair, eyes, clothing, gender or the number of people.\n"
+        "attire: for each character, what they are wearing at that moment, as one "
+        f"of these ids: {', '.join(options)}. as_is means their usual clothes; "
+        "choose it unless the event clearly has them undressed or changed "
+        f"({undressed}; a beach or a pool: swimsuit; bedtime: pajamas).\n"
+        "Output only one JSON object in this format, with no preface or code fence:\n"
+        f'{{"tags": "tag, tag, ...", "attire": {{{attire_shape}}}}}'
     )
     lines = "\n".join(
         f"{names.get(str(line.get('speaker')), '?')}: {line.get('text', '')}"

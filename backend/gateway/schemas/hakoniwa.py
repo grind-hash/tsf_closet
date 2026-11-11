@@ -230,6 +230,9 @@ class HakoniwaDirectedEventRequest(HakoniwaLanguageRequest):
         max_length=HAKONIWA_DIRECTED_EVENT_PARTNERS_MAX,
         description="selected のときに一緒に出る住民の id",
     )
+    location: str | None = Field(
+        None, max_length=40, description="出来事の場所の id(空ならおまかせ)"
+    )
 
 
 class HakoniwaReapplyRequest(HakoniwaLanguageRequest):
@@ -270,6 +273,9 @@ class HakoniwaEvent(BaseModel):
     change_text: str | None = None
     instruction: str | None = Field(
         None, description="書き手が指示して起こした出来事(directed)の指示文"
+    )
+    location: str | None = Field(
+        None, description="エリアの外で起きた出来事の場所(浴室・商店街など)"
     )
     favorite: bool = False
     area: str = Field("living", description="出来事の起きた場所")
@@ -450,6 +456,11 @@ class HakoniwaArea(BaseModel):
     slots: list[HakoniwaSlot]
 
 
+class HakoniwaLocation(BaseModel):
+    id: str
+    name: str
+
+
 class HakoniwaFurniture(BaseModel):
     id: str
     name: str
@@ -490,6 +501,10 @@ class HakoniwaWorldResponse(BaseModel):
     residents: list[HakoniwaResident]
     events: list[HakoniwaEvent]
     areas: list[HakoniwaArea]
+    locations: list[HakoniwaLocation] = Field(
+        default_factory=list,
+        description="出来事の場所(場面の絵の背景)。エリアとエリアの外の場所",
+    )
     furniture_catalog: list[HakoniwaFurniture]
     last_digest: dict[str, Any] | None = Field(
         None, description="直近の1日のまとめ(種類と参照。文は表示側で組み立てる)"

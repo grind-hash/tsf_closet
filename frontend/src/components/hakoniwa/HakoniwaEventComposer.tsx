@@ -36,10 +36,13 @@ export default function HakoniwaEventComposer({
   const inputId = useId();
   const scopeLabelId = useId();
   const partnersLabelId = useId();
+  const locationLabelId = useId();
   // 住民を切り替えても書きかけの指示と選んだ相手を残す
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [partnerIds, setPartnerIds] = useState<Record<string, string[]>>({});
   const [scope, setScope] = useState<HakoniwaEventScope>("solo");
+  // 出来事の場所(null はおまかせ: 内容に合う場所を生成が選ぶ)
+  const [location, setLocation] = useState<string | null>(null);
 
   if (!world) return null;
   const draft = drafts[resident.id] ?? "";
@@ -85,6 +88,7 @@ export default function HakoniwaEventComposer({
       instruction,
       scope,
       partnerIds: partners.map((item) => item.id),
+      location,
     });
   };
 
@@ -132,7 +136,7 @@ export default function HakoniwaEventComposer({
             {t("hakoniwa.panel.partnersLabel", { max: EVENT_PARTNERS_MAX })}
           </span>
           <div
-            className="hakoniwa-directive__partners"
+            className="hakoniwa-directive__chips"
             role="group"
             aria-labelledby={partnersLabelId}
           >
@@ -179,6 +183,29 @@ export default function HakoniwaEventComposer({
               )}
         </p>
       )}
+      <span id={locationLabelId} className="hakoniwa-resident__subheading">
+        {t("hakoniwa.panel.locationLabel")}
+      </span>
+      <div
+        className="hakoniwa-directive__chips"
+        role="group"
+        aria-labelledby={locationLabelId}
+      >
+        {[null, ...world.locations.map((item) => item.id)].map((id) => (
+          <button
+            key={id ?? "auto"}
+            type="button"
+            className={`hakoniwa-areas__chip${location === id ? " is-active" : ""}`}
+            aria-pressed={location === id}
+            onClick={() => setLocation(id)}
+          >
+            {id === null
+              ? t("hakoniwa.panel.locationAuto")
+              : world.locations.find((item) => item.id === id)?.name}
+          </button>
+        ))}
+      </div>
+      <p className="hakoniwa-note">{t("hakoniwa.panel.locationNote")}</p>
       <p className="hakoniwa-note">{t("hakoniwa.panel.eventNote")}</p>
       {malePairs.length > 0 && (
         <p className="hakoniwa-note">
