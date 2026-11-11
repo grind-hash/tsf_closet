@@ -2107,7 +2107,7 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  /* 広い画面では、中央のメッセージ窓(最大 1100px)の右の余白に収める */
+  /* 広い画面では、開いている間メッセージ窓が縮んで横に並ぶ(.is-log-open) */
   width: min(360px, calc(100% - 32px));
   padding: 12px 14px;
   border: 1px solid var(--hk-border-strong);
@@ -2155,9 +2155,9 @@
   color: var(--hk-muted);
 }
 
-/* 広い画面では、ログを開いている間メッセージ窓を縮めてログ(幅 360px)を横に並べる。
-   ログを開いたまま幕を送ったり、続きの指示を書いたりできる
-   (幅は HakoniwaAdv.tsx の LOG_BESIDE_WINDOW_QUERY と同じ) */
+/* 広い画面では、ログを開いている間メッセージ窓を縮めてログ(幅 360px)を横に並べる
+   (出来事の ADV と会話の両方)。ログを開いたまま幕を送ったり、言葉や続きの指示を
+   書いたりできる(幅は HakoniwaAdv.tsx の LOG_BESIDE_WINDOW_QUERY と同じ) */
 @media (min-width: 900px) {
   .hakoniwa-adv.is-log-open .hakoniwa-adv__window {
     right: max(392px, calc((100% - 1100px) / 2));

@@ -101,7 +101,7 @@ export default function HakoniwaChat() {
 
   return (
     <div
-      className="hakoniwa-adv hakoniwa-chat"
+      className={`hakoniwa-adv hakoniwa-chat${logOpen ? " is-log-open" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={t("hakoniwa.chat.title", { name: resident.name })}
