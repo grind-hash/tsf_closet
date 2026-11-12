@@ -38,8 +38,11 @@ from ..schemas.hakoniwa import (
     HakoniwaReapplyRequest,
     HakoniwaResidentChangeResponse,
     HakoniwaResidentRequest,
+    HakoniwaResidentTagsRequest,
+    HakoniwaRuleLookTagsRequest,
     HakoniwaRuleToggleRequest,
     HakoniwaSettingsRequest,
+    HakoniwaTagsResponse,
     HakoniwaTouchRequest,
     HakoniwaTouchResponse,
     HakoniwaTransformRequest,
@@ -65,7 +68,7 @@ _NOT_FOUND_CODES = {
 _UPSTREAM_CODES = {
     "image_generation_failed",
     "tag_conversion_failed",
-    "look_tags_failed",
+    "tags_failed",
     "event_generation_failed",
 }
 _ERROR_RESPONSES = {
@@ -265,6 +268,7 @@ async def add_custom_rule(
             request.appearance_text,
             request.language,
             appearance_tags=request.appearance_tags,
+            body_gender=request.body_gender,
         )
     )
     return HakoniwaWorldResponse(**world)
@@ -288,7 +292,7 @@ async def update_custom_rule(
             request.appearance_text,
             request.language,
             appearance_tags=request.appearance_tags,
-            regenerate_appearance_tags=request.regenerate_appearance_tags,
+            body_gender=request.body_gender,
         )
     )
     return HakoniwaWorldResponse(**world)
@@ -355,10 +359,55 @@ async def delete_custom_rule(
 
 
 @router.post(
+    "/tags/rule-look",
+    response_model=HakoniwaTagsResponse,
+    summary="掟の見た目のタグを作る",
+    description=(
+        "掟の名前・本文・見た目の説明から見た目のタグを作って返す(保存はしない)。"
+        "見た目の説明が英語のタグならそのまま整える"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def make_rule_look_tags(
+    request: HakoniwaRuleLookTagsRequest,
+) -> HakoniwaTagsResponse:
+    result = await _call(
+        hakoniwa_service.make_rule_look_tags(
+            request.name, request.text, request.appearance_text, request.language
+        )
+    )
+    return HakoniwaTagsResponse(**result)
+
+
+@router.post(
+    "/tags/resident",
+    response_model=HakoniwaTagsResponse,
+    summary="住民の姿のタグを作る",
+    description=(
+        "住民の外見(dress ならドレス姿)の説明から画像タグを作って返す(保存はしない)。"
+        "性別のタグは住民の性別にそろえる"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def make_resident_tags(
+    request: HakoniwaResidentTagsRequest,
+) -> HakoniwaTagsResponse:
+    result = await _call(
+        hakoniwa_service.make_resident_tags(
+            request.appearance_text,
+            request.gender,
+            dress=request.dress,
+            language=request.language,
+        )
+    )
+    return HakoniwaTagsResponse(**result)
+
+
+@router.post(
     "/worlds/{world_id}/residents",
     response_model=HakoniwaResidentChangeResponse,
     summary="自作の住民を迎える",
-    description="外見の説明が日本語の文章なら、画像タグへ変換して別に持つ",
+    description="画像のタグは送られたものを整えて使う(いつもの姿のタグは必須)",
     responses=_ERROR_RESPONSES,
 )
 async def add_resident(

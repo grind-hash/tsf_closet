@@ -8,7 +8,9 @@ from gateway.services import hakoniwa_logic as logic
 from gateway.services.hakoniwa_generation import clean_look_tags
 from gateway.services.hakoniwa_prompts import (
     appearance_focus_text,
+    appearance_note,
     current_appearance_summary,
+    rule_look_instruction,
 )
 from gateway.services.hakoniwa_scene import look_tags
 
@@ -17,13 +19,23 @@ def _world():
     return logic.new_world_state([logic.preset_resident(pid) for pid in ("aoi", "ren")])
 
 
-def _with_rule(state, name="メイドの日", tags="maid outfit, apron"):
-    state = logic.add_custom_rule(state, name, "全員がメイド服で過ごす", "", tags)
+def _with_rule(state, name="メイドの日", tags="maid outfit, apron", body_gender=None):
+    state = logic.add_custom_rule(
+        state, name, "全員がメイド服で過ごす", "", tags, body_gender=body_gender
+    )
     rule_id = state["custom_rules"][-1]["id"]
     return logic.set_rule(state, rule_id, True, random.Random(0)), rule_id
 
 
-def _look(state, resident_id, kind, key, tags="maid outfit", source="maid outfit"):
+def _look(
+    state,
+    resident_id,
+    kind,
+    key,
+    tags="maid outfit",
+    source="maid outfit",
+    body=None,
+):
     return logic.set_look_image(
         state,
         resident_id,
@@ -33,6 +45,7 @@ def _look(state, resident_id, kind, key, tags="maid outfit", source="maid outfit
             "image": f"{kind}_{resident_id}.png",
             "tags": tags,
             "source_tags": source,
+            "source_body": body,
         },
     )
 
@@ -147,3 +160,79 @@ def test_normalize_keeps_looks_and_old_rules_get_empty_appearance():
 
     assert normalized["custom_rules"][0]["appearance_tags"] == ""
     assert logic.find_resident(normalized, "aoi")["rule_images"][rule_id]["image"]
+    assert normalized["custom_rules"][0]["body_gender"] is None
+
+
+def test_set_gender_token_replaces_gender_tags():
+    assert logic.set_gender_token(
+        "1boy, solo, male focus, short black hair, maid outfit", "female"
+    ) == ("1girl, solo, short black hair, maid outfit")
+    assert logic.set_gender_token("woman, long hair", "male") == "1boy, long hair"
+    assert logic.set_gender_token("", "male") == logic.ensure_gender_token("", "male")
+
+
+def test_body_changing_rule_changes_body_gender_and_story_note():
+    plain, _ = _with_rule(_world())
+    ren = logic.find_resident(plain, "ren")
+    assert logic.body_gender(plain, ren) == "male"
+    assert "his body stays male" in appearance_note(plain, ren)
+
+    state, rule_id = _with_rule(
+        _world(), tags="long hair, maid outfit", body_gender="female"
+    )
+    ren = logic.find_resident(state, "ren")
+    assert logic.body_gender(state, ren) == "female"
+    assert "originally a man, now in a woman's body" in appearance_note(state, ren)
+    # 掟を外せば元の体に戻る
+    off = logic.set_rule(state, rule_id, False, random.Random(0))
+    assert logic.body_gender(off, logic.find_resident(off, "ren")) == "male"
+
+    state, _ = _with_rule(_world(), tags="suit", body_gender="male")
+    aoi = logic.find_resident(state, "aoi")
+    assert logic.body_gender(state, aoi) == "male"
+    assert "originally a woman, now in a man's body" in appearance_note(state, aoi)
+
+
+def test_combo_body_gender_follows_the_later_rule():
+    state, _ = _with_rule(_world(), tags="long hair", body_gender="female")
+    state, second = _with_rule(state, "猫の日", "cat ears")
+    combo = logic.active_combo(state)
+    assert logic.look_body_gender(state, combo["rule_ids"]) == "female"
+    assert logic.body_gender(state, logic.find_resident(state, "ren")) == "female"
+
+    state, _ = _with_rule(state, "紳士の日", "suit", body_gender="male")
+    combo = logic.active_combo(state)
+    assert logic.look_body_gender(state, combo["rule_ids"]) == "male"
+    assert second in combo["rule_ids"]
+
+
+def test_look_status_is_stale_after_body_gender_changes():
+    state, rule_id = _with_rule(_world(), tags="maid outfit")
+    state = _look(state, "aoi", "rule", rule_id, source="maid outfit")
+    assert logic.rule_look_status(state, rule_id)["ready"] == 1
+
+    changed = logic.update_custom_rule(
+        state, rule_id, "メイドの日", "全員がメイド服で過ごす", body_gender="female"
+    )
+    assert logic.custom_rule(changed, rule_id)["body_gender"] == "female"
+    assert logic.rule_look_status(changed, rule_id) == {
+        "ready": 0,
+        "stale": 1,
+        "total": 2,
+    }
+    redrawn = _look(changed, "aoi", "rule", rule_id, body="female")
+    assert logic.rule_look_status(redrawn, rule_id)["ready"] == 1
+    # 編集で性別を送らなければ「変えない」に戻る
+    reset = logic.update_custom_rule(
+        redrawn, rule_id, "メイドの日", "全員がメイド服で過ごす"
+    )
+    assert logic.custom_rule(reset, rule_id)["body_gender"] is None
+
+
+def test_rule_look_instruction_states_body_change():
+    keep = rule_look_instruction("long hair, maid outfit")
+    assert "long hair replaces short hair" in keep
+    assert "Keep the person's own gender." in keep
+    female = rule_look_instruction("long hair", body_gender="female")
+    assert "1girl instead of 1boy" in female
+    assert "Keep the person's own gender." not in female

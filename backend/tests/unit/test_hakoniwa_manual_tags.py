@@ -1,4 +1,4 @@
-"""AI箱庭: プレイヤーが手で直した画像のタグ(説明から作るタグより優先し、上書きしない)。"""
+"""AI箱庭: プレイヤーが書いた画像のタグの整え方と、プリセットの描き直しでの扱い。"""
 
 from __future__ import annotations
 
@@ -10,29 +10,6 @@ from gateway.services.hakoniwa_generation import (
     clean_manual_look_tags,
     clean_manual_tags,
 )
-
-
-@pytest.mark.parametrize(
-    ("edited", "regenerate", "manual", "changed", "expected"),
-    [
-        (None, False, False, False, "keep"),
-        (None, False, False, True, "derive"),
-        # 手で直したタグは、説明を変えても作り直さない
-        (None, False, True, True, "keep"),
-        (None, True, True, False, "derive"),
-        ("cat ears", False, False, False, "manual"),
-        # タグを空にして保存したら、説明から作るタグに戻す
-        ("  ", False, True, False, "derive"),
-        ("cat ears", True, False, False, "derive"),
-    ],
-)
-def test_tag_action(edited, regenerate, manual, changed, expected):
-    assert (
-        logic.tag_action(
-            edited=edited, regenerate=regenerate, manual=manual, source_changed=changed
-        )
-        == expected
-    )
 
 
 def test_manual_resident_tags_get_a_gender_token():
@@ -69,4 +46,4 @@ def test_old_states_load_with_tags_not_hand_edited():
         resident.pop("base_tags_manual", None)
     normalized = logic.normalize_state(state)
     assert normalized["residents"][0]["base_tags_manual"] is False
-    assert normalized["custom_rules"][0]["appearance_tags_manual"] is False
+    assert normalized["custom_rules"][0]["appearance_tags"] == ""

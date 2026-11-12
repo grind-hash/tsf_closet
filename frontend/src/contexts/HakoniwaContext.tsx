@@ -49,11 +49,15 @@ import {
   type HakoniwaRandomResident,
   type HakoniwaResidentChange,
   type HakoniwaResidentInput,
+  type HakoniwaResidentTagsInput,
+  type HakoniwaRuleLookTagsInput,
   type HakoniwaRuleReaction,
   type HakoniwaTheme,
   type HakoniwaTouchPart,
   type HakoniwaWorld,
   type HakoniwaWorldSummary,
+  makeHakoniwaResidentTags,
+  makeHakoniwaRuleLookTags,
   placeHakoniwaFurniture,
   reapplyHakoniwaTransform,
   removeHakoniwaResident,
@@ -95,6 +99,11 @@ export type HakoniwaBusy =
   | "chat"
   | "random"
   | null;
+
+/** タグを作った結果。失敗したら error に画面に出す文言が入る */
+export type HakoniwaTagsOutcome =
+  | { tags: string; error: null }
+  | { tags: null; error: string };
 
 /** 世界を作るときの入力 */
 export interface HakoniwaCreateInput {
@@ -142,7 +151,10 @@ export const HAKONIWA_ERROR_CODES = [
   "area_not_found",
   "invalid_slot",
   "furniture_not_found",
-  "look_tags_failed",
+  "tags_failed",
+  "tags_required",
+  "look_source_empty",
+  "rule_has_no_look",
   "no_combo",
   "invalid_rule_appearance",
   "invalid_world_memo",
@@ -238,6 +250,14 @@ interface HakoniwaContextValue {
     input: HakoniwaResidentInput,
     residentId?: string,
   ) => Promise<boolean>;
+  /** 掟の見た目のタグを作る(保存はしない。フォームの欄に入れる) */
+  makeRuleLookTags: (
+    input: HakoniwaRuleLookTagsInput,
+  ) => Promise<HakoniwaTagsOutcome>;
+  /** 住民の姿のタグを作る(保存はしない。フォームの欄に入れる) */
+  makeResidentTags: (
+    input: HakoniwaResidentTagsInput,
+  ) => Promise<HakoniwaTagsOutcome>;
   addCharacterResident: (entry: HakoniwaCharacterEntry) => Promise<boolean>;
   removeResident: (residentId: string) => Promise<void>;
   greet: (residentId: string) => Promise<void>;
@@ -307,7 +327,7 @@ const HakoniwaContext = createContext<HakoniwaContextValue | null>(null);
 export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const { state: settingsState, addTotalCost, setAnlasBalance } = useSettings();
-  const { showNotification, showAchievementNotification } = useNotification();
+  const { showAchievementNotification } = useNotification();
 
   /** 応答で新しく達成した観察記録(実績)を知らせる */
   const announceAchievements = useCallback(
@@ -682,17 +702,37 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     (result: HakoniwaResidentChange | null) => {
       if (!result) return false;
       applyWorld(result.world);
-      recordCost(result.cost_usd);
-      if (result.tag_expansion_failed) {
-        showNotification(
-          "warning",
-          t("hakoniwa.residents.tagExpansionFailedTitle"),
-          t("hakoniwa.residents.tagExpansionFailed"),
-        );
-      }
       return true;
     },
-    [applyWorld, recordCost, showNotification, t],
+    [applyWorld],
+  );
+
+  /** タグを作る API を呼び、料金を記録する(フォームの中で使うので busy は変えない) */
+  const makeTags = useCallback(
+    async (
+      task: () => Promise<{ tags: string; cost_usd: number | null }>,
+    ): Promise<HakoniwaTagsOutcome> => {
+      try {
+        const result = await task();
+        recordCost(result.cost_usd);
+        return { tags: result.tags, error: null };
+      } catch (caught) {
+        return { tags: null, error: errorText(caught) };
+      }
+    },
+    [errorText, recordCost],
+  );
+
+  const makeRuleLookTags = useCallback(
+    (input: HakoniwaRuleLookTagsInput) =>
+      makeTags(() => makeHakoniwaRuleLookTags(input, language)),
+    [language, makeTags],
+  );
+
+  const makeResidentTags = useCallback(
+    (input: HakoniwaResidentTagsInput) =>
+      makeTags(() => makeHakoniwaResidentTags(input, language)),
+    [language, makeTags],
   );
 
   const saveResident = useCallback(
@@ -1263,6 +1303,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       lookTarget,
       deleteCustomRule,
       saveResident,
+      makeRuleLookTags,
+      makeResidentTags,
       addCharacterResident,
       removeResident,
       greet,
@@ -1333,6 +1375,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       lookTarget,
       deleteCustomRule,
       saveResident,
+      makeRuleLookTags,
+      makeResidentTags,
       addCharacterResident,
       removeResident,
       greet,

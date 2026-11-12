@@ -177,11 +177,26 @@ def test_custom_rules_and_favorites(client: TestClient) -> None:
     assert next(e for e in fav["events"] if e["id"] == event_id)["favorite"] is True
 
 
-def test_custom_resident_keeps_user_text_separate_from_tags(
+def test_resident_tags_are_made_from_text_and_saved_as_sent(
     client: TestClient, llm_outputs: list
 ) -> None:
     world = _create(client, ["aoi", "ren"])
-    llm_outputs.append("1girl, silver hair, red eyes, maid outfit")
+    # 変換が逆の性別を書いても、住民の性別にそろえる
+    llm_outputs.append("1boy, silver hair, red eyes, maid outfit")
+
+    made = client.post(
+        "/api/hakoniwa/tags/resident",
+        json={"appearance_text": "銀髪で赤い瞳のメイド", "gender": "female"},
+    )
+    assert made.status_code == 200, made.text
+    tags = made.json()["tags"]
+    assert tags == "1girl, silver hair, red eyes, maid outfit"
+    # 英語のタグなら LLM を呼ばずに整える
+    english = client.post(
+        "/api/hakoniwa/tags/resident",
+        json={"appearance_text": "black hair, suit", "gender": "male"},
+    ).json()
+    assert english["tags"] == "1boy, black hair, suit"
 
     response = client.post(
         f"/api/hakoniwa/worlds/{world['id']}/residents",
@@ -190,6 +205,7 @@ def test_custom_resident_keeps_user_text_separate_from_tags(
             "personality": "明るい",
             "gender": "female",
             "appearance_text": "銀髪で赤い瞳のメイド",
+            "base_tags": tags,
         },
     )
 
@@ -198,15 +214,17 @@ def test_custom_resident_keeps_user_text_separate_from_tags(
         r for r in body["world"]["residents"] if r["id"] == body["resident_id"]
     )
     assert resident["appearance_text"] == "銀髪で赤い瞳のメイド"
-    assert resident["base_tags"] == "1girl, silver hair, red eyes, maid outfit"
+    assert resident["base_tags"] == tags
+    assert resident["dress_tags"] == ""
     assert resident["display_avatar_url"] is None
-    assert body["tag_expansion_failed"] is False
 
 
-def test_tag_expansion_failure_keeps_default_tags(client: TestClient) -> None:
+def test_resident_needs_usual_tags_and_tag_failure_is_reported(
+    client: TestClient,
+) -> None:
     world = _create(client, ["aoi", "ren"])
 
-    body = client.post(
+    missing = client.post(
         f"/api/hakoniwa/worlds/{world['id']}/residents",
         json={
             "name": "ケン",
@@ -214,14 +232,20 @@ def test_tag_expansion_failure_keeps_default_tags(client: TestClient) -> None:
             "gender": "male",
             "appearance_text": "黒髪",
         },
-    ).json()
-
-    resident = next(
-        r for r in body["world"]["residents"] if r["id"] == body["resident_id"]
     )
-    assert body["tag_expansion_failed"] is True
-    assert resident["base_tags"].startswith("1boy")
-    assert resident["appearance_text"] == "黒髪"
+    assert missing.status_code == 400
+    assert missing.json()["detail"]["code"] == "tags_required"
+
+    failed = client.post(
+        "/api/hakoniwa/tags/resident",
+        json={"appearance_text": "黒髪", "gender": "male", "dress": True},
+    )
+    assert failed.status_code == 502
+    assert failed.json()["detail"]["code"] == "tags_failed"
+    empty = client.post(
+        "/api/hakoniwa/tags/resident", json={"appearance_text": " ", "gender": "male"}
+    )
+    assert empty.json()["detail"]["code"] == "look_source_empty"
 
 
 def test_generate_avatar_and_serve_image(client: TestClient) -> None:
@@ -594,7 +618,7 @@ def test_rule_look_generates_one_resident_at_a_time(
 
     world = _create(client, ["aoi", "ren"])
     wid = world["id"]
-    rule = _custom_rule(client, wid, appearance_text="maid outfit, 1girl")
+    rule = _custom_rule(client, wid, appearance_tags="maid outfit, 1girl")
     assert rule["appearance_tags"] == "maid outfit"
     assert rule["look"] == {"ready": 0, "stale": 0, "total": 2}
 
@@ -631,37 +655,109 @@ def test_rule_look_generates_one_resident_at_a_time(
     assert again["generated"] == 0
 
 
-def test_rule_look_without_tags_asks_llm_and_reports_failure(
+def test_body_changing_rule_look_sets_gender_token(
+    client: TestClient, llm_outputs, monkeypatch
+):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    rule = _custom_rule(
+        client,
+        wid,
+        appearance_tags="long hair, chiffon blouse",
+        body_gender="female",
+    )
+    assert rule["body_gender"] == "female"
+    assert rule["appearance_tags"] == "long hair, chiffon blouse"
+
+    captured: list[str] = []
+
+    async def fake_avatar(tags, *, image_model, nsfw_mode):
+        captured.append(tags)
+        return _png()
+
+    monkeypatch.setattr(service_module, "generate_avatar_bytes", fake_avatar)
+    # 変換が男性の性別トークンを残しても、掟の性別に差し替える
+    llm_outputs.extend(
+        ["1girl, long hair, chiffon blouse", "1boy, long hair, chiffon blouse"]
+    )
+    body = client.post(
+        f"/api/hakoniwa/worlds/{wid}/custom-rules/{rule['id']}/look", json={}
+    ).json()
+
+    assert body["generated"] == 2
+    assert captured[1] == "1girl, long hair, chiffon blouse"
+    by_id = {r["id"]: r for r in body["world"]["residents"]}
+    assert by_id["ren"]["body_gender"] == "female"
+
+    edited = client.patch(
+        f"/api/hakoniwa/worlds/{wid}/custom-rules/{rule['id']}",
+        json={
+            "name": "メイドの日",
+            "text": "全員がメイド服で過ごす",
+            "appearance_tags": "long hair, chiffon blouse",
+        },
+    ).json()
+    card = next(c for c in edited["rule_cards"] if c["id"] == rule["id"])
+    assert card["body_gender"] is None
+    assert card["look"] == {"ready": 0, "stale": 2, "total": 2}
+    by_id = {r["id"]: r for r in edited["residents"]}
+    assert by_id["ren"]["body_gender"] == "male"
+
+
+def test_rule_without_look_cannot_generate_and_tags_are_made_on_request(
     client: TestClient, llm_outputs
 ):
     world = _create(client, ["aoi", "ren"])
     wid = world["id"]
     rule = _custom_rule(client, wid)
+    # タグも体の性別も無い掟は見た目を変えない
     assert rule["appearance_tags"] == ""
-
-    failed = client.post(
+    refused = client.post(
         f"/api/hakoniwa/worlds/{wid}/custom-rules/{rule['id']}/look", json={}
+    )
+    assert refused.status_code == 400
+    assert refused.json()["detail"]["code"] == "rule_has_no_look"
+
+    # 説明が空なら掟の本文から考える。人物の性別・人数のタグは外す
+    llm_outputs.append("1girl, solo, maid outfit, apron")
+    made = client.post(
+        "/api/hakoniwa/tags/rule-look",
+        json={"name": "メイドの日", "text": "全員がメイド服で過ごす"},
+    )
+    assert made.json()["tags"] == "maid outfit, apron"
+    failed = client.post(
+        "/api/hakoniwa/tags/rule-look",
+        json={"name": "メイドの日", "appearance_text": "メイド服"},
     )
     assert failed.status_code == 502
-    assert failed.json()["detail"]["error"] == "look_tags_failed"
+    assert failed.json()["detail"]["code"] == "tags_failed"
+    empty = client.post("/api/hakoniwa/tags/rule-look", json={"name": "メイドの日"})
+    assert empty.json()["detail"]["code"] == "look_source_empty"
 
-    llm_outputs.extend(
-        ["1girl, maid outfit, apron", "1girl, maid outfit", RuntimeError("x")]
-        + [RuntimeError("x")] * 2
-    )
-    partial = client.post(
+
+def test_body_only_rule_is_a_look_rule(client: TestClient, llm_outputs):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    rule = _custom_rule(client, wid, body_gender="female")
+    assert rule["appearance_tags"] == ""
+    llm_outputs.extend(["1girl, brown hair", "1boy, black hair"])
+
+    body = client.post(
         f"/api/hakoniwa/worlds/{wid}/custom-rules/{rule['id']}/look", json={}
     ).json()
-    assert (partial["generated"], partial["failed"]) == (1, 1)
-    card = next(c for c in partial["world"]["rule_cards"] if c["id"] == rule["id"])
-    assert card["appearance_tags"] == "maid outfit, apron"
-    assert card["look"]["ready"] == 1
+
+    assert body["generated"] == 2
+    by_id = {r["id"]: r for r in body["world"]["residents"]}
+    assert by_id["ren"]["display_kind"] == "rule"
+    assert by_id["ren"]["body_gender"] == "female"
+    card = next(c for c in body["world"]["rule_cards"] if c["id"] == rule["id"])
+    assert card["look"]["ready"] == 2
 
 
 def test_combo_look_with_dress_rule(client: TestClient, llm_outputs):
     world = _create(client, ["aoi", "ren"])
     wid = world["id"]
-    rule = _custom_rule(client, wid, appearance_text="cat ears")
+    rule = _custom_rule(client, wid, appearance_tags="cat ears")
     no_combo = client.post(f"/api/hakoniwa/worlds/{wid}/combo-look", json={})
     assert no_combo.json()["detail"]["error"] == "no_combo"
 
@@ -930,6 +1026,7 @@ def _edit_aoi(client: TestClient, wid: str, **fields):
         "name": "高瀬 葵",
         "personality": "明るく世話好き",
         "gender": "female",
+        "base_tags": "1girl, brown hair, bob cut",
         **fields,
     }
     return client.patch(f"/api/hakoniwa/worlds/{wid}/residents/aoi", json=body)
@@ -939,7 +1036,7 @@ def _aoi(body: dict) -> dict:
     return next(r for r in body["world"]["residents"] if r["id"] == "aoi")
 
 
-def test_hand_edited_tags_survive_description_changes(
+def test_resident_tags_are_saved_as_written(
     client: TestClient, llm_outputs: list
 ) -> None:
     wid = _create(client, ["aoi", "ren"])["id"]
@@ -949,23 +1046,24 @@ def test_hand_edited_tags_survive_description_changes(
     )
     # 性別トークンを補い、改行もカンマとして扱う
     assert edited["base_tags"] == "1girl, solo, short silver hair, maid outfit"
-    assert edited["base_tags_manual"] is True
 
-    # 説明だけを変えても、手で直したタグは作り直さない(LLM も呼ばない)
+    # 説明を変えても、タグは送られたものを使う(保存では LLM を呼ばない)
     llm_outputs.append("1girl, blonde long hair")
-    kept = _aoi(_edit_aoi(client, wid, appearance_text="金髪のロング").json())
+    kept = _aoi(
+        _edit_aoi(
+            client,
+            wid,
+            appearance_text="金髪のロング",
+            base_tags="1girl, solo, short silver hair, maid outfit",
+        ).json()
+    )
     assert kept["base_tags"] == "1girl, solo, short silver hair, maid outfit"
     assert kept["appearance_text"] == "金髪のロング"
     assert llm_outputs == ["1girl, blonde long hair"]
 
-    # 作り直しを指示したときだけ、説明から作り直す
-    remade = _aoi(
-        _edit_aoi(
-            client, wid, appearance_text="金髪のロング", regenerate_base_tags=True
-        ).json()
-    )
-    assert remade["base_tags"] == "1girl, blonde long hair"
-    assert remade["base_tags_manual"] is False
+    missing = _edit_aoi(client, wid, base_tags=" ")
+    assert missing.status_code == 400
+    assert missing.json()["detail"]["code"] == "tags_required"
 
 
 def test_hand_written_tags_are_checked(client: TestClient) -> None:
@@ -980,7 +1078,7 @@ def test_hand_written_tags_are_checked(client: TestClient) -> None:
     assert too_many.json()["detail"]["code"] == "too_many_tags"
 
 
-def test_custom_rule_look_tags_can_be_written_by_hand(client: TestClient) -> None:
+def test_custom_rule_look_tags_are_saved_as_written(client: TestClient) -> None:
     wid = _create(client, ["aoi", "ren"])["id"]
     path = f"/api/hakoniwa/worlds/{wid}/custom-rules"
 
@@ -995,31 +1093,27 @@ def test_custom_rule_look_tags_can_be_written_by_hand(client: TestClient) -> Non
     rule = next(card for card in added["rule_cards"] if card["custom"])
     # 人物の性別・人数のタグは外す
     assert rule["appearance_tags"] == "cat ears"
-    assert rule["appearance_tags_manual"] is True
 
+    # 説明を変えても、タグは送られたものを使う
     kept = client.patch(
         f"{path}/{rule['id']}",
         json={
             "name": "猫の日",
             "text": "猫耳を付ける",
             "appearance_text": "bunny ears",
+            "appearance_tags": "cat ears",
         },
     ).json()
     kept_rule = next(card for card in kept["rule_cards"] if card["id"] == rule["id"])
     assert kept_rule["appearance_tags"] == "cat ears"
 
-    remade = client.patch(
+    # タグを空にすると、見た目を変えない掟になる
+    cleared = client.patch(
         f"{path}/{rule['id']}",
-        json={
-            "name": "猫の日",
-            "text": "猫耳を付ける",
-            "appearance_text": "bunny ears",
-            "regenerate_appearance_tags": True,
-        },
+        json={"name": "猫の日", "text": "猫耳を付ける", "appearance_tags": ""},
     ).json()
-    remade_rule = next(c for c in remade["rule_cards"] if c["id"] == rule["id"])
-    assert remade_rule["appearance_tags"] == "bunny ears"
-    assert remade_rule["appearance_tags_manual"] is False
+    cleared_rule = next(c for c in cleared["rule_cards"] if c["id"] == rule["id"])
+    assert cleared_rule["appearance_tags"] == ""
 
 
 def test_address_style_is_saved_on_edit_and_add(client: TestClient) -> None:
@@ -1038,6 +1132,7 @@ def test_address_style_is_saved_on_edit_and_add(client: TestClient) -> None:
             "personality": "穏やか",
             "gender": "female",
             "address_style": "given",
+            "base_tags": "1girl, black hair",
         },
     ).json()
     misaki = next(

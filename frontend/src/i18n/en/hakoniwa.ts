@@ -229,9 +229,6 @@ export const hakoniwa = {
     noAvatar: "No look yet",
     selectHint:
       "Choose a resident in the room or in the list below to hear a word from them, chat with them or transform them.",
-    tagExpansionFailedTitle: "Could not turn the appearance into tags",
-    tagExpansionFailed:
-      "The description was saved, but image generation keeps using the previous tags. Rewrite the description or write English tags and try again.",
   },
   panel: {
     close: "Deselect",
@@ -306,12 +303,14 @@ export const hakoniwa = {
     gender: "Gender",
     appearance: "Appearance",
     appearancePlaceholder: "e.g. Brown bob haircut, wearing an apron",
-    appearanceNote:
-      "A description is turned into image tags and saved separately (your text is kept as written). You may also write English tags.",
+    appearanceNote: "Your text is kept as written. Images use the tags below.",
     dress: "Dress worn under the Rule of Dresses (optional)",
     dressPlaceholder: "e.g. A light blue frilly dress",
-    tags: "Tags used for image generation",
-    dressTags: "Dress look tags",
+    tags: "Usual look tags",
+    tagsPlaceholder: "e.g. 1girl, brown hair, bob cut, apron",
+    dressTags: "Dress look tags (optional)",
+    dressTagsPlaceholder:
+      "If empty, the dress look is worked out from the usual look when it is generated",
     addressStyle: "How they call housemates",
     addressStyles: {
       given_chan: "Given name (-chan / -kun in Japanese)",
@@ -349,11 +348,20 @@ export const hakoniwa = {
     appearance: "Look description (optional)",
     appearancePlaceholder: "e.g. Everyone wears a maid outfit and a headdress",
     appearanceNote:
-      "Used to generate the rule look and the combined look. If left empty, the look is worked out from the rule's name and text when generating. Japanese text is turned into image tags and saved separately (your text stays as written).",
-    appearanceTags: "Look tags",
+      'If you press "Make tags from the description" with this empty, the tags are worked out from the rule name and text.',
+    appearanceTags: "Look tags (optional)",
+    appearanceTagsPlaceholder: "If empty, this rule does not change looks",
+    body: "Body sex",
+    bodyOption: {
+      keep: "Keep",
+      female: "Make female",
+      male: "Make male",
+    },
+    bodyNote:
+      "In the rule look, every resident's body becomes this sex (writing it in the look description does not change the sex; choose it here). Events are also written as if they now have the new body.",
+    bodyShown: "Body: {{gender}}",
     appearanceShown: "Look: {{text}}",
-    appearanceFromRule: "Look: worked out from the rule text when generating",
-    appearanceManualTags: "Look: tags written by hand",
+    appearanceNone: "Look: unchanged",
     lookStatus: "Looks: {{ready}} / {{total}}",
     lookReady: "Looks: ready for everyone",
     lookStale: "({{count}} drawn before the look changed)",
@@ -374,9 +382,6 @@ export const hakoniwa = {
     comboHeading: "Combined look",
     comboLabel: "the combined look ({{names}})",
     comboJoin: " + ",
-    comboUntagged:
-      "The look of {{names}} will be worked out from the rule text when generating.",
-    quoted: "“{{name}}”",
     deleteConfirm: "Delete",
   },
   settings: {
@@ -438,16 +443,15 @@ export const hakoniwa = {
       dissonance_push: "You stirred the strangeness. It rose a little.",
     },
   },
-  tagsField: {
-    manual: "Edited by hand",
-    auto: "Made from the description",
-    regenerate: "Remake from the description",
-    cancelRegenerate: "Keep these tags",
-    regenerateNote:
-      "On save, the tags are remade from the description (your edits are replaced).",
-    note: "Write English tags separated by commas. Tags you edit by hand are kept even when the description changes. To redraw, generate the look again after saving.",
-    emptyPlaceholder:
-      "If left empty, tags are made from the rule text when looks are generated",
+  lookFields: {
+    make: "Make tags from the description",
+    making: "Making tags…",
+    needSource: "Write a description first",
+    required: "Required",
+    descriptionChanged:
+      'The description is not reflected in the tags yet. Press "Make tags from the description" to reflect it.',
+    tagsNote:
+      "Images use these tags as they are. Write English tags separated by commas. To redraw, generate the look again after saving.",
   },
   random: {
     heading: "Random residents",
@@ -656,8 +660,12 @@ export const hakoniwa = {
     area_not_found: "Place not found.",
     invalid_slot: "That spot is not valid.",
     furniture_not_found: "Furniture not found.",
-    look_tags_failed:
-      "Could not make look tags for the rule. Edit the rule and rewrite the look description, or write it as English tags.",
+    tags_failed:
+      "Could not make the tags. Rewrite the description or write English tags directly.",
+    tags_required: "Enter the usual look tags.",
+    look_source_empty: "Write a description first.",
+    rule_has_no_look:
+      "This rule does not change looks, so no look can be generated. Edit the rule and set look tags or a body sex.",
     no_combo:
       "A combined look needs at least two active rules that change looks (your rules and the Rule of Dresses).",
     invalid_rule_appearance: "Keep the look description within 300 characters.",

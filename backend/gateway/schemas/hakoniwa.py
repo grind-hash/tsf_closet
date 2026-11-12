@@ -154,15 +154,16 @@ class HakoniwaCustomRuleRequest(HakoniwaLanguageRequest):
     appearance_text: str = Field(
         "",
         max_length=HAKONIWA_RULE_APPEARANCE_TEXT_MAX,
-        description="掟が住民の見た目に与える変化の説明(任意)。空なら掟の本文から考える",
+        description="掟が住民の見た目に与える変化の説明(任意。タグを作るときの元)",
     )
-    appearance_tags: str | None = Field(
-        None,
+    appearance_tags: str = Field(
+        "",
         max_length=HAKONIWA_MANUAL_TAGS_INPUT_MAX,
-        description="手で直した見た目のタグ。None は手直し無し、空は説明から作る",
+        description="掟の見た目のタグ(そのまま姿の生成に使う)。空なら見た目を変えない",
     )
-    regenerate_appearance_tags: bool = Field(
-        False, description="見た目のタグを見た目の説明から作り直す(編集のとき)"
+    body_gender: Gender | None = Field(
+        None,
+        description="掟の姿で住民の体をこの性別にする。None は住民それぞれのまま(保存のたびに送る)",
     )
 
 
@@ -190,22 +191,39 @@ class HakoniwaResidentRequest(HakoniwaLanguageRequest):
         None,
         description="ほかの住民を呼ぶときのくせ。未指定ならプリセットか既定のまま",
     )
-    base_tags: str | None = Field(
-        None,
+    base_tags: str = Field(
+        "",
         max_length=HAKONIWA_MANUAL_TAGS_INPUT_MAX,
-        description="手で直したいつもの姿のタグ(編集のとき)。None は手直し無し、空は説明から作る",
+        description="いつもの姿の画像タグ(必須。そのまま姿の生成に使う)",
     )
-    dress_tags: str | None = Field(
-        None,
+    dress_tags: str = Field(
+        "",
         max_length=HAKONIWA_MANUAL_TAGS_INPUT_MAX,
-        description="手で直したドレス姿のタグ(編集のとき)。None は手直し無し、空は説明から作る",
+        description="ドレス姿の画像タグ。空ならドレス姿を生成するときにいつもの姿から考える",
     )
-    regenerate_base_tags: bool = Field(
-        False, description="いつもの姿のタグを外見の説明から作り直す"
+
+
+class HakoniwaRuleLookTagsRequest(HakoniwaLanguageRequest):
+    name: str = Field("", max_length=HAKONIWA_CUSTOM_RULE_NAME_MAX)
+    text: str = Field("", max_length=HAKONIWA_CUSTOM_RULE_TEXT_MAX)
+    appearance_text: str = Field(
+        "", max_length=HAKONIWA_RULE_APPEARANCE_TEXT_MAX, description="見た目の説明"
     )
-    regenerate_dress_tags: bool = Field(
-        False, description="ドレス姿のタグをドレスの説明から作り直す"
+
+
+class HakoniwaResidentTagsRequest(HakoniwaLanguageRequest):
+    appearance_text: str = Field(
+        ...,
+        max_length=HAKONIWA_APPEARANCE_TEXT_MAX,
+        description="外見(dress ならドレス姿)の説明。日本語の文章か英語のタグ",
     )
+    gender: Gender
+    dress: bool = Field(False, description="ドレスの掟で着るドレス姿のタグを作る")
+
+
+class HakoniwaTagsResponse(BaseModel):
+    tags: str
+    cost_usd: float | None = None
 
 
 class HakoniwaCharacterResidentRequest(HakoniwaLanguageRequest):
@@ -365,15 +383,9 @@ class HakoniwaResident(BaseModel):
         description="ほかの住民(id)をふだん何と呼ぶか(台詞で使う呼び方)",
     )
     appearance_text: str
-    base_tags: str = Field(..., description="通常の姿の画像タグ(外見の説明から作る)")
-    base_tags_manual: bool = Field(
-        False, description="いつもの姿のタグをプレイヤーが手で直したか"
-    )
+    base_tags: str = Field(..., description="通常の姿の画像タグ")
     dress_text: str
     dress_tags: str
-    dress_tags_manual: bool = Field(
-        False, description="ドレス姿のタグをプレイヤーが手で直したか"
-    )
     mood: int
     affinities: dict[str, int]
     transformation: HakoniwaTransformation | None
@@ -432,10 +444,10 @@ class HakoniwaRuleCard(BaseModel):
     active: bool
     appearance_text: str | None = Field(None, description="見た目の説明(自作の掟)")
     appearance_tags: str | None = Field(
-        None, description="見た目の説明から作ったタグ(自作の掟)"
+        None, description="見た目のタグ(自作の掟)。空なら見た目を変えない"
     )
-    appearance_tags_manual: bool = Field(
-        False, description="見た目のタグをプレイヤーが手で直したか"
+    body_gender: Gender | None = Field(
+        None, description="掟の姿の体の性別(自作の掟。None は住民それぞれのまま)"
     )
     look: HakoniwaLookStatus | None = Field(None, description="掟の姿の生成状況")
     synergies: list[HakoniwaSynergy] | None = Field(
@@ -447,9 +459,6 @@ class HakoniwaComboLook(HakoniwaLookStatus):
     rule_ids: list[str]
     names: list[str] = Field(..., description="重なっている自作の掟の名前")
     includes_dress: bool
-    untagged_names: list[str] = Field(
-        ..., description="見た目のタグがまだ無い掟(生成するときに考える)"
-    )
 
 
 class HakoniwaSlot(BaseModel):
@@ -610,10 +619,6 @@ class HakoniwaFurnitureRequest(HakoniwaLanguageRequest):
 class HakoniwaResidentChangeResponse(BaseModel):
     world: HakoniwaWorldResponse
     resident_id: str
-    tag_expansion_failed: bool = Field(
-        False, description="外見の説明を画像タグにできず、元のタグのままにした"
-    )
-    cost_usd: float | None = None
 
 
 class HakoniwaGreetingResponse(BaseModel):

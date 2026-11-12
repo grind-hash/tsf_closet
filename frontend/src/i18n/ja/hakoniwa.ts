@@ -229,9 +229,6 @@ export const hakoniwa = {
     noAvatar: "姿がまだありません",
     selectHint:
       "部屋の住民か、下の一覧から住民を選ぶと、ひとこと聞いたり、チャットしたり、変身させたりできます。",
-    tagExpansionFailedTitle: "外見の説明をタグにできませんでした",
-    tagExpansionFailed:
-      "外見の説明は保存しました。画像の生成には今までのタグを使います。説明を書き直すか、英語のタグで書いてお試しください。",
   },
   panel: {
     close: "選択を外す",
@@ -307,11 +304,14 @@ export const hakoniwa = {
     appearance: "外見の説明",
     appearancePlaceholder: "例: 茶髪のボブで、エプロン姿",
     appearanceNote:
-      "日本語の文章で書くと、画像のタグに変換して別に保存します（書いた文章はそのまま残ります）。英語のタグで書いてもかまいません。",
+      "書いた文章はそのまま残ります。画像には下のタグを使います。",
     dress: "ドレスの掟で着るドレス（任意）",
     dressPlaceholder: "例: 水色のフリルドレス",
-    tags: "画像の生成に使うタグ",
-    dressTags: "ドレス姿のタグ",
+    tags: "いつもの姿のタグ",
+    tagsPlaceholder: "例: 1girl, brown hair, bob cut, apron",
+    dressTags: "ドレス姿のタグ（任意）",
+    dressTagsPlaceholder:
+      "空なら、ドレス姿を生成するときにいつもの姿から考えます",
     addressStyle: "ほかの住民の呼び方",
     addressStyles: {
       given_chan: "下の名前＋ちゃん（男性は くん）",
@@ -348,11 +348,20 @@ export const hakoniwa = {
     appearance: "見た目の説明（任意）",
     appearancePlaceholder: "例: 全員がメイド服とヘッドドレス姿になる",
     appearanceNote:
-      "掟の姿・複合の姿の生成に使います。書かなければ、生成するときに掟の名前と本文から考えます。日本語の文章は画像のタグに変換して別に保存します（書いた文章はそのまま残ります）。",
-    appearanceTags: "見た目のタグ",
+      "空のまま「説明からタグを作る」を押すと、掟の名前と本文から考えます。",
+    appearanceTags: "見た目のタグ（任意）",
+    appearanceTagsPlaceholder: "空なら、この掟は見た目を変えません",
+    body: "体の性別",
+    bodyOption: {
+      keep: "変えない",
+      female: "女性にする",
+      male: "男性にする",
+    },
+    bodyNote:
+      "掟の姿で、住民全員の体をこの性別にします（性別は見た目の説明に書いても変わらず、ここで選びます）。出来事の文章も、新しい体になったものとして書きます。",
+    bodyShown: "体: {{gender}}になる",
     appearanceShown: "見た目: {{text}}",
-    appearanceFromRule: "見た目: 生成するときに掟の本文から考えます",
-    appearanceManualTags: "見た目: 手で書いたタグ",
+    appearanceNone: "見た目: 変えない",
     lookStatus: "姿: {{ready}} / {{total}}人",
     lookReady: "姿: 全員ぶん生成済み",
     lookStale: "（見た目を変える前の姿が{{count}}人分）",
@@ -373,8 +382,6 @@ export const hakoniwa = {
     comboHeading: "複合の姿",
     comboLabel: "複合の姿（{{names}}）",
     comboJoin: "＋",
-    comboUntagged: "{{names}}の見た目は、生成するときに掟の本文から考えます。",
-    quoted: "「{{name}}」",
     deleteConfirm: "削除する",
   },
   settings: {
@@ -431,15 +438,15 @@ export const hakoniwa = {
       dissonance_push: "違和感を煽りました。世界の違和感が少し高まりました。",
     },
   },
-  tagsField: {
-    manual: "手で直したタグ",
-    auto: "説明から作ったタグ",
-    regenerate: "説明から作り直す",
-    cancelRegenerate: "作り直しをやめる",
-    regenerateNote:
-      "保存すると、説明からタグを作り直します（手で直したタグは消えます）。",
-    note: "英語のタグをカンマ区切りで書きます。手で直したタグは、説明を変えても上書きしません。描き直すには、保存したあとで姿をもう一度生成します。",
-    emptyPlaceholder: "空のままなら、姿を生成するときに掟の本文から作ります",
+  lookFields: {
+    make: "説明からタグを作る",
+    making: "タグを作成中…",
+    needSource: "先に説明を書いてください",
+    required: "必須",
+    descriptionChanged:
+      "説明がタグに反映されていません。反映するには「説明からタグを作る」を押してください。",
+    tagsNote:
+      "画像にはこのタグをそのまま使います。英語のタグをカンマ区切りで書きます。描き直すには、保存したあとで姿をもう一度生成します。",
   },
   random: {
     heading: "おまかせの住民",
@@ -647,8 +654,12 @@ export const hakoniwa = {
     area_not_found: "場所が見つかりません。",
     invalid_slot: "置き場所が正しくありません。",
     furniture_not_found: "家具が見つかりません。",
-    look_tags_failed:
-      "掟の見た目のタグを作れませんでした。掟の編集で、見た目の説明を書き直すか英語のタグで書いてお試しください。",
+    tags_failed:
+      "タグを作れませんでした。説明を書き直すか、英語のタグを直接書いてください。",
+    tags_required: "いつもの姿のタグを入力してください。",
+    look_source_empty: "先に説明を書いてください。",
+    rule_has_no_look:
+      "この掟は見た目を変えないため、姿を生成できません。掟の編集で見た目のタグか体の性別を指定してください。",
     no_combo:
       "複合の姿には、見た目に関わる掟（自作の掟とドレスの掟）を2つ以上有効にしてください。",
     invalid_rule_appearance: "見た目の説明は300文字以内で入力してください。",

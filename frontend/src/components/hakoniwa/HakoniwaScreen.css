@@ -87,6 +87,10 @@
   color: var(--hk-warning);
 }
 
+.hakoniwa-note--error {
+  color: var(--hk-danger);
+}
+
 .hakoniwa-error {
   display: flex;
   align-items: center;
@@ -1929,26 +1933,25 @@
   overflow-wrap: anywhere;
 }
 
-/* 画像のタグの欄: 見出しの右上に「説明から作り直す」を置く */
-.hakoniwa-tags-field__head {
+/* 見た目の説明とタグの欄: 説明の見出しの右上に「説明からタグを作る」を置く */
+.hakoniwa-look-fields__head {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.hakoniwa-tags-field__action {
+.hakoniwa-look-fields__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
   padding: 4px 10px;
   font-size: 0.8rem;
 }
 
-.hakoniwa-tags-field__input {
+.hakoniwa-look-fields__tags {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
-}
-
-.hakoniwa-tags-field__input:disabled {
-  opacity: 0.55;
 }
 
 /* 1列のときは部屋を横幅いっぱいにし、地の文は部屋の下に出す

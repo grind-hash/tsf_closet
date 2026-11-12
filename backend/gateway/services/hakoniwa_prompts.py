@@ -344,18 +344,23 @@ def current_appearance_summary(
         names = " and ".join(f"'{rule['name']}'" for rule in _look_rules(state, kind))
         dress = " plus the dress rule" if combo["includes_dress"] else ""
         tags = combo_tags(state, combo["rule_ids"])[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX]
-        return f"a combined look set by the rules {names}{dress} ({tags})"
+        return f"a combined look set by the rules {names}{dress}{_tags_note(tags)}"
     if kind == "rule":
         rules = _look_rules(state, kind)
         if rules:
             tags = str(rules[-1].get("appearance_tags") or "")
             return (
-                f"a look set by the rule '{rules[-1]['name']}' "
-                f"({tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX]})"
+                f"a look set by the rule '{rules[-1]['name']}'"
+                f"{_tags_note(tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX])}"
             )
     if kind == "dress":
         return "wearing a dress"
     return None
+
+
+def _tags_note(tags: str) -> str:
+    """姿の説明に添えるタグ(体の性別だけを変える掟ではタグが無い)。"""
+    return f" ({tags})" if tags else ""
 
 
 def _look_rules(state: dict[str, Any], kind: str | None) -> list[dict[str, Any]]:
@@ -396,6 +401,8 @@ def appearance_note(state: dict[str, Any], resident: dict[str, Any]) -> str:
         if body_gender(state, resident) == "female":
             return f" Currently {summary}; originally a man, now in a woman's body."
         return f" Currently {summary}; his body stays male despite the feminine outfit."
+    if resident_gender(resident) == "female" and body_gender(state, resident) == "male":
+        return f" Currently {summary}; originally a woman, now in a man's body."
     return f" Currently {summary}."
 
 
@@ -1316,9 +1323,14 @@ def rule_look_tags_prompts(name: str, text: str, description: str) -> tuple[str,
         "Danbooru-style tags that describe how the rule changes every resident's "
         "appearance: clothing, accessories and items, or visible additions such as "
         "animal ears. If a look description is given, follow it first.\n"
-        "Do not include tags about a person's own features (hair, eyes, face, body "
-        "type, age, sex, gender, number of people such as 1girl or 1boy), because "
-        "each resident keeps their own. Output at most "
+        "Tag only what the rule or the description states, each item once. Do not "
+        "add clothing, accessories, decorations or fashion styles that are not "
+        "written (no extra dresses, ribbons, frills or styles such as lolita "
+        "fashion), and do not tag one garment twice with different words. Tag hair, "
+        "eyes or body features only when they are explicitly stated (for example "
+        "long hair); otherwise each resident keeps their own. Never include tags "
+        "for sex, gender or the number of people (1girl, 1boy, woman, man, female, "
+        "male, solo), because a change of sex is set separately. Output at most "
         f"{HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT} tags, comma-separated, on a single line, "
         "in English only. No Japanese, explanation, preface or code fence."
     )
@@ -1328,12 +1340,39 @@ def rule_look_tags_prompts(name: str, text: str, description: str) -> tuple[str,
     return system_prompt, user_prompt
 
 
-def rule_look_instruction(look_tags: str, *, dress: bool = False) -> str:
-    """住民のいまのタグを、掟の姿のタグへ書き換えさせる指示(変身と同じ変換に使う)。"""
-    instruction = (
-        f"Apply the look that a world rule sets for everyone: {look_tags}. Replace the "
-        "clothing that conflicts with it and keep the person's own face, hair, body "
-        "and gender as they are unless these tags change them."
+_BODY_CHANGE_INSTRUCTIONS = {
+    "female": (
+        " The rule also turns everyone's body into a woman's: use the gender token "
+        "1girl instead of 1boy and drop male-only features such as facial hair."
+    ),
+    "male": (
+        " The rule also turns everyone's body into a man's: use the gender token "
+        "1boy instead of 1girl and drop female-only features such as breasts."
+    ),
+}
+
+
+def rule_look_instruction(
+    look_tags: str, *, dress: bool = False, body_gender: str | None = None
+) -> str:
+    """住民のいまのタグを、掟の姿のタグへ書き換えさせる指示(変身と同じ変換に使う)。
+
+    body_gender は掟が定める体の性別(None は住民それぞれのまま)。
+    """
+    if look_tags:
+        instruction = (
+            f"Apply the look that a world rule sets for everyone: {look_tags}. Replace "
+            "the clothing that conflicts with it. Hair, eye or body tags among these "
+            "replace the person's own conflicting ones (for example long hair replaces "
+            "short hair). Keep the rest of the person's own face, hair and body."
+        )
+    else:
+        instruction = (
+            "A world rule changes everyone's body. Keep the person's own clothing, "
+            "face and hair."
+        )
+    instruction += _BODY_CHANGE_INSTRUCTIONS.get(
+        str(body_gender), " Keep the person's own gender."
     )
     if dress:
         instruction += (

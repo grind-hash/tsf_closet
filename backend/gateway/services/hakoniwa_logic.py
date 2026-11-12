@@ -4,14 +4,15 @@
 random.Random を渡す。状態の形:
 
     {version, day, image_model, active_rules[], swap_pair, last_pair,
-     custom_rules: [{id, name, text, appearance_text, appearance_tags}],
+     custom_rules: [{id, name, text, appearance_text, appearance_tags,
+                     body_gender(掟の姿の体の性別。None は住民それぞれのまま)}],
      residents: [{id, source, preset_id?, character_preset_id?, name, gender, age, job,
                   personality, pronoun, speech_style, address_style, appearance_text,
                   base_tags,
                   dress_text, dress_tags, avatar_image, dress_image, mood, affinities,
                   transformation, transformation_history,
-                  rule_images: {掟 id: {image, tags, source_tags}},
-                  combo_images: {組み合わせ: {image, tags, source_tags}}}],
+                  rule_images: {掟 id: {image, tags, source_tags, source_body}},
+                  combo_images: {組み合わせ: {image, tags, source_tags, source_body}}}],
      events: [{id, day, title, narration, lines, participants, mood_delta,
                affinity_delta, source, kind?, change_text?, instruction?, favorite}]}
 
@@ -255,12 +256,18 @@ def swap_partner_id(state: dict[str, Any], resident_id: str) -> str | None:
     return None
 
 
-def own_body_gender(resident: dict[str, Any]) -> str:
-    """入れ替わりを考えない、本人の今の体の性別(変身のタグに性別があればそれ)。"""
+def own_body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
+    """入れ替わりを考えない、本人の今の体の性別。
+
+    変身中は変身のタグの性別、変身していなければ掟の姿が定める体の性別、どちらも
+    無ければ本来の性別。
+    """
     transformation = resident.get("transformation") or {}
-    return tags_gender(str(transformation.get("tags") or "")) or resident_gender(
-        resident
-    )
+    if transformation:
+        return tags_gender(str(transformation.get("tags") or "")) or resident_gender(
+            resident
+        )
+    return active_look_body_gender(state) or resident_gender(resident)
 
 
 def body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
@@ -271,8 +278,8 @@ def body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
             (item for item in state["residents"] if item["id"] == partner_id), None
         )
         if partner is not None:
-            return own_body_gender(partner)
-    return own_body_gender(resident)
+            return own_body_gender(state, partner)
+    return own_body_gender(state, resident)
 
 
 def appearance_kind(state: dict[str, Any], resident: dict[str, Any]) -> str | None:
@@ -361,12 +368,19 @@ def active_custom_rule_ids(state: dict[str, Any]) -> list[str]:
     return [rule_id for rule_id in state.get("active_rules", []) if rule_id in ids]
 
 
+def is_look_rule(rule: dict[str, Any] | None) -> bool:
+    """住民の見た目を変える自作の掟か(見た目のタグか、体の性別の指定がある)。"""
+    return bool(str((rule or {}).get("appearance_tags") or "").strip()) or (
+        rule_body_gender(rule) is not None
+    )
+
+
 def look_rule_ids(state: dict[str, Any]) -> list[str]:
-    """見た目のタグを持つ、有効な自作の掟の id(有効にした順)。"""
+    """見た目を変える、有効な自作の掟の id(有効にした順)。"""
     return [
         rule_id
         for rule_id in active_custom_rule_ids(state)
-        if str((custom_rule(state, rule_id) or {}).get("appearance_tags") or "").strip()
+        if is_look_rule(custom_rule(state, rule_id))
     ]
 
 
@@ -375,15 +389,12 @@ def combo_digest(rule_ids: list[str], includes_dress: bool) -> str:
     return hashlib.sha1(",".join(components).encode("utf-8")).hexdigest()[:10]
 
 
-def active_combo(
-    state: dict[str, Any], *, require_tags: bool = True
-) -> dict[str, Any] | None:
+def active_combo(state: dict[str, Any]) -> dict[str, Any] | None:
     """いま重なっている見た目の掟の組み合わせ(複合の姿の対象)。
 
-    自作の掟が1つ以上あり、ドレスの掟と合わせて2つ以上のときだけ。require_tags なら
-    見た目のタグを持つ掟だけを数える(生成の入口では、タグの無い掟も数えて後で考える)。
+    見た目を変える自作の掟が1つ以上あり、ドレスの掟と合わせて2つ以上のときだけ。
     """
-    rule_ids = look_rule_ids(state) if require_tags else active_custom_rule_ids(state)
+    rule_ids = look_rule_ids(state)
     includes_dress = "dress" in state.get("active_rules", [])
     if not rule_ids or len(rule_ids) + (1 if includes_dress else 0) < 2:
         return None
@@ -415,44 +426,65 @@ def look_rules_tags(state: dict[str, Any], kind: str) -> str:
     return combo_tags(state, ids[-1:]) if ids else ""
 
 
-def rule_look_status(state: dict[str, Any], rule_id: str) -> dict[str, int]:
-    """掟の姿の生成状況。ready は今の見た目で生成済み、stale は見た目を変える前の姿。"""
-    tags = str((custom_rule(state, rule_id) or {}).get("appearance_tags") or "")
+def rule_body_gender(rule: dict[str, Any] | None) -> str | None:
+    """自作の掟が掟の姿で住民の体をする性別(None は住民それぞれのまま)。"""
+    gender = (rule or {}).get("body_gender")
+    return gender if gender in GENDERS else None
+
+
+def look_body_gender(state: dict[str, Any], rule_ids: list[str]) -> str | None:
+    """掟の組み合わせが定める体の性別。後から有効にした掟が勝つ。"""
+    for rule_id in reversed(rule_ids):
+        gender = rule_body_gender(custom_rule(state, rule_id))
+        if gender:
+            return gender
+    return None
+
+
+def active_look_body_gender(state: dict[str, Any]) -> str | None:
+    """いまの掟の姿(複合の姿か、最後に有効にした見た目の掟)が定める体の性別。"""
+    combo = active_combo(state)
+    rule_ids = combo["rule_ids"] if combo else look_rule_ids(state)[-1:]
+    return look_body_gender(state, rule_ids)
+
+
+def look_entry_is_current(entry: dict[str, Any], tags: str, body: str | None) -> bool:
+    """生成済みの姿が、今の見た目のタグと体の性別で作ったものか。"""
+    return bool(tags or body) and (
+        entry.get("source_tags") == tags and entry.get("source_body") == body
+    )
+
+
+def _look_status(
+    state: dict[str, Any], field: str, key: str, tags: str, body: str | None
+) -> dict[str, int]:
     ready = stale = 0
     for resident in state["residents"]:
-        entry = (resident.get("rule_images") or {}).get(rule_id)
+        entry = (resident.get(field) or {}).get(key)
         if not entry or not entry.get("image"):
             continue
-        if tags and entry.get("source_tags") == tags:
+        if look_entry_is_current(entry, tags, body):
             ready += 1
         else:
             stale += 1
     return {"ready": ready, "stale": stale, "total": len(state["residents"])}
+
+
+def rule_look_status(state: dict[str, Any], rule_id: str) -> dict[str, int]:
+    """掟の姿の生成状況。ready は今の見た目で生成済み、stale は見た目を変える前の姿。"""
+    rule = custom_rule(state, rule_id)
+    tags = str((rule or {}).get("appearance_tags") or "")
+    return _look_status(state, "rule_images", rule_id, tags, rule_body_gender(rule))
 
 
 def combo_look_status(state: dict[str, Any], combo: dict[str, Any]) -> dict[str, int]:
-    tags = combo_tags(state, combo["rule_ids"])
-    ready = stale = 0
-    for resident in state["residents"]:
-        entry = (resident.get("combo_images") or {}).get(combo["digest"])
-        if not entry or not entry.get("image"):
-            continue
-        if tags and entry.get("source_tags") == tags:
-            ready += 1
-        else:
-            stale += 1
-    return {"ready": ready, "stale": stale, "total": len(state["residents"])}
-
-
-def set_rule_appearance_tags(
-    state: dict[str, Any], rule_id: str, tags: str
-) -> dict[str, Any]:
-    new_state = deepcopy(state)
-    target = custom_rule(new_state, rule_id)
-    if target is None:
-        raise HakoniwaError("rule_not_found", "掟が見つかりません")
-    target["appearance_tags"] = str(tags or "")
-    return new_state
+    return _look_status(
+        state,
+        "combo_images",
+        combo["digest"],
+        combo_tags(state, combo["rule_ids"]),
+        look_body_gender(state, combo["rule_ids"]),
+    )
 
 
 def set_look_image(
@@ -472,6 +504,7 @@ def set_look_image(
         "image": str(entry["image"]),
         "tags": str(entry.get("tags") or ""),
         "source_tags": str(entry.get("source_tags") or ""),
+        "source_body": rule_body_gender({"body_gender": entry.get("source_body")}),
     }
     target[field] = images
     return new_state
@@ -565,7 +598,7 @@ def _base_resident(**fields: Any) -> dict[str, Any]:
         "base_tags": "",
         "dress_text": "",
         "dress_tags": "",
-        # プレイヤーが手で直したタグ。説明を変えても作り直さない(作り直しの指示を待つ)
+        # プレイヤーがタグを書き換えたか。プリセットの描き直しの版でタグを上書きしない
         "base_tags_manual": False,
         "dress_tags_manual": False,
         "avatar_image": None,
@@ -701,6 +734,27 @@ def ensure_gender_token(tags: str, gender: str) -> str:
     return f"{token}, {cleaned}"
 
 
+# 体の性別を差し替えるとき外す、性別のタグ(人数を表す 2girls なども含む)
+_GENDER_TAG = re.compile(
+    r"^(?:\d*\+?(?:girl|boy)s?|woman|man|female|male|(?:male|female) focus)$",
+    re.IGNORECASE,
+)
+
+
+def set_gender_token(tags: str, gender: str) -> str:
+    """画像タグの性別トークンを、指定した体の性別のものに差し替えて先頭に置く。"""
+    cleaned = str(tags or "").strip().strip(",").strip()
+    if not cleaned:
+        return DEFAULT_BASE_TAGS.get(gender, DEFAULT_BASE_TAGS["female"])
+    kept = [
+        tag.strip()
+        for tag in cleaned.split(",")
+        if tag.strip() and not _GENDER_TAG.match(tag.strip())
+    ]
+    token = "1boy" if gender == "male" else "1girl"
+    return ", ".join([token, *kept])
+
+
 def custom_resident(
     *,
     name: str,
@@ -829,7 +883,7 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "appearance_text": "",
                 "appearance_tags": "",
-                "appearance_tags_manual": False,
+                "body_gender": None,
                 **dict(rule),
             }
             for rule in state.get("custom_rules") or []
@@ -925,24 +979,6 @@ def _resume_transform_adaptation(resident: dict[str, Any], day: int) -> None:
         resident["adaptation"] = story.new_adaptation("transform", day)
 
 
-def tag_action(
-    *, edited: str | None, regenerate: bool, manual: bool, source_changed: bool
-) -> str:
-    """保存のときに画像のタグをどうするか。
-
-    manual: プレイヤーが書いたタグを使う / derive: 説明から作り直す / keep: 今のタグのまま。
-    手で直したタグは、説明を変えても作り直さない(作り直すのは regenerate のときだけ)。
-    タグを空にして保存したら、説明から作るタグに戻す。
-    """
-    if regenerate:
-        return "derive"
-    if edited is not None:
-        return "manual" if edited.strip() else "derive"
-    if manual:
-        return "keep"
-    return "derive" if source_changed else "keep"
-
-
 def validate_custom_rule(
     name: Any, text: Any, appearance_text: Any = ""
 ) -> dict[str, str]:
@@ -968,8 +1004,9 @@ def add_custom_rule(
     text: Any,
     appearance_text: Any = "",
     appearance_tags: str = "",
-    appearance_tags_manual: bool = False,
+    body_gender: str | None = None,
 ) -> dict[str, Any]:
+    """自作の掟を足す。appearance_tags は整えたタグ(空なら見た目のタグ無し)。"""
     if len(state.get("custom_rules", [])) >= HAKONIWA_CUSTOM_RULES_MAX:
         raise HakoniwaError(
             "too_many_custom_rules", f"自作の掟は{HAKONIWA_CUSTOM_RULES_MAX}個までです"
@@ -978,7 +1015,7 @@ def add_custom_rule(
         "id": "custom_rule_" + uuid.uuid4().hex[:10],
         **validate_custom_rule(name, text, appearance_text),
         "appearance_tags": str(appearance_tags or ""),
-        "appearance_tags_manual": bool(appearance_tags_manual and appearance_tags),
+        "body_gender": rule_body_gender({"body_gender": body_gender}),
     }
     new_state = deepcopy(state)
     new_state["custom_rules"].append(rule)
@@ -992,22 +1029,20 @@ def update_custom_rule(
     text: Any,
     appearance_text: Any = "",
     appearance_tags: str | None = None,
-    appearance_tags_manual: bool = False,
+    body_gender: str | None = None,
 ) -> dict[str, Any]:
     """自作の掟を書き換える。appearance_tags が None なら見た目のタグは変えない。
 
-    appearance_tags_manual はプレイヤーが手で直したタグか(説明から作ったタグなら False)。
+    body_gender は掟の姿の体の性別(None は住民それぞれのまま)で、毎回書き換える。
     """
     new_state = deepcopy(state)
     target = custom_rule(new_state, rule_id)
     if target is None:
         raise HakoniwaError("rule_not_found", "掟が見つかりません")
     target.update(validate_custom_rule(name, text, appearance_text))
+    target["body_gender"] = rule_body_gender({"body_gender": body_gender})
     if appearance_tags is not None:
         target["appearance_tags"] = str(appearance_tags)
-        target["appearance_tags_manual"] = bool(
-            appearance_tags_manual and appearance_tags
-        )
     return new_state
 
 

@@ -9,7 +9,7 @@ import {
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { GenderSegments } from "./HakoniwaCharacterAdder";
-import HakoniwaTagsField, { editedTags } from "./HakoniwaTagsField";
+import HakoniwaLookFields from "./HakoniwaLookFields";
 
 const NAME_MAX = 30;
 const PERSONALITY_MAX = 300;
@@ -23,19 +23,17 @@ interface HakoniwaResidentModalProps {
 
 /**
  * 住民の追加・編集。外見の説明はプレイヤーの文章のまま保存し、画像のタグは
- * バックエンドが別に作る(タグは読み取り専用で見せる)。
+ * 「説明からタグを作る」で作るか手で書く(欄のタグをそのまま保存する)。
  */
 export default function HakoniwaResidentModal({
   resident,
   onClose,
 }: HakoniwaResidentModalProps) {
   const { t } = useTranslation();
-  const { saveResident, busy } = useHakoniwa();
+  const { saveResident, makeResidentTags, busy } = useHakoniwa();
   const nameId = useId();
   const personalityId = useId();
   const genderId = useId();
-  const appearanceId = useId();
-  const dressId = useId();
   const addressId = useId();
   const [name, setName] = useState(resident?.name ?? "");
   const [personality, setPersonality] = useState(resident?.personality ?? "");
@@ -49,8 +47,8 @@ export default function HakoniwaResidentModal({
   );
   const [baseTags, setBaseTags] = useState(resident?.base_tags ?? "");
   const [dressTags, setDressTags] = useState(resident?.dress_tags ?? "");
-  const [regenerateBase, setRegenerateBase] = useState(false);
-  const [regenerateDress, setRegenerateDress] = useState(false);
+  const [makingBase, setMakingBase] = useState(false);
+  const [makingDress, setMakingDress] = useState(false);
   const saving = busy === "resident";
 
   const handleSave = async () => {
@@ -62,16 +60,8 @@ export default function HakoniwaResidentModal({
         appearance_text: appearance.trim(),
         dress_text: dress.trim(),
         address_style: addressStyle,
-        ...(resident && {
-          base_tags: editedTags(baseTags, resident.base_tags, regenerateBase),
-          dress_tags: editedTags(
-            dressTags,
-            resident.dress_tags,
-            regenerateDress,
-          ),
-          regenerate_base_tags: regenerateBase,
-          regenerate_dress_tags: regenerateDress,
-        }),
+        base_tags: baseTags.trim(),
+        dress_tags: dressTags.trim(),
       },
       resident?.id,
     );
@@ -93,7 +83,13 @@ export default function HakoniwaResidentModal({
           : t("hakoniwa.residentForm.save")
       }
       cancelLabel={t("hakoniwa.residentForm.cancel")}
-      confirmDisabled={!name.trim() || !personality.trim()}
+      confirmDisabled={
+        !name.trim() ||
+        !personality.trim() ||
+        !baseTags.trim() ||
+        makingBase ||
+        makingDress
+      }
       busy={saving}
       onCancel={onClose}
       onConfirm={() => void handleSave()}
@@ -147,52 +143,51 @@ export default function HakoniwaResidentModal({
         <p className="hakoniwa-note">
           {t("hakoniwa.residentForm.addressNote")}
         </p>
-        <label className="hakoniwa-field" htmlFor={appearanceId}>
-          <span>{t("hakoniwa.residentForm.appearance")}</span>
-          <textarea
-            id={appearanceId}
-            rows={2}
-            value={appearance}
-            maxLength={APPEARANCE_MAX}
-            placeholder={t("hakoniwa.residentForm.appearancePlaceholder")}
-            onChange={(event) => setAppearance(event.target.value)}
-          />
-        </label>
-        <p className="hakoniwa-note">
-          {t("hakoniwa.residentForm.appearanceNote")}
-        </p>
-        {resident && (
-          <HakoniwaTagsField
-            label={t("hakoniwa.residentForm.tags")}
-            value={baseTags}
-            onChange={setBaseTags}
-            manual={resident.base_tags_manual}
-            regenerate={regenerateBase}
-            onRegenerateChange={setRegenerateBase}
-          />
-        )}
-        <label className="hakoniwa-field" htmlFor={dressId}>
-          <span>{t("hakoniwa.residentForm.dress")}</span>
-          <textarea
-            id={dressId}
-            rows={2}
-            value={dress}
-            maxLength={APPEARANCE_MAX}
-            placeholder={t("hakoniwa.residentForm.dressPlaceholder")}
-            onChange={(event) => setDress(event.target.value)}
-          />
-        </label>
-        {resident && (
-          <HakoniwaTagsField
-            label={t("hakoniwa.residentForm.dressTags")}
-            value={dressTags}
-            onChange={setDressTags}
-            manual={resident.dress_tags_manual}
-            regenerate={regenerateDress}
-            onRegenerateChange={setRegenerateDress}
-            showNote={false}
-          />
-        )}
+        <HakoniwaLookFields
+          descriptionLabel={t("hakoniwa.residentForm.appearance")}
+          description={appearance}
+          onDescriptionChange={setAppearance}
+          descriptionPlaceholder={t(
+            "hakoniwa.residentForm.appearancePlaceholder",
+          )}
+          descriptionMax={APPEARANCE_MAX}
+          note={t("hakoniwa.residentForm.appearanceNote")}
+          tagsLabel={t("hakoniwa.residentForm.tags")}
+          tags={baseTags}
+          onTagsChange={setBaseTags}
+          tagsPlaceholder={t("hakoniwa.residentForm.tagsPlaceholder")}
+          required
+          canMake={Boolean(appearance.trim())}
+          onMake={() =>
+            makeResidentTags({
+              appearance_text: appearance.trim(),
+              gender,
+              dress: false,
+            })
+          }
+          onMakingChange={setMakingBase}
+        />
+        <HakoniwaLookFields
+          descriptionLabel={t("hakoniwa.residentForm.dress")}
+          description={dress}
+          onDescriptionChange={setDress}
+          descriptionPlaceholder={t("hakoniwa.residentForm.dressPlaceholder")}
+          descriptionMax={APPEARANCE_MAX}
+          tagsLabel={t("hakoniwa.residentForm.dressTags")}
+          tags={dressTags}
+          onTagsChange={setDressTags}
+          tagsPlaceholder={t("hakoniwa.residentForm.dressTagsPlaceholder")}
+          showTagsNote={false}
+          canMake={Boolean(dress.trim())}
+          onMake={() =>
+            makeResidentTags({
+              appearance_text: dress.trim(),
+              gender,
+              dress: true,
+            })
+          }
+          onMakingChange={setMakingDress}
+        />
       </div>
     </ConfirmDialog>
   );

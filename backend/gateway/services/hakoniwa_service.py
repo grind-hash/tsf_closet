@@ -75,6 +75,7 @@ from .hakoniwa_generation import (
     clean_manual_look_tags,
     clean_manual_tags,
     clean_profile,
+    clean_tags,
     convert_change_to_tags,
     convert_scene_to_tags,
     expand_appearance_tags,
@@ -193,10 +194,8 @@ def _resident_view(
         },
         "appearance_text": resident.get("appearance_text") or "",
         "base_tags": resident.get("base_tags") or "",
-        "base_tags_manual": bool(resident.get("base_tags_manual")),
         "dress_text": resident.get("dress_text") or "",
         "dress_tags": resident.get("dress_tags") or "",
-        "dress_tags_manual": bool(resident.get("dress_tags_manual")),
         "mood": int(resident["mood"]),
         "affinities": dict(resident["affinities"]),
         # 変身は体に付くので、いま入っている体の変身と履歴を出す(入れ替わり中は相手の体)
@@ -220,13 +219,29 @@ def _resident_view(
     }
 
 
-# 住民の編集の入力のうち、文の項目以外(タグの手直しと作り直しの指示)
-_RESIDENT_TAG_FIELDS = (
-    "base_tags",
-    "dress_tags",
-    "regenerate_base_tags",
-    "regenerate_dress_tags",
-)
+# 住民の編集の入力のうち、文の項目以外(画像のタグ)
+_RESIDENT_TAG_FIELDS = ("base_tags", "dress_tags")
+
+
+def _resident_tags_input(fields: dict[str, Any], gender: str) -> tuple[str, str]:
+    """住民の保存で送られた (いつもの姿, ドレス姿) のタグを整える。
+
+    いつもの姿は必須。ドレス姿は空なら、ドレス姿を生成するときにいつもの姿から考える。
+    """
+    base = str(fields.get("base_tags") or "").strip()
+    if not base:
+        raise HakoniwaError("tags_required", "いつもの姿のタグを入力してください")
+    dress = str(fields.get("dress_tags") or "").strip()
+    return (
+        clean_manual_tags(base, gender),
+        clean_manual_tags(dress, gender) if dress else "",
+    )
+
+
+def _rule_tags_input(raw: str | None) -> str:
+    """掟の保存で送られた見た目のタグを整える。空なら空(見た目を変えない掟)。"""
+    text = str(raw or "").strip()
+    return clean_manual_look_tags(text) if text else ""
 
 
 def _resident_text_fields(fields: dict[str, Any]) -> dict[str, Any]:
@@ -315,7 +330,7 @@ def _rule_cards_view(state: dict[str, Any], language: str) -> list[dict[str, Any
             "active": rule["id"] in active,
             "appearance_text": rule.get("appearance_text") or "",
             "appearance_tags": rule.get("appearance_tags") or "",
-            "appearance_tags_manual": bool(rule.get("appearance_tags_manual")),
+            "body_gender": logic.rule_body_gender(rule),
             "look": logic.rule_look_status(state, rule["id"]),
         }
         for rule in state.get("custom_rules", [])
@@ -324,31 +339,16 @@ def _rule_cards_view(state: dict[str, Any], language: str) -> list[dict[str, Any
 
 
 def _combo_look_view(state: dict[str, Any]) -> dict[str, Any] | None:
-    """いま重なっている見た目の掟(複合の姿の対象)と、その生成状況。
-
-    見た目のタグがまだ無い掟も数える(生成するときにタグを考える)。
-    """
-    combo = logic.active_combo(state, require_tags=False)
+    """いま重なっている見た目の掟(複合の姿の対象)と、その生成状況。"""
+    combo = logic.active_combo(state)
     if combo is None:
         return None
     rules = [logic.custom_rule(state, rule_id) or {} for rule_id in combo["rule_ids"]]
-    untagged = [
-        str(rule.get("name") or "")
-        for rule in rules
-        if not str(rule.get("appearance_tags") or "").strip()
-    ]
-    tagged = logic.active_combo(state)
-    status = (
-        logic.combo_look_status(state, tagged)
-        if tagged is not None and not untagged
-        else {"ready": 0, "stale": 0, "total": len(state["residents"])}
-    )
     return {
         "rule_ids": combo["rule_ids"],
         "names": [str(rule.get("name") or "") for rule in rules],
         "includes_dress": combo["includes_dress"],
-        "untagged_names": untagged,
-        **status,
+        **logic.combo_look_status(state, combo),
     }
 
 
@@ -1021,23 +1021,69 @@ class HakoniwaService:
             "cost_usd": tracker.total_usd or None,
         }
 
-    async def _rule_look_tags(
-        self, clean: dict[str, str], user_settings: dict[str, Any]
-    ) -> str:
-        """掟の見た目の説明からタグを作る。英語のタグはそのまま、空なら空のまま
-        (姿を生成するときに掟の本文から考える)。変換に失敗しても保存は止めない。"""
-        description = clean["appearance_text"]
-        if not description:
-            return ""
-        if not needs_tag_expansion(description):
-            return clean_look_tags(description) or ""
-        tags = await generate_rule_look_tags(
-            clean["name"],
-            clean["text"],
-            description,
-            novelai_model=user_settings.get("novelai_text_model"),
+    async def make_rule_look_tags(
+        self,
+        name: str,
+        text: str,
+        appearance_text: str,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """掟の名前・本文・見た目の説明から、見た目のタグを作って返す(保存はしない)。
+
+        見た目の説明が英語のタグならそのまま整え、日本語の文章か空なら LLM に考えさせる。
+        """
+        _, user_settings = await self._context(language)
+        name, text, description = (
+            str(value or "").strip() for value in (name, text, appearance_text)
         )
-        return tags or ""
+        if not text and not description:
+            raise HakoniwaError(
+                "look_source_empty", "先に掟の本文か見た目の説明を書いてください"
+            )
+        tracker = begin_cost_tracking()
+        if description and not needs_tag_expansion(description):
+            tags = clean_look_tags(description)
+        else:
+            tags = await generate_rule_look_tags(
+                name,
+                text,
+                description,
+                novelai_model=user_settings.get("novelai_text_model"),
+            )
+        if not tags:
+            raise HakoniwaError("tags_failed", "見た目のタグを作れませんでした")
+        return {"tags": tags, "cost_usd": tracker.total_usd or None}
+
+    async def make_resident_tags(
+        self,
+        appearance_text: str,
+        gender: str,
+        *,
+        dress: bool = False,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """住民の外見(dress ならドレス姿)の説明から画像タグを作って返す(保存はしない)。"""
+        _, user_settings = await self._context(language)
+        description = str(appearance_text or "").strip()
+        if not description:
+            raise HakoniwaError("look_source_empty", "先に説明を書いてください")
+        tracker = begin_cost_tracking()
+        if needs_tag_expansion(description):
+            tags = await expand_appearance_tags(
+                description,
+                gender,
+                dress=dress,
+                novelai_model=user_settings.get("novelai_text_model"),
+            )
+        else:
+            tags = clean_tags(description)
+        if not tags:
+            raise HakoniwaError("tags_failed", "見た目のタグを作れませんでした")
+        # 性別は住民の性別で決める(変換が逆の性別を書いても直す)
+        return {
+            "tags": logic.set_gender_token(tags, gender),
+            "cost_usd": tracker.total_usd or None,
+        }
 
     async def add_custom_rule(
         self,
@@ -1046,17 +1092,11 @@ class HakoniwaService:
         text: str,
         appearance_text: str = "",
         language: str | None = None,
-        appearance_tags: str | None = None,
+        appearance_tags: str = "",
+        body_gender: str | None = None,
     ) -> dict[str, Any]:
-        """掟を書く。見た目のタグを手で書いたらそれを使い、無ければ説明から作る。"""
-        _, user_settings = await self._context(language)
-        clean = logic.validate_custom_rule(name, text, appearance_text)
-        manual = bool(str(appearance_tags or "").strip())
-        tags = (
-            clean_manual_look_tags(str(appearance_tags))
-            if manual
-            else await self._rule_look_tags(clean, user_settings)
-        )
+        """掟を書く。見た目のタグは書かれたものを整えて使う(空なら見た目を変えない)。"""
+        tags = _rule_tags_input(appearance_tags)
         return await self._mutate(
             world_id,
             language,
@@ -1066,7 +1106,7 @@ class HakoniwaService:
                 text,
                 appearance_text,
                 appearance_tags=tags,
-                appearance_tags_manual=manual,
+                body_gender=body_gender,
             ),
         )
 
@@ -1078,36 +1118,11 @@ class HakoniwaService:
         text: str,
         appearance_text: str = "",
         language: str | None = None,
-        appearance_tags: str | None = None,
-        regenerate_appearance_tags: bool = False,
+        appearance_tags: str = "",
+        body_gender: str | None = None,
     ) -> dict[str, Any]:
-        """掟を編集する。見た目の説明を変えたときだけ見た目のタグを作り直す。
-
-        手で直したタグは、説明を変えても作り直さない(作り直しの指示か、タグを空にした
-        ときだけ説明から作る)。appearance_tags が None ならタグは手直ししていない。
-        """
-        _, user_settings = await self._context(language)
-        clean = logic.validate_custom_rule(name, text, appearance_text)
-        async with async_session_factory() as db:
-            current = logic.custom_rule(
-                _load_state(await self._load(db, world_id)), rule_id
-            )
-        if current is None:
-            raise HakoniwaError("rule_not_found", "掟が見つかりません")
-        action = logic.tag_action(
-            edited=appearance_tags,
-            regenerate=regenerate_appearance_tags,
-            manual=bool(current.get("appearance_tags_manual")),
-            source_changed=clean["appearance_text"]
-            != (current.get("appearance_text") or ""),
-        )
-        tags: str | None = None
-        manual = False
-        if action == "manual":
-            tags = clean_manual_look_tags(str(appearance_tags))
-            manual = True
-        elif action == "derive":
-            tags = await self._rule_look_tags(clean, user_settings)
+        """掟を編集する。見た目のタグは書かれたものを整えて使う(空なら見た目を変えない)。"""
+        tags = _rule_tags_input(appearance_tags)
         return await self._mutate(
             world_id,
             language,
@@ -1118,33 +1133,9 @@ class HakoniwaService:
                 text,
                 appearance_text,
                 appearance_tags=tags,
-                appearance_tags_manual=manual,
+                body_gender=body_gender,
             ),
         )
-
-    async def _ensure_rule_look_tags(
-        self,
-        state: dict[str, Any],
-        rule_ids: list[str],
-        user_settings: dict[str, Any],
-    ) -> tuple[dict[str, Any], list[str]]:
-        """見た目のタグが無い掟に、掟の本文からタグを考えて入れる。考えられなかった掟名を返す。"""
-        failed: list[str] = []
-        for rule_id in rule_ids:
-            rule = logic.custom_rule(state, rule_id)
-            if rule is None or str(rule.get("appearance_tags") or "").strip():
-                continue
-            tags = await generate_rule_look_tags(
-                rule["name"],
-                rule["text"],
-                str(rule.get("appearance_text") or ""),
-                novelai_model=user_settings.get("novelai_text_model"),
-            )
-            if tags:
-                state = logic.set_rule_appearance_tags(state, rule_id, tags)
-            else:
-                failed.append(str(rule["name"]))
-        return state, failed
 
     async def _generate_look_images(
         self,
@@ -1155,16 +1146,20 @@ class HakoniwaService:
         kind: str,
         key: str,
         source_tags: str,
+        body_gender: str | None,
         dress: bool,
         regenerate: bool,
     ) -> tuple[dict[str, Any], int, int]:
         """住民ごとに掟の姿・複合の姿を作る。NovelAI の 429 を避けるため1人ずつ順に呼ぶ。
 
-        regenerate でなければ、今の見た目でまだ生成していない住民だけ。
+        regenerate でなければ、今の見た目(タグと体の性別)でまだ生成していない住民だけ。
+        body_gender は掟が定める体の性別で、None なら住民それぞれの性別のまま。
         戻り値は (状態, 生成した人数, 失敗した人数)。
         """
         field = "rule_images" if kind == "rule" else "combo_images"
-        instruction = rule_look_instruction(source_tags, dress=dress)
+        instruction = rule_look_instruction(
+            source_tags, dress=dress, body_gender=body_gender
+        )
         novelai_model = user_settings.get("novelai_text_model")
         generated = failed = 0
         for resident in list(state["residents"]):
@@ -1172,7 +1167,7 @@ class HakoniwaService:
             if (
                 not regenerate
                 and entry.get("image")
-                and entry.get("source_tags") == source_tags
+                and logic.look_entry_is_current(entry, source_tags, body_gender)
             ):
                 continue
             gender = logic.resident_gender(resident)
@@ -1185,7 +1180,12 @@ class HakoniwaService:
             if not tags:
                 failed += 1
                 continue
-            tags = logic.ensure_gender_token(tags, gender)
+            # 体の性別は LLM の変換に任せず、掟の指定で決める
+            tags = (
+                logic.set_gender_token(tags, body_gender)
+                if body_gender
+                else logic.ensure_gender_token(tags, gender)
+            )
             try:
                 data = await self._generate_image(state, user_settings, tags)
             except HakoniwaError:
@@ -1197,7 +1197,12 @@ class HakoniwaService:
                 resident["id"],
                 kind=kind,
                 key=key,
-                entry={"image": filename, "tags": tags, "source_tags": source_tags},
+                entry={
+                    "image": filename,
+                    "tags": tags,
+                    "source_tags": source_tags,
+                    "source_body": body_gender,
+                },
             )
             generated += 1
             if entry.get("image") and entry["image"] != filename:
@@ -1237,29 +1242,27 @@ class HakoniwaService:
         regenerate: bool = False,
         language: str | None = None,
     ) -> dict[str, Any]:
-        """自作の掟の姿を住民の人数分つくる(見た目のタグが無ければ掟の本文から考える)。"""
+        """自作の掟の姿を住民の人数分つくる(見た目を変えない掟では作れない)。"""
         lang, user_settings = await self._context(language)
         async with self._world_locks[world_id]:
             async with async_session_factory() as db:
                 state = _load_state(await self._load(db, world_id))
-            if logic.custom_rule(state, rule_id) is None:
+            rule = logic.custom_rule(state, rule_id)
+            if rule is None:
                 raise HakoniwaError("rule_not_found", "掟が見つかりません")
-            tracker = begin_cost_tracking()
-            state, failed_names = await self._ensure_rule_look_tags(
-                state, [rule_id], user_settings
-            )
-            if failed_names:
+            if not logic.is_look_rule(rule):
                 raise HakoniwaError(
-                    "look_tags_failed", "掟の見た目のタグを作れませんでした"
+                    "rule_has_no_look", "この掟は見た目を変えないため、姿を作れません"
                 )
-            source_tags = str(logic.custom_rule(state, rule_id)["appearance_tags"])
+            tracker = begin_cost_tracking()
             state, generated, failed = await self._generate_look_images(
                 world_id,
                 state,
                 user_settings,
                 kind="rule",
                 key=rule_id,
-                source_tags=source_tags,
+                source_tags=str(rule.get("appearance_tags") or ""),
+                body_gender=logic.rule_body_gender(rule),
                 dress=False,
                 regenerate=regenerate,
             )
@@ -1279,24 +1282,12 @@ class HakoniwaService:
         async with self._world_locks[world_id]:
             async with async_session_factory() as db:
                 state = _load_state(await self._load(db, world_id))
-            combo = logic.active_combo(state, require_tags=False)
+            combo = logic.active_combo(state)
             if combo is None:
                 raise HakoniwaError(
                     "no_combo", "見た目に関わる掟を2つ以上有効にしてください"
                 )
             tracker = begin_cost_tracking()
-            state, failed_names = await self._ensure_rule_look_tags(
-                state, combo["rule_ids"], user_settings
-            )
-            combo = logic.active_combo(state)
-            if failed_names or combo is None:
-                async with async_session_factory() as db:
-                    world = await self._load(db, world_id)
-                    _store_state(world, state)
-                    await db.commit()
-                raise HakoniwaError(
-                    "look_tags_failed", "掟の見た目のタグを作れませんでした"
-                )
             state, generated, failed = await self._generate_look_images(
                 world_id,
                 state,
@@ -1304,6 +1295,7 @@ class HakoniwaService:
                 kind="combo",
                 key=combo["digest"],
                 source_tags=logic.combo_tags(state, combo["rule_ids"]),
+                body_gender=logic.look_body_gender(state, combo["rule_ids"]),
                 dress=combo["includes_dress"],
                 regenerate=regenerate,
             )
@@ -1353,24 +1345,10 @@ class HakoniwaService:
         fields: dict[str, Any],
         language: str | None = None,
     ) -> dict[str, Any]:
-        lang, user_settings = await self._context(language)
+        """自作の住民を迎える。画像のタグは書かれたものを整えて使う(いつもの姿は必須)。"""
+        lang, _ = await self._context(language)
         clean = logic.validate_resident_fields(**_resident_text_fields(fields))
-        tracker = begin_cost_tracking()
-        novelai_model = user_settings.get("novelai_text_model")
-        base_tags, base_failed = await self._derive_tags(
-            clean["appearance_text"],
-            clean["gender"],
-            dress=False,
-            fallback=DEFAULT_BASE_TAGS[clean["gender"]],
-            novelai_model=novelai_model,
-        )
-        dress_tags, dress_failed = await self._derive_tags(
-            clean["dress_text"],
-            clean["gender"],
-            dress=True,
-            fallback="",
-            novelai_model=novelai_model,
-        )
+        base_tags, dress_tags = _resident_tags_input(fields, clean["gender"])
         resident = logic.custom_resident(
             name=clean["name"],
             personality=clean["personality"],
@@ -1384,12 +1362,7 @@ class HakoniwaService:
         view = await self._mutate(
             world_id, lang, lambda state: logic.add_resident(state, resident)
         )
-        return {
-            "world": view,
-            "resident_id": resident["id"],
-            "tag_expansion_failed": base_failed or dress_failed,
-            "cost_usd": tracker.total_usd or None,
-        }
+        return {"world": view, "resident_id": resident["id"]}
 
     async def add_character_resident(
         self,
@@ -1431,93 +1404,33 @@ class HakoniwaService:
     ) -> dict[str, Any]:
         """住民の名前・性格・性別・外見の説明・呼び方・画像のタグを書き換える。
 
-        外見の説明はタグに変換する。ただしプレイヤーが手で直したタグは、説明を変えても
-        作り直さない(作り直しの指示か、タグを空にしたときだけ説明から作る)。
+        画像のタグは書かれたものを整えて使う(いつもの姿は必須)。タグを書き換えたら
+        プレイヤーの手直しとして印を付ける(プリセットの描き直しで上書きしないため)。
         """
-        lang, user_settings = await self._context(language)
+        lang, _ = await self._context(language)
         clean = logic.validate_resident_fields(**_resident_text_fields(fields))
         async with async_session_factory() as db:
             world = await self._load(db, world_id)
             current = logic.find_resident(_load_state(world), resident_id)
-        tracker = begin_cost_tracking()
-        novelai_model = user_settings.get("novelai_text_model")
-        failed = False
-        updates: dict[str, Any] = dict(clean)
+        base_tags, dress_tags = _resident_tags_input(fields, clean["gender"])
+        updates: dict[str, Any] = {
+            **clean,
+            "base_tags": base_tags,
+            "dress_tags": dress_tags,
+        }
         if fields.get("address_style") is None:
             # 呼び方の指定が無ければ今のまま
             updates.pop("address_style")
-        gender_changed = clean["gender"] != logic.resident_gender(current)
-        base_action = logic.tag_action(
-            edited=fields.get("base_tags"),
-            regenerate=bool(fields.get("regenerate_base_tags")),
-            manual=bool(current.get("base_tags_manual")),
-            source_changed=gender_changed
-            or clean["appearance_text"] != (current.get("appearance_text") or ""),
-        )
-        if base_action == "manual":
-            updates["base_tags"] = clean_manual_tags(
-                str(fields["base_tags"]), clean["gender"]
-            )
+        if base_tags != (current.get("base_tags") or ""):
             updates["base_tags_manual"] = True
-        elif base_action == "derive":
-            fallback_resident = {**current, "gender": clean["gender"]}
-            updates["base_tags"], failed_base = await self._derive_tags(
-                clean["appearance_text"],
-                clean["gender"],
-                dress=False,
-                fallback=logic.ensure_gender_token(
-                    _source_base_tags(fallback_resident), clean["gender"]
-                ),
-                novelai_model=novelai_model,
-            )
-            updates["base_tags_manual"] = False
-            failed = failed or failed_base
-        elif gender_changed and current.get("base_tags_manual"):
-            # 手で直したタグを残すときも、性別を変えたらタグの性別と合っているか確かめる
-            updates["base_tags"] = clean_manual_tags(
-                str(current.get("base_tags") or ""), clean["gender"]
-            )
-        dress_action = logic.tag_action(
-            edited=fields.get("dress_tags"),
-            regenerate=bool(fields.get("regenerate_dress_tags")),
-            manual=bool(current.get("dress_tags_manual")),
-            source_changed=clean["dress_text"] != (current.get("dress_text") or ""),
-        )
-        if dress_action == "manual":
-            updates["dress_tags"] = clean_manual_tags(
-                str(fields["dress_tags"]), clean["gender"]
-            )
+        if dress_tags != (current.get("dress_tags") or ""):
             updates["dress_tags_manual"] = True
-        elif dress_action == "derive":
-            preset = HAKONIWA_PRESET_MAP.get(str(current.get("preset_id") or ""))
-            updates["dress_tags"], failed_dress = await self._derive_tags(
-                clean["dress_text"],
-                clean["gender"],
-                dress=True,
-                fallback=str(preset["dress_tags"]) if preset else "",
-                novelai_model=novelai_model,
-            )
-            updates["dress_tags_manual"] = False
-            failed = failed or failed_dress
-        elif (
-            gender_changed
-            and current.get("dress_tags_manual")
-            and current.get("dress_tags")
-        ):
-            updates["dress_tags"] = clean_manual_tags(
-                str(current.get("dress_tags") or ""), clean["gender"]
-            )
         view = await self._mutate(
             world_id,
             lang,
             lambda state: logic.update_resident(state, resident_id, updates),
         )
-        return {
-            "world": view,
-            "resident_id": resident_id,
-            "tag_expansion_failed": failed,
-            "cost_usd": tracker.total_usd or None,
-        }
+        return {"world": view, "resident_id": resident_id}
 
     async def remove_resident(
         self, world_id: str, resident_id: str, language: str | None = None

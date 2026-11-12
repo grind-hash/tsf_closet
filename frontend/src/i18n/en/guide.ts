@@ -151,7 +151,8 @@ export const guide = {
         items: [
           "Up to 3 rules (Ladylike Speech, The Swapped Morning, Rule of Dresses, Romance Ban, Confession Week, and rules you write) can be active at once, and they affect every event from the next day on. Switching a rule makes the residents nearby react briefly (not kept in the chronicle).",
           'Built-in rules have combos (such as swap and dresses): with both active, the Rules tab shows "In effect" and events reflect it.',
-          'Your own rules can have a look description (if empty, the look is worked out from the rule text). "Generate looks" on the Rules tab generates a rule look for every resident, one at a time. When two or more look rules overlap (the Rule of Dresses counts too), you can also generate a combined look.',
+          'The look of your own rule is set by its look tags (a rule with no tags and no body sex change does not change looks). "Generate looks" on the Rules tab generates a rule look for every resident, one at a time. When two or more look rules overlap (the Rule of Dresses counts too), you can also generate a combined look.',
+          'Choosing "Make female" or "Make male" under "Body sex" on your own rule turns the body of every resident into that sex in the rule look, and events are written with the new body (writing the sex in the look description does not change it). A rule can also change only the body sex, with no look tags. After changing it, generate the looks again.',
         ],
       },
       {
@@ -161,7 +162,7 @@ export const guide = {
           "Looks are shown in the order transformation → combined look → rule look (the rule turned on last) → dress → usual, and events and scene pictures use the same look.",
           "A transformation belongs to the body: transforming a swapped resident changes the body they are in now, and when the swap ends the transformed body goes back to its owner.",
           "The resident and the others get used to a transformation or swap day by day (bewildered → trial and error → getting used to it → accepted). After changing back, a remnant lingers for a few days.",
-          'When editing a resident (usual look, dress look) or one of your own rules (look), you can edit the English image tags by hand. Edited tags are kept even when the description changes, and are remade only when you press "Remake from the description" and save (generate the look again afterwards to redraw it).',
+          'Images of residents (usual and dress looks) and your own rules use the tags in the form as they are. "Make tags from the description" fills the field with tags made from the description (saved only when you save). You can edit the tags by hand; changing the description does not change them. A resident needs usual look tags. To redraw, generate the look again after saving.',
           "With NAI Diffusion V5, looks are generated with a transparent background; with other settings (V4.5 or other providers) they are generated on white and made transparent when shown.",
         ],
       },

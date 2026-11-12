@@ -3,13 +3,16 @@ import { useTranslation } from "react-i18next";
 import type { HakoniwaLookStatus, HakoniwaRuleCard } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import ConfirmDialog from "../ui/ConfirmDialog";
-import HakoniwaTagsField, { editedTags } from "./HakoniwaTagsField";
+import HakoniwaLookFields from "./HakoniwaLookFields";
 
 const MAX_ACTIVE = 3;
 const NAME_MAX = 20;
 const TEXT_MAX = 200;
 const APPEARANCE_MAX = 300;
 const COMBO = "combo";
+/** 掟の姿の体の性別の選択肢。keep は住民それぞれの性別のまま */
+const BODY_OPTIONS = ["keep", "female", "male"] as const;
+type BodyOption = (typeof BODY_OPTIONS)[number];
 
 /** 生成の確認に使う、これから生成する人数と描き直すかどうか */
 interface LookRequest {
@@ -83,15 +86,6 @@ export default function HakoniwaRulesTab() {
               )
             }
           />
-          {combo.untagged_names.length > 0 && (
-            <p className="hakoniwa-note">
-              {t("hakoniwa.rules.comboUntagged", {
-                names: combo.untagged_names
-                  .map((name) => t("hakoniwa.rules.quoted", { name }))
-                  .join(t("hakoniwa.rules.comboJoin")),
-              })}
-            </p>
-          )}
         </section>
       )}
       <ul className="hakoniwa-rules__list">
@@ -244,6 +238,8 @@ function RuleRow({
 }) {
   const { t } = useTranslation();
   const inputId = useId();
+  // 見た目のタグも体の性別も無い自作の掟は、見た目を変えない
+  const changesLook = Boolean(card.appearance_tags?.trim() || card.body_gender);
   return (
     <li className={`hakoniwa-rule${card.active ? " is-active" : ""}`}>
       <label className="hakoniwa-toggle" htmlFor={inputId}>
@@ -285,17 +281,29 @@ function RuleRow({
           ))}
         </ul>
       )}
-      {card.custom && card.look && (
+      {card.custom && card.look && !changesLook && (
         <div className="hakoniwa-rule__appearance">
           <span className="hakoniwa-rule__appearance-text">
-            {card.appearance_text
-              ? t("hakoniwa.rules.appearanceShown", {
-                  text: card.appearance_text,
-                })
-              : card.appearance_tags_manual
-                ? t("hakoniwa.rules.appearanceManualTags")
-                : t("hakoniwa.rules.appearanceFromRule")}
+            {t("hakoniwa.rules.appearanceNone")}
           </span>
+        </div>
+      )}
+      {card.custom && card.look && changesLook && (
+        <div className="hakoniwa-rule__appearance">
+          {card.appearance_text && (
+            <span className="hakoniwa-rule__appearance-text">
+              {t("hakoniwa.rules.appearanceShown", {
+                text: card.appearance_text,
+              })}
+            </span>
+          )}
+          {card.body_gender && (
+            <span className="hakoniwa-rule__appearance-text">
+              {t("hakoniwa.rules.bodyShown", {
+                gender: t(`hakoniwa.gender.${card.body_gender}`),
+              })}
+            </span>
+          )}
           {card.appearance_tags && (
             <code className="hakoniwa-rule__appearance-tags">
               {card.appearance_tags}
@@ -340,15 +348,16 @@ function CustomRuleModal({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  const { saveCustomRule, busy } = useHakoniwa();
+  const { saveCustomRule, makeRuleLookTags, busy } = useHakoniwa();
   const nameId = useId();
   const textId = useId();
-  const appearanceId = useId();
+  const bodyId = useId();
   const [name, setName] = useState(rule?.name ?? "");
   const [text, setText] = useState(rule?.description ?? "");
   const [appearance, setAppearance] = useState(rule?.appearance_text ?? "");
   const [lookTags, setLookTags] = useState(rule?.appearance_tags ?? "");
-  const [regenerateTags, setRegenerateTags] = useState(false);
+  const [body, setBody] = useState<BodyOption>(rule?.body_gender ?? "keep");
+  const [makingTags, setMakingTags] = useState(false);
 
   return (
     <ConfirmDialog
@@ -361,7 +370,7 @@ function CustomRuleModal({
       }
       confirmLabel={t("hakoniwa.residentForm.save")}
       cancelLabel={t("hakoniwa.residentForm.cancel")}
-      confirmDisabled={!name.trim() || !text.trim()}
+      confirmDisabled={!name.trim() || !text.trim() || makingTags}
       busy={busy === "rule"}
       onCancel={onClose}
       onConfirm={() => {
@@ -370,14 +379,8 @@ function CustomRuleModal({
             name: name.trim(),
             text: text.trim(),
             appearance_text: appearance.trim(),
-            ...(rule && {
-              appearance_tags: editedTags(
-                lookTags,
-                rule.appearance_tags ?? "",
-                regenerateTags,
-              ),
-              regenerate_appearance_tags: regenerateTags,
-            }),
+            appearance_tags: lookTags.trim(),
+            body_gender: body === "keep" ? null : body,
           },
           rule?.id,
         ).then((saved) => {
@@ -409,29 +412,48 @@ function CustomRuleModal({
           />
         </label>
         <p className="hakoniwa-note">{t("hakoniwa.rules.textNote")}</p>
-        <label className="hakoniwa-field" htmlFor={appearanceId}>
-          <span>{t("hakoniwa.rules.appearance")}</span>
-          <textarea
-            id={appearanceId}
-            rows={2}
-            value={appearance}
-            maxLength={APPEARANCE_MAX}
-            placeholder={t("hakoniwa.rules.appearancePlaceholder")}
-            onChange={(event) => setAppearance(event.target.value)}
-          />
-        </label>
-        <p className="hakoniwa-note">{t("hakoniwa.rules.appearanceNote")}</p>
-        {rule && (
-          <HakoniwaTagsField
-            label={t("hakoniwa.rules.appearanceTags")}
-            value={lookTags}
-            onChange={setLookTags}
-            manual={Boolean(rule.appearance_tags_manual)}
-            regenerate={regenerateTags}
-            onRegenerateChange={setRegenerateTags}
-            placeholder={t("hakoniwa.tagsField.emptyPlaceholder")}
-          />
-        )}
+        <HakoniwaLookFields
+          descriptionLabel={t("hakoniwa.rules.appearance")}
+          description={appearance}
+          onDescriptionChange={setAppearance}
+          descriptionPlaceholder={t("hakoniwa.rules.appearancePlaceholder")}
+          descriptionMax={APPEARANCE_MAX}
+          note={t("hakoniwa.rules.appearanceNote")}
+          tagsLabel={t("hakoniwa.rules.appearanceTags")}
+          tags={lookTags}
+          onTagsChange={setLookTags}
+          tagsPlaceholder={t("hakoniwa.rules.appearanceTagsPlaceholder")}
+          canMake={Boolean(text.trim() || appearance.trim())}
+          onMake={() =>
+            makeRuleLookTags({
+              name: name.trim(),
+              text: text.trim(),
+              appearance_text: appearance.trim(),
+            })
+          }
+          onMakingChange={setMakingTags}
+        />
+        <div className="hakoniwa-field">
+          <span id={bodyId}>{t("hakoniwa.rules.body")}</span>
+          <div
+            className="hakoniwa-segments"
+            role="group"
+            aria-labelledby={bodyId}
+          >
+            {BODY_OPTIONS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={body === option ? "is-active" : undefined}
+                aria-pressed={body === option}
+                onClick={() => setBody(option)}
+              >
+                {t(`hakoniwa.rules.bodyOption.${option}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="hakoniwa-note">{t("hakoniwa.rules.bodyNote")}</p>
       </div>
     </ConfirmDialog>
   );

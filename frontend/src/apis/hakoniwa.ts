@@ -304,14 +304,11 @@ export interface HakoniwaResident {
   addresses: Record<string, string>;
   /** プレイヤーが書いた外見の説明(画像タグとは別に持つ) */
   appearance_text: string;
-  /** 通常の姿の画像タグ(外見の説明から作る。手で直すこともできる) */
+  /** 通常の姿の画像タグ(そのまま姿の生成に使う) */
   base_tags: string;
-  /** いつもの姿のタグをプレイヤーが手で直したか(説明を変えても上書きしない) */
-  base_tags_manual: boolean;
   dress_text: string;
+  /** ドレス姿の画像タグ。空ならドレス姿を生成するときにいつもの姿から考える */
   dress_tags: string;
-  /** ドレス姿のタグをプレイヤーが手で直したか */
-  dress_tags_manual: boolean;
   mood: number;
   affinities: Record<string, number>;
   transformation: HakoniwaTransformation | null;
@@ -349,12 +346,12 @@ export interface HakoniwaRuleCard {
   description: string;
   custom: boolean;
   active: boolean;
-  /** 自作の掟の見た目の説明(プレイヤーが書いた文) */
+  /** 自作の掟の見た目の説明(プレイヤーが書いた文。タグを作るときの元) */
   appearance_text?: string | null;
-  /** 見た目の説明(空なら掟の本文)から作ったタグ。手で直すこともできる */
+  /** 自作の掟の見た目のタグ(そのまま姿の生成に使う)。空なら見た目を変えない */
   appearance_tags?: string | null;
-  /** 見た目のタグをプレイヤーが手で直したか(説明を変えても上書きしない) */
-  appearance_tags_manual?: boolean | null;
+  /** 掟の姿で住民の体をこの性別にする(自作の掟)。null は住民それぞれのまま */
+  body_gender?: HakoniwaGender | null;
   look?: HakoniwaLookStatus | null;
   /** 既定の掟どうしの相性 */
   synergies?: HakoniwaSynergy[] | null;
@@ -418,8 +415,6 @@ export interface HakoniwaComboLook extends HakoniwaLookStatus {
   rule_ids: string[];
   names: string[];
   includes_dress: boolean;
-  /** 見た目のタグがまだ無い掟(生成するときに考える) */
-  untagged_names: string[];
 }
 
 export interface HakoniwaLookResult {
@@ -433,10 +428,10 @@ export interface HakoniwaCustomRuleInput {
   name: string;
   text: string;
   appearance_text: string;
-  /** 手で直した見た目のタグ。null は手直し無し、空文字は説明から作る */
-  appearance_tags?: string | null;
-  /** 見た目のタグを見た目の説明から作り直す */
-  regenerate_appearance_tags?: boolean;
+  /** 見た目のタグ(そのまま保存する)。空なら見た目を変えない */
+  appearance_tags: string;
+  /** 掟の姿の体の性別。null は住民それぞれのまま(保存のたびに送る) */
+  body_gender: HakoniwaGender | null;
 }
 
 export interface HakoniwaWorld {
@@ -532,8 +527,6 @@ export interface HakoniwaDayResult {
 export interface HakoniwaResidentChange {
   world: HakoniwaWorld;
   resident_id: string;
-  tag_expansion_failed: boolean;
-  cost_usd: number | null;
 }
 
 export interface HakoniwaGreeting {
@@ -555,12 +548,29 @@ export interface HakoniwaResidentInput {
   appearance_text: string;
   dress_text: string;
   address_style: HakoniwaAddressStyle;
-  /** 手で直したいつもの姿のタグ(編集のとき)。null は手直し無し、空文字は説明から作る */
-  base_tags?: string | null;
-  /** 手で直したドレス姿のタグ(編集のとき) */
-  dress_tags?: string | null;
-  regenerate_base_tags?: boolean;
-  regenerate_dress_tags?: boolean;
+  /** いつもの姿の画像タグ(必須。そのまま保存する) */
+  base_tags: string;
+  /** ドレス姿の画像タグ。空ならドレス姿を生成するときにいつもの姿から考える */
+  dress_tags: string;
+}
+
+/** 掟の見た目のタグを作る元。本文か見た目の説明のどちらかが要る */
+export interface HakoniwaRuleLookTagsInput {
+  name: string;
+  text: string;
+  appearance_text: string;
+}
+
+/** 住民の姿のタグを作る元(dress ならドレス姿) */
+export interface HakoniwaResidentTagsInput {
+  appearance_text: string;
+  gender: HakoniwaGender;
+  dress: boolean;
+}
+
+export interface HakoniwaTagsResult {
+  tags: string;
+  cost_usd: number | null;
 }
 
 export interface HakoniwaCharacterEntry {
@@ -625,6 +635,28 @@ export function generateHakoniwaRandomResidents(
   return requestJson<HakoniwaRandomResidentsResult>(
     `${BASE}/random-residents`,
     jsonInit("POST", { count, exclude_names: excludeNames, language }),
+  );
+}
+
+/** 掟の見た目のタグを作る(保存はしない) */
+export function makeHakoniwaRuleLookTags(
+  input: HakoniwaRuleLookTagsInput,
+  language: string,
+): Promise<HakoniwaTagsResult> {
+  return requestJson<HakoniwaTagsResult>(
+    `${BASE}/tags/rule-look`,
+    jsonInit("POST", { ...input, language }),
+  );
+}
+
+/** 住民の姿のタグを作る(保存はしない) */
+export function makeHakoniwaResidentTags(
+  input: HakoniwaResidentTagsInput,
+  language: string,
+): Promise<HakoniwaTagsResult> {
+  return requestJson<HakoniwaTagsResult>(
+    `${BASE}/tags/resident`,
+    jsonInit("POST", { ...input, language }),
   );
 }
 
