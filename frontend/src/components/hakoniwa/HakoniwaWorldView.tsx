@@ -5,13 +5,16 @@ import {
   type HakoniwaPanelTab,
   useHakoniwa,
 } from "../../contexts/HakoniwaContext";
+import { useAdventureBgm } from "../../hooks/useAdventureBgm";
 import { ROUTES } from "../../routes";
 import { readStorage, writeStorage } from "../../utils/storage";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaAdv from "./HakoniwaAdv";
+import HakoniwaBgmControl from "./HakoniwaBgmControl";
 import HakoniwaChat from "./HakoniwaChat";
 import HakoniwaChronicle from "./HakoniwaChronicle";
+import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 import HakoniwaFurnitureTab from "./HakoniwaFurnitureTab";
 import HakoniwaIntro from "./HakoniwaIntro";
 import HakoniwaResidentsTab from "./HakoniwaResidentsTab";
@@ -27,6 +30,8 @@ const TABS: HakoniwaPanelTab[] = [
   "settings",
 ];
 const TAB_STORAGE_KEY = "hakoniwa_panel_tab";
+/** 出来事を見せていない間の曲(catalog.json の hakoniwa の曲) */
+const HAKONIWA_NORMAL_BGM = "hakoniwa_daily";
 
 function isPanelTab(value: string | null): value is HakoniwaPanelTab {
   return value !== null && (TABS as string[]).includes(value);
@@ -40,7 +45,6 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
     world,
     busy,
     error,
-    clearError,
     openWorld,
     closeWorld,
     advanceDay,
@@ -51,7 +55,19 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
     confirmUsage,
     cancelUsage,
     setIntervention,
+    advEventId,
   } = useHakoniwa();
+  // ふだんは箱庭の曲、出来事を見せている間(ADV・部屋での再生)は出来事を作るときに選んだ曲。
+  // 曲が無い(選ばれなかった・定型文の出来事)ときはふだんの曲。曲を置くまでは既定の曲が鳴る
+  const shown = world?.id === worldId ? world : null;
+  const advEvent = advEventId
+    ? (shown?.events.find((event) => event.id === advEventId) ?? null)
+    : null;
+  const sceneBgm = advEventId ? advEvent?.bgm : playbackQueue[0]?.bgm;
+  const bgm = useAdventureBgm(
+    shown ? (sceneBgm ?? HAKONIWA_NORMAL_BGM) : null,
+    { prefsScope: "hakoniwa" },
+  );
   const [seenEvents, setSeenEvents] = useState<number | null>(null);
   const tabRefs = useRef<Partial<Record<HakoniwaPanelTab, HTMLButtonElement>>>(
     {},
@@ -173,20 +189,10 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
               })}
             </span>
           )}
+          <HakoniwaBgmControl bgm={bgm} />
         </header>
 
-        {error && (
-          <div className="hakoniwa-error" role="alert">
-            <span>{error}</span>
-            <button
-              type="button"
-              className="hakoniwa-button hakoniwa-button--ghost"
-              onClick={clearError}
-            >
-              {t("hakoniwa.dismissError")}
-            </button>
-          </div>
-        )}
+        <HakoniwaErrorBanner />
 
         <div className="hakoniwa-world__body">
           <section className="hakoniwa-world__stage">
@@ -293,7 +299,7 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
           </aside>
         </div>
       </div>
-      <HakoniwaAdv />
+      <HakoniwaAdv bgm={bgm} />
       <HakoniwaChat />
       <ConfirmDialog
         open={usageConfirmOpen}

@@ -35,6 +35,7 @@ from ..consts.hakoniwa import (
     area_background_url,
     event_location,
     furniture_url,
+    location_background_url,
     preset_bundled_avatar_url,
 )
 from ..consts.hakoniwa_play import (
@@ -49,6 +50,7 @@ from ..consts.hakoniwa_story import (
     DISSONANCE_CONTINUED_EVENT_GAIN,
     DISSONANCE_CUSTOM_RULE_GAIN,
     DISSONANCE_DIRECTED_EVENT_GAIN,
+    DISSONANCE_REALITY_GAIN,
     DISSONANCE_RULE_GAIN,
     DISSONANCE_TRANSFORM_GAIN,
 )
@@ -89,6 +91,7 @@ from .hakoniwa_generation import (
     generate_touch_reaction,
     generate_transform_reaction,
     needs_tag_expansion,
+    plan_memo_look,
     recent_titles,
     template_event,
 )
@@ -120,6 +123,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_DRESS_INSTRUCTION = (
     "Change the outfit into an elegant formal dress that suits this person. "
     "Keep the face, hair and body as they are."
+)
+
+# 住民の改変で姿も変えるときに、タグの変換へ渡す指示(改変の文は事実なので、姿への言い換えを頼む)
+_REALITY_LOOK_INSTRUCTION = (
+    "Change the look and outfit to what fits this new fact about the character, "
+    "keeping everything the fact does not affect: {text}"
 )
 
 _TRANSFORM_EVENT_TEXT = {
@@ -167,6 +176,7 @@ def _transformation_view(world_id: str, entry: dict[str, Any] | None) -> dict | 
         if entry.get("image")
         else None,
         "day": int(entry.get("day") or 1),
+        "kind": entry.get("kind"),
     }
 
 
@@ -207,6 +217,7 @@ def _resident_view(
             for item in logic.body_of(state, resident).get("transformation_history")
             or []
         ],
+        "realities": [dict(item) for item in logic.realities(resident)],
         "swapped_with": logic.swap_partner_id(state, resident["id"]),
         "current_area": resident.get("current_area") or DEFAULT_AREA_ID,
         "adaptation": _adaptation_view(story.resident_adaptation(state, resident)),
@@ -352,6 +363,15 @@ def _combo_look_view(state: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _memo_look_view(state: dict[str, Any]) -> dict[str, Any] | None:
+    """世界のメモが住民全員に与える姿と、その生成状況(メモが姿を変えていなければ None)。"""
+    look = logic.active_memo_look(state)
+    status = logic.memo_look_status(state)
+    if look is None or status is None:
+        return None
+    return {"tags": look["tags"], "body_gender": look["body_gender"], **status}
+
+
 def _unlock_hakoniwa_achievements() -> list[dict[str, Any]]:
     """条件を満たした AI箱庭の観察記録を保存し、通知用に返す(新しく達成した分だけ)。
 
@@ -427,6 +447,7 @@ def _world_view(
             {
                 "id": location["id"],
                 "name": location["name"]["ja" if language == "ja" else "en"],
+                "background_url": location_background_url(location["id"]),
             }
             for location in HAKONIWA_LOCATIONS
         ],
@@ -434,6 +455,8 @@ def _world_view(
         "dissonance": _dissonance_view(state),
         "story_arcs": _arcs_view(state),
         "combo_look": _combo_look_view(state),
+        "memo_look": _memo_look_view(state),
+        "memo_look_planned": logic.memo_look_planned(state),
         "world_memo": play.world_memo(state),
         "experiment_theme": play.experiment_theme(state),
         "intervention": {
@@ -1149,20 +1172,27 @@ class HakoniwaService:
         body_gender: str | None,
         dress: bool,
         regenerate: bool,
+        resident_id: str | None = None,
     ) -> tuple[dict[str, Any], int, int]:
         """住民ごとに掟の姿・複合の姿を作る。NovelAI の 429 を避けるため1人ずつ順に呼ぶ。
 
         regenerate でなければ、今の見た目(タグと体の性別)でまだ生成していない住民だけ。
+        resident_id を渡すとその住民だけ(画面は1人ずつ呼び、そのたびに保存して進み具合を出す)。
         body_gender は掟が定める体の性別で、None なら住民それぞれの性別のまま。
         戻り値は (状態, 生成した人数, 失敗した人数)。
         """
-        field = "rule_images" if kind == "rule" else "combo_images"
+        field = logic.look_image_field(kind)
         instruction = rule_look_instruction(
             source_tags, dress=dress, body_gender=body_gender
         )
         novelai_model = user_settings.get("novelai_text_model")
         generated = failed = 0
-        for resident in list(state["residents"]):
+        residents = list(state["residents"])
+        if resident_id is not None:
+            residents = [item for item in residents if item["id"] == resident_id]
+            if not residents:
+                raise HakoniwaError("resident_not_found", "住民が見つかりません")
+        for resident in residents:
             entry = (resident.get(field) or {}).get(key) or {}
             if (
                 not regenerate
@@ -1171,8 +1201,16 @@ class HakoniwaService:
             ):
                 continue
             gender = logic.resident_gender(resident)
-            base = (str(resident.get("dress_tags") or "") if dress else "") or str(
-                resident.get("base_tags") or _source_base_tags(resident)
+            # 掟の姿は、世界のメモの姿(いまのメモで生成済み)があればその上に重ねる
+            memo_tags = (
+                logic.current_memo_look_tags(state, resident)
+                if kind != "memo" and not dress
+                else ""
+            )
+            base = (
+                memo_tags
+                or (str(resident.get("dress_tags") or "") if dress else "")
+                or str(resident.get("base_tags") or _source_base_tags(resident))
             )
             tags = await convert_change_to_tags(
                 instruction, base, novelai_model=novelai_model
@@ -1240,9 +1278,13 @@ class HakoniwaService:
         rule_id: str,
         *,
         regenerate: bool = False,
+        resident_id: str | None = None,
         language: str | None = None,
     ) -> dict[str, Any]:
-        """自作の掟の姿を住民の人数分つくる(見た目を変えない掟では作れない)。"""
+        """自作の掟の姿を住民の人数分(resident_id があればその1人)つくる。
+
+        見た目を変えない掟では作れない。
+        """
         lang, user_settings = await self._context(language)
         async with self._world_locks[world_id]:
             async with async_session_factory() as db:
@@ -1265,6 +1307,7 @@ class HakoniwaService:
                 body_gender=logic.rule_body_gender(rule),
                 dress=False,
                 regenerate=regenerate,
+                resident_id=resident_id,
             )
             return await self._finish_look(
                 world_id, state, lang, user_settings, tracker, generated, failed
@@ -1275,6 +1318,7 @@ class HakoniwaService:
         world_id: str,
         *,
         regenerate: bool = False,
+        resident_id: str | None = None,
         language: str | None = None,
     ) -> dict[str, Any]:
         """いま重なっている見た目の掟(ドレスの掟を含む)を合わせた複合の姿をつくる。"""
@@ -1298,6 +1342,69 @@ class HakoniwaService:
                 body_gender=logic.look_body_gender(state, combo["rule_ids"]),
                 dress=combo["includes_dress"],
                 regenerate=regenerate,
+                resident_id=resident_id,
+            )
+            return await self._finish_look(
+                world_id, state, lang, user_settings, tracker, generated, failed
+            )
+
+    async def plan_memo_look(
+        self, world_id: str, language: str | None = None
+    ) -> dict[str, Any]:
+        """いまの世界のメモが住民全員の姿を変えるかを LLM に確かめ、メモの姿の指定を保存する。
+
+        同じメモでもう確かめていれば LLM を呼ばない。メモが空なら指定を消す。
+        """
+        lang, user_settings = await self._context(language)
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                state = _load_state(await self._load(db, world_id))
+            tracker = begin_cost_tracking()
+            memo = play.world_memo(state)
+            if not logic.memo_look_planned(state):
+                tags, body_gender = (
+                    await plan_memo_look(
+                        memo, novelai_model=user_settings.get("novelai_text_model")
+                    )
+                    if memo
+                    else ("", None)
+                )
+                state = logic.set_memo_look(state, tags, body_gender)
+            view = await self._store_view(world_id, state, lang, user_settings)
+        return {
+            "world": view,
+            "changes_look": logic.active_memo_look(state) is not None,
+            "cost_usd": tracker.total_usd or None,
+        }
+
+    async def generate_memo_look(
+        self,
+        world_id: str,
+        *,
+        regenerate: bool = False,
+        resident_id: str | None = None,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """世界のメモの姿を住民の人数分(resident_id があればその1人)つくる。"""
+        lang, user_settings = await self._context(language)
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                state = _load_state(await self._load(db, world_id))
+            look = logic.active_memo_look(state)
+            if look is None:
+                raise HakoniwaError("no_memo_look", "世界のメモは姿を変えていません")
+            tracker = begin_cost_tracking()
+            state, generated, failed = await self._generate_look_images(
+                world_id,
+                state,
+                user_settings,
+                kind="memo",
+                key=logic.MEMO_LOOK_KEY,
+                source_tags=look["tags"],
+                body_gender=look["body_gender"],
+                dress=False,
+                regenerate=regenerate,
+                resident_id=resident_id,
             )
             return await self._finish_look(
                 world_id, state, lang, user_settings, tracker, generated, failed
@@ -1564,42 +1671,15 @@ class HakoniwaService:
         """変身の本体(タグ変換・画像・変身と反応の出来事・違和感)。世界のロックの中で呼ぶ。"""
         novelai_model = user_settings.get("novelai_text_model")
         nsfw = bool(user_settings.get("nsfw_mode"))
-        resident = logic.find_resident(state, resident_id)
-        # 変身は体に付く。入れ替わり中なら、本人がいま入っている相手の体を書き換える。
-        # 元にするのはその体の今見えている姿(変身・複合・掟の姿)
-        body = logic.body_of(state, resident)
-        base_tags = (
-            logic.own_look(state, body).get("tags")
-            or (
-                body.get("dress_tags")
-                if "dress" in state.get("active_rules", [])
-                else None
-            )
-            or body.get("base_tags")
-            or _source_base_tags(body)
-        )
-        tags = await convert_change_to_tags(
-            change_text, base_tags, novelai_model=novelai_model
-        )
-        if not tags:
-            raise HakoniwaError(
-                "tag_conversion_failed",
-                "変身の指定を画像のタグにできませんでした。文を変えてお試しください",
-            )
-        tags = logic.ensure_gender_token(tags, logic.resident_gender(body))
-        data = await self._generate_image(state, user_settings, tags)
-        filename = save_image(world_id, f"tf_{body['id']}", data)
-        rng = random.Random()
-        state = logic.set_transformation(
+        state = await self._change_look(
+            world_id,
             state,
             resident_id,
-            {
-                "description": change_text,
-                "tags": tags,
-                "image": filename,
-                "day": state["day"],
-            },
+            change_text,
+            user_settings,
+            transformation={"description": change_text},
         )
+        rng = random.Random()
         target = logic.find_resident(state, resident_id)
         others = logic.bystanders(state, resident_id, rng)
         texts = _TRANSFORM_EVENT_TEXT["ja" if lang == "ja" else "en"]
@@ -1642,6 +1722,57 @@ class HakoniwaService:
         new_events.extend(confrontation)
         return state, new_events
 
+    async def _change_look(
+        self,
+        world_id: str,
+        state: dict[str, Any],
+        resident_id: str,
+        change_text: str,
+        user_settings: dict[str, Any],
+        *,
+        transformation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """指定の文から姿のタグと画像を作り、変身(いまの姿)として付けた状態を返す。
+
+        変身は体に付く。入れ替わり中なら、本人がいま入っている相手の体を書き換える。
+        元にするのはその体の今見えている姿(変身・複合・掟・メモの姿)。
+        transformation は変身の記録に足す項目(description・kind・reality_id)。
+        """
+        novelai_model = user_settings.get("novelai_text_model")
+        resident = logic.find_resident(state, resident_id)
+        body = logic.body_of(state, resident)
+        base_tags = (
+            logic.own_look(state, body).get("tags")
+            or (
+                body.get("dress_tags")
+                if "dress" in state.get("active_rules", [])
+                else None
+            )
+            or body.get("base_tags")
+            or _source_base_tags(body)
+        )
+        tags = await convert_change_to_tags(
+            change_text, base_tags, novelai_model=novelai_model
+        )
+        if not tags:
+            raise HakoniwaError(
+                "tag_conversion_failed",
+                "変身の指定を画像のタグにできませんでした。文を変えてお試しください",
+            )
+        tags = logic.ensure_gender_token(tags, logic.resident_gender(body))
+        data = await self._generate_image(state, user_settings, tags)
+        filename = save_image(world_id, f"tf_{body['id']}", data)
+        return logic.set_transformation(
+            state,
+            resident_id,
+            {
+                **transformation,
+                "tags": tags,
+                "image": filename,
+                "day": state["day"],
+            },
+        )
+
     async def _store_view(
         self,
         world_id: str,
@@ -1679,6 +1810,93 @@ class HakoniwaService:
             "new_events": [_event_view(world_id, event, lang) for event in new_events],
             "cost_usd": tracker.total_usd or None,
         }
+
+    async def alter_reality(
+        self,
+        world_id: str,
+        resident_id: str,
+        instruction: str,
+        *,
+        change_look: bool,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """住民についての世界の常識を書き換える(住民の改変)。
+
+        本人も周りも昔からそうだと受け止める。change_look なら変身と同じ仕組みで姿も変える
+        (慣れの段階は始めない)。そのあと、新しい日常の一場面を年代記に積み、違和感を溜める。
+        """
+        text = logic.validate_reality_text(instruction)
+        lang, user_settings = await self._context(language)
+        novelai_model = user_settings.get("novelai_text_model")
+        nsfw = bool(user_settings.get("nsfw_mode"))
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                state = _load_state(await self._load(db, world_id))
+            tracker = begin_cost_tracking()
+            state, reality = logic.add_reality(state, resident_id, text)
+            if change_look:
+                state = await self._change_look(
+                    world_id,
+                    state,
+                    resident_id,
+                    _REALITY_LOOK_INSTRUCTION.format(text=text),
+                    user_settings,
+                    transformation={
+                        "description": text,
+                        "kind": "reality",
+                        "reality_id": reality["id"],
+                    },
+                )
+            rng = random.Random()
+            target = logic.find_resident(state, resident_id)
+            others = [
+                logic.find_resident(state, item["id"])
+                for item in logic.bystanders(state, resident_id, rng)
+            ]
+            event = await generate_transform_reaction(
+                state,
+                target,
+                text,
+                others,
+                lang,
+                novelai_model=novelai_model,
+                nsfw=nsfw,
+                reality=True,
+            )
+            event.update(
+                {
+                    "area": target.get("current_area"),
+                    "kind": "reality",
+                    "change_text": text,
+                }
+            )
+            state = logic.apply_event(state, event, rng)
+            new_events = [state["events"][-1]]
+            # 改変も世界の書き換えとして違和感を溜める(対面に届くこともある)
+            state, confrontation = await self._apply_dissonance_gain(
+                state, DISSONANCE_REALITY_GAIN, lang, user_settings, rng
+            )
+            new_events.extend(confrontation)
+            view = await self._store_view(world_id, state, lang, user_settings)
+        return {
+            "world": view,
+            "new_events": [_event_view(world_id, event, lang) for event in new_events],
+            "cost_usd": tracker.total_usd or None,
+        }
+
+    async def remove_reality(
+        self,
+        world_id: str,
+        resident_id: str,
+        reality_id: str,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """住民の改変を消す(その改変で変えた姿がいまの姿なら、元の姿に戻る)。"""
+        return await self._mutate(
+            world_id,
+            language,
+            lambda state: logic.remove_reality(state, resident_id, reality_id),
+        )
 
     async def directed_event(
         self,

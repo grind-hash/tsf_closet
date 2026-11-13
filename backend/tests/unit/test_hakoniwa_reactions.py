@@ -61,7 +61,9 @@ def test_custom_rule_reaction_mentions_the_rule_and_its_look():
     rule_id = state["custom_rules"][0]["id"]
     _after, reaction = _toggle(state, rule_id, True)
     assert "『猫の日』" in reaction["lines"][0]["text"]
-    assert "恥ずかしい" in reaction["lines"][0]["text"]
+    # 掟は世界の常識の書き換えなので、照れではなく当たり前として受け止め、かすかな違和感だけ出す
+    assert "当たり前" in reaction["lines"][0]["text"]
+    assert "恥ずかしい" not in reaction["lines"][0]["text"]
 
 
 def test_turning_a_rule_off_and_english_text():

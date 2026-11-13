@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -43,8 +43,9 @@ class BgmTrack(BaseModel):
     credit: str | None = Field(default=None, max_length=120)
     # どのモードの曲か。adventure だけを TSF シナリオの LLM に選曲候補として渡し、
     # salon はサロン経営の画面が幕に合わせて自分で選ぶ。salon_se はサロンの効果音
-    # (ループしない短い音)。省略時は adventure
-    scope: Literal["adventure", "salon", "salon_se"] = "adventure"
+    # (ループしない短い音)。hakoniwa は AI箱庭のふだんの曲(出来事の曲は adventure から
+    # LLM が選ぶ)。省略時は adventure
+    scope: Literal["adventure", "salon", "salon_se", "hakoniwa"] = "adventure"
 
     @field_validator("file")
     @classmethod
@@ -127,6 +128,37 @@ def get_bgm_prompt_guide() -> str:
     )
 
 
+def coerce_bgm_key(value: Any, keys: tuple[str, ...]) -> str | None:
+    """LLM が選んだ BGM キーを、候補にあれば正規化して返す。無ければ None(=今の曲のまま)。
+
+    検証エラーにして修復の再生成を起こさないよう、知らない値は黙って None にする。
+    """
+    if isinstance(value, str):
+        candidate = value.strip().lower()
+        if candidate in keys:
+            return candidate
+    return None
+
+
+# AI箱庭の出来事で選ばない曲(TSF シナリオの結末専用)
+_HAKONIWA_EXCLUDED_KEYS = frozenset({"ending_success", "ending_failure"})
+
+
+def get_hakoniwa_event_bgm_keys() -> tuple[str, ...]:
+    """AI箱庭の出来事で LLM が選べるキー(TSF シナリオの曲から結末の曲を除く)。"""
+    return tuple(key for key in get_bgm_keys() if key not in _HAKONIWA_EXCLUDED_KEYS)
+
+
+def get_hakoniwa_bgm_prompt_guide() -> str:
+    """AI箱庭の出来事のプロンプトに載せる、選べる曲とその説明。"""
+    keys = set(get_hakoniwa_event_bgm_keys())
+    return ", ".join(
+        f"{track.key} ({track.description})"
+        for track in get_bgm_catalog().adventure_tracks()
+        if track.key in keys
+    )
+
+
 def resolve_bgm_audio_path(filename: str) -> Path | None:
     """カタログ登録済みファイル名だけを実パスへ解決する(トラバーサル防止)。"""
     name = Path(filename).name
@@ -157,13 +189,32 @@ BGM_SELECTION_RULES: str = (
     "important_event and another category, choose the other category."
 )
 
+# AI箱庭の出来事の選曲の方針。重要度はその場面のムードではなく、物語の進み具合で測る
+# (物語の弧の山場と、住民が書き手に向き合う対面だけを important_event にする)
+HAKONIWA_BGM_SELECTION_RULES: str = (
+    "Choose bgm from the scene's place and mood, weighed against how far this "
+    "world's story has actually progressed. Most scenes are ordinary life: use "
+    "daily, or the key that matches the place and mood (a relaxed cafe or leisure, "
+    "a quiet night, an intimate private moment, drinks at a bar, a party). Use "
+    "suspense when residents feel uneasy or are probing the strange changes in "
+    "the world. important_event is reserved for a rare turning point: the climax "
+    "of a story arc, or the residents confronting the writer; a pleasant, funny "
+    "or even dramatic everyday scene is not one. When no key clearly fits, use "
+    "daily; when in doubt between important_event and another key, choose the "
+    "other key."
+)
+
 __all__ = [
     "BGM_SELECTION_RULES",
+    "HAKONIWA_BGM_SELECTION_RULES",
     "BgmCatalog",
     "BgmTrack",
+    "coerce_bgm_key",
     "get_bgm_catalog",
     "get_bgm_default",
     "get_bgm_keys",
     "get_bgm_prompt_guide",
+    "get_hakoniwa_bgm_prompt_guide",
+    "get_hakoniwa_event_bgm_keys",
     "resolve_bgm_audio_path",
 ]

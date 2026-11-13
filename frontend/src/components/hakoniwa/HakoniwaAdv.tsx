@@ -9,9 +9,12 @@ import {
 import { useTranslation } from "react-i18next";
 import { hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
+import type { UseAdventureBgmResult } from "../../hooks/useAdventureBgm";
 import { useTransparentImages } from "../../hooks/useTransparentImages";
 import { advLogScenes, advScript } from "./advLog";
 import { canContinueEvent, EVENT_TEXT_MAX, maleBodyPairs } from "./eventCast";
+import HakoniwaBgmControl from "./HakoniwaBgmControl";
+import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 
 // 背景の色は四隅から読み取る(生成画像の背景は白とは限らない)
 const ALPHA_OPTIONS = { targetColor: null, threshold: 12, featherRadius: 1.8 };
@@ -30,7 +33,12 @@ const SLOTS: Record<number, ("left" | "center" | "right")[]> = {
  * 今日の出来事なら、メッセージ窓から続きを指示して次の場面を起こせる。
  * 読み終えた幕は、メッセージ窓の右上の「ログ」で読み返せる。
  */
-export default function HakoniwaAdv() {
+interface HakoniwaAdvProps {
+  /** 世界の画面で鳴らしている BGM(メッセージ窓の ♪ から操作する) */
+  bgm: UseAdventureBgmResult;
+}
+
+export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
   const { t } = useTranslation();
   const {
     world,
@@ -39,11 +47,12 @@ export default function HakoniwaAdv() {
     generateSceneImage,
     continueEvent,
     busy,
-    error,
     clearError,
   } = useHakoniwa();
   const [step, setStep] = useState(0);
   const [windowHidden, setWindowHidden] = useState(false);
+  // 場所の背景が読み込めなかった URL(同梱の画像が無いときはエリアの背景に戻す)
+  const [brokenBackground, setBrokenBackground] = useState<string | null>(null);
   // 続きの指示を書いている間は、窓の中身を入力欄に替え、幕送りを止める
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -109,7 +118,14 @@ export default function HakoniwaAdv() {
   const isLast = step >= script.length - 1;
   const area = world.areas.find((item) => item.id === event.area);
   const sceneUrl = hakoniwaMediaUrl(event.scene_image_url);
-  const backgroundUrl = sceneUrl ?? hakoniwaMediaUrl(area?.background_url);
+  // 背景は 場面の絵 → 出来事の場所の背景 → エリアの背景。ADV を開いた時点で場所に切り替わる
+  const locationUrl = hakoniwaMediaUrl(
+    world.locations.find((item) => item.id === event.location)?.background_url,
+  );
+  const areaUrl = hakoniwaMediaUrl(area?.background_url);
+  const backgroundUrl =
+    sceneUrl ??
+    (locationUrl && locationUrl !== brokenBackground ? locationUrl : areaUrl);
   const nameOf = (speaker: string | null) =>
     speaker
       ? (world.residents.find((item) => item.id === speaker)?.name ?? "")
@@ -206,8 +222,16 @@ export default function HakoniwaAdv() {
       data-testid="hakoniwa-adv"
     >
       {backgroundUrl && (
-        <img className="hakoniwa-adv__background" src={backgroundUrl} alt="" />
+        <img
+          className="hakoniwa-adv__background"
+          src={backgroundUrl}
+          alt=""
+          onError={() => {
+            if (backgroundUrl === locationUrl) setBrokenBackground(locationUrl);
+          }}
+        />
       )}
+      <HakoniwaErrorBanner placement="overlay" clearOnMount />
       {!sceneUrl && (
         <div className="hakoniwa-adv__cast">
           {participants.map((resident, index) => {
@@ -286,6 +310,7 @@ export default function HakoniwaAdv() {
                   t("hakoniwa.adv.generateScene")
                 )}
               </button>
+              <HakoniwaBgmControl bgm={bgm} placement="up" />
               <button
                 type="button"
                 className="hakoniwa-icon-button"
@@ -316,11 +341,6 @@ export default function HakoniwaAdv() {
               {malePairsText && (
                 <p className="hakoniwa-note">
                   {t("hakoniwa.panel.maleBodyNote", { pairs: malePairsText })}
-                </p>
-              )}
-              {error && (
-                <p className="hakoniwa-adv__error" role="alert">
-                  {error}
                 </p>
               )}
               <div className="hakoniwa-adv__controls">

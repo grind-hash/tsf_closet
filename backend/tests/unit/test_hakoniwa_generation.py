@@ -71,6 +71,47 @@ async def test_generated_event_maps_names_to_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_event_bgm_is_chosen_from_scene_tracks_and_kept(monkeypatch):
+    calls = _stub(monkeypatch, [_event_json(bgm="Night")])
+    state = _state()
+    group = tuple(state["residents"])
+
+    event = await gen.generate_event(
+        state, group, "ja", random.Random(0), novelai_model=None, nsfw=False
+    )
+
+    assert event["bgm"] == "night"
+    system, _user = calls[0]
+    # 選べるのは TSF シナリオの曲から結末の曲を除いたもの。重要度は物語の進み具合で測る
+    assert '"bgm": "' in system
+    assert "ending_success" not in system
+    assert "climax of a story arc" in system
+    # 年代記に残り、画面へ返す
+    saved = logic.apply_event(state, event, random.Random(0))
+    assert saved["events"][-1]["bgm"] == "night"
+
+
+@pytest.mark.asyncio
+async def test_unknown_or_ending_bgm_is_dropped_without_a_repair(monkeypatch):
+    for value in ("ending_success", "scene07_important_event.ogg", 3):
+        calls = _stub(monkeypatch, [_event_json(bgm=value)])
+        state = _state()
+
+        event = await gen.generate_event(
+            state,
+            tuple(state["residents"]),
+            "ja",
+            random.Random(0),
+            novelai_model=None,
+            nsfw=False,
+        )
+
+        assert event["source"] == "llm"
+        assert "bgm" not in event
+        assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_unknown_speaker_falls_back_to_template(monkeypatch):
     bad = _event_json(lines=[{"speaker": "知らない人", "text": "やあ"}])
     calls = _stub(monkeypatch, [bad, bad])
@@ -172,10 +213,16 @@ def test_prompts_carry_rules_language_and_male_guidance():
     assert "くん" in event_system_prompt(group, state, "ja", nsfw=False)
 
 
-def test_clean_tags_rejects_japanese_and_caps_count():
+def test_clean_tags_rejects_japanese_and_caps_length_at_tag_boundary():
     assert gen.clean_tags("メイド服") is None
     many = ", ".join(f"tag{i}" for i in range(40))
-    assert len(gen.clean_tags(many).split(", ")) == gen.HAKONIWA_TAGS_MAX_COUNT
+    assert len(gen.clean_tags(many).split(", ")) == 40
+    long = ", ".join(f"longtag{i:04d}" for i in range(300))
+    cleaned = gen.clean_tags(long)
+    assert len(cleaned) <= gen.HAKONIWA_TAGS_MAX_LENGTH
+    assert all(
+        tag.startswith("longtag") and len(tag) == 11 for tag in cleaned.split(", ")
+    )
     assert gen.needs_tag_expansion("茶髪のポニーテール")
     assert not gen.needs_tag_expansion("1girl, brown hair")
 

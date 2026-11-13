@@ -20,11 +20,14 @@ HAKONIWA_PERSONALITY_MAX = 300
 HAKONIWA_APPEARANCE_TEXT_MAX = 300
 HAKONIWA_CUSTOM_RULE_NAME_MAX = 20
 HAKONIWA_CUSTOM_RULE_TEXT_MAX = 200
-# 自作の掟の見た目の説明(任意)と、そこから作る見た目のタグの数
+# 自作の掟の見た目の説明(任意)の長さ
 HAKONIWA_RULE_APPEARANCE_TEXT_MAX = 300
-HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT = 10
 HAKONIWA_CUSTOM_RULES_MAX = 20
 HAKONIWA_TRANSFORM_TEXT_MAX = 500
+# 住民の改変(その住民についての世界の常識の書き換え): 1件の長さ・1人あたりの件数・プロンプトに載せる長さ
+HAKONIWA_REALITY_TEXT_MAX = 300
+HAKONIWA_REALITIES_MAX = 5
+HAKONIWA_REALITY_PROMPT_MAX = 200
 # 書き手が指示して起こす出来事: 指示文の長さ・巻き込み方・本人以外の参加者の上限
 #   solo: 本人だけ / selected: 選んだ住民と / room: 本人と同じ部屋の住民と
 HAKONIWA_DIRECTED_EVENT_TEXT_MAX = 500
@@ -71,12 +74,13 @@ HAKONIWA_GREETING_MAX = 120
 HAKONIWA_TRIO_GROUP_CHANCE = 0.30
 HAKONIWA_SOLO_GROUP_CHANCE = 0.15
 
-# 変身のタグ変換の試行回数と、タグの個数・長さの上限
+# 変身のタグ変換の試行回数と、タグの長さの上限(プレイの appearance_tags と同じ 2000 文字。個数は制限しない)
 HAKONIWA_CONVERT_TAGS_MAX_ATTEMPTS = 3
-HAKONIWA_TAGS_MAX_COUNT = 24
-HAKONIWA_TAGS_MAX_LENGTH = 400
-# 手で書いたタグの入力の上限(整えたあとの上限は HAKONIWA_TAGS_MAX_COUNT / _LENGTH で確かめる)
-HAKONIWA_MANUAL_TAGS_INPUT_MAX = 1000
+HAKONIWA_TAGS_MAX_LENGTH = 2000
+# 説明から姿を丸ごと作るときに LLM へ示すタグの数の目安(上限ではない)
+HAKONIWA_TAGS_SUGGESTED_COUNT = 24
+# 手で書いたタグの入力の上限(整えたあとの長さは HAKONIWA_TAGS_MAX_LENGTH で確かめる)
+HAKONIWA_MANUAL_TAGS_INPUT_MAX = 2000
 
 # 同梱素材の URL(frontend/public/hakoniwa-assets/)
 HAKONIWA_ASSET_BASE = "/hakoniwa-assets"
@@ -174,22 +178,26 @@ HAKONIWA_AREA_MAP: dict[str, dict[str, Any]] = {
 }
 
 # 出来事の場所(場面の絵の背景)。住民がいる3つのエリアに加えて、エリアの外の場所を持つ。
-# エリアの外の場所は場面の絵と年代記の表示だけに使い、住民の居場所(current_area)は変えない。
+# エリアの外の場所は ADV の背景・場面の絵・年代記の表示に使い、住民の居場所(current_area)は変えない。
+# background_file は同梱の背景(frontend/public/hakoniwa-assets/、1216x832・人物なし)。
 HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
     {
         "id": "bathroom",
+        "background_file": "location_bathroom.png",
         "name": {"ja": "浴室", "en": "Bathroom"},
         "scene": (
             "The bathroom of Stardust House: a tiled room with a bathtub and a "
             "shower, steam and warm light."
         ),
         "scene_tags": (
-            "bathroom interior, tiled walls, bathtub, shower, steam, warm light, "
+            "clean modern bathroom interior, white tiled walls, spotless, bathtub "
+            "filled with water, shower, light steam, bright soft warm light, "
             "scenery, anime background"
         ),
     },
     {
         "id": "bedroom",
+        "background_file": "location_bedroom.png",
         "name": {"ja": "寝室", "en": "Bedroom"},
         "scene": (
             "A resident's private bedroom at Stardust House: a bed, curtains and soft "
@@ -202,18 +210,20 @@ HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
     },
     {
         "id": "kitchen",
+        "background_file": "location_kitchen.png",
         "name": {"ja": "台所", "en": "Kitchen"},
         "scene": (
             "The shared kitchen of Stardust House: counters, a stove and a small "
             "dining table."
         ),
         "scene_tags": (
-            "kitchen interior, kitchen counter, stove, small dining table, warm light, "
-            "scenery, anime background"
+            "clean tidy kitchen interior, kitchen counter, stove, small dining table, "
+            "warm light, scenery, anime background"
         ),
     },
     {
         "id": "shopping_street",
+        "background_file": "location_shopping_street.png",
         "name": {"ja": "商店街", "en": "Shopping street"},
         "scene": (
             "The little shopping street near Stardust House: small shops, signboards "
@@ -226,6 +236,7 @@ HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
     },
     {
         "id": "cafe",
+        "background_file": "location_cafe.png",
         "name": {"ja": "カフェ", "en": "Cafe"},
         "scene": (
             "The cafe in the neighborhood: wooden tables, a counter and large windows."
@@ -237,6 +248,7 @@ HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
     },
     {
         "id": "park",
+        "background_file": "location_park.png",
         "name": {"ja": "公園", "en": "Park"},
         "scene": "A park near Stardust House: trees, benches, a path and open grass.",
         "scene_tags": (
@@ -246,6 +258,7 @@ HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
     },
     {
         "id": "beach",
+        "background_file": "location_beach.png",
         "name": {"ja": "海辺", "en": "Beach"},
         "scene": "A beach a short train ride away: sand, waves and a wide sky.",
         "scene_tags": (
@@ -254,6 +267,7 @@ HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
     },
     {
         "id": "hotel",
+        "background_file": "location_hotel.png",
         "name": {"ja": "ホテル", "en": "Hotel"},
         "scene": (
             "A hotel room in town (a city hotel or a love hotel): a large bed, soft "
@@ -353,6 +367,14 @@ HAKONIWA_FURNITURE_MAP: dict[str, dict[str, Any]] = {
 def area_background_url(area_id: str) -> str:
     area = HAKONIWA_AREA_MAP.get(area_id) or HAKONIWA_AREA_MAP[DEFAULT_AREA_ID]
     return f"{HAKONIWA_ASSET_BASE}/{area['background_file']}"
+
+
+def location_background_url(location_id: str) -> str | None:
+    """出来事の場所の背景の URL(エリアはエリアの背景、外の場所は同梱の背景)。"""
+    location = HAKONIWA_LOCATION_MAP.get(location_id)
+    if location is None or not location.get("background_file"):
+        return None
+    return f"{HAKONIWA_ASSET_BASE}/{location['background_file']}"
 
 
 def furniture_url(furniture_id: str) -> str:
@@ -1195,6 +1217,34 @@ HAKONIWA_TEMPLATES: dict[str, dict[str, list[dict[str, Any]]]] = {
                 "mood_delta": {"target": 5},
             },
         ],
+        # 住民の改変の直後(LLM で作れなかったとき)。昔からそうだったように過ごし、違和感はかすか
+        "reality": [
+            {
+                "title": "いつもの一日",
+                "narration": (
+                    "{target}は、いつもと変わらない様子で過ごしている。"
+                    "{other}も、それをごく当たり前のこととして眺めていた。"
+                ),
+                "lines": [
+                    ("other", "{target}さん、今日もいつも通りだね"),
+                    (
+                        "target",
+                        "うん、いつも通り。……あれ、いま何か変な感じがしたような",
+                    ),
+                ],
+                "mood_delta": {"target": 2, "other": 2},
+            },
+        ],
+        "reality_solo": [
+            {
+                "title": "いつもの一日",
+                "narration": "{target}は、昔からそうだったように、いつもの一日を過ごしていた。",
+                "lines": [
+                    ("target", "……うん、いつも通り。前からずっと、こうだったよね")
+                ],
+                "mood_delta": {"target": 2},
+            },
+        ],
     },
     "en": {
         "pair": [
@@ -1682,6 +1732,33 @@ HAKONIWA_TEMPLATES: dict[str, dict[str, list[dict[str, Any]]]] = {
                     ("target", "...Heh, not bad. Maybe I'll spend some time like this.")
                 ],
                 "mood_delta": {"target": 5},
+            },
+        ],
+        "reality": [
+            {
+                "title": "Just Another Day",
+                "narration": (
+                    "{target} went about the day as usual, and {other} took it as the "
+                    "most natural thing in the world."
+                ),
+                "lines": [
+                    ("other", "Same as always today, huh, {target}?"),
+                    (
+                        "target",
+                        "Yeah, same as always. ...Huh, did something feel off just now?",
+                    ),
+                ],
+                "mood_delta": {"target": 2, "other": 2},
+            },
+        ],
+        "reality_solo": [
+            {
+                "title": "Just Another Day",
+                "narration": "{target} spent an ordinary day, as if it had always been this way.",
+                "lines": [
+                    ("target", "...Yeah, same as always. It's always been like this.")
+                ],
+                "mood_delta": {"target": 2},
             },
         ],
     },

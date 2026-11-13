@@ -11,14 +11,19 @@
 export const BGM_PREFS_STORAGE_KEY = "adventure_bgm_prefs";
 export const SALON_BGM_PREFS_STORAGE_KEY = "salon_bgm_prefs";
 export const SALON_SE_PREFS_STORAGE_KEY = "salon_se_prefs";
+export const HAKONIWA_BGM_PREFS_STORAGE_KEY = "hakoniwa_bgm_prefs";
 
-/** BGM の設定の置き場所。adventure は TSF シナリオと BGM テスト画面、salon_se はサロンの効果音 */
-export type BgmPrefsScope = "adventure" | "salon" | "salon_se";
+/**
+ * BGM の設定の置き場所。adventure は TSF シナリオと BGM テスト画面、salon_se はサロンの効果音、
+ * hakoniwa は AI箱庭(ほかで鳴らしていても、箱庭を初めて開いたときは鳴らさない)
+ */
+export type BgmPrefsScope = "adventure" | "salon" | "salon_se" | "hakoniwa";
 
 const STORAGE_KEYS: Record<BgmPrefsScope, string> = {
   adventure: BGM_PREFS_STORAGE_KEY,
   salon: SALON_BGM_PREFS_STORAGE_KEY,
   salon_se: SALON_SE_PREFS_STORAGE_KEY,
+  hakoniwa: HAKONIWA_BGM_PREFS_STORAGE_KEY,
 };
 
 export interface BgmPreferences {

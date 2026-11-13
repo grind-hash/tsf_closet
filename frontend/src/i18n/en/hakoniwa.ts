@@ -226,9 +226,20 @@ export const hakoniwa = {
     dressed: "In a dress",
     ruleLook: "Rule look",
     comboLook: "Combined look",
+    memoLook: "Memo look",
+    realityLook: "Rewritten look",
     noAvatar: "No look yet",
     selectHint:
       "Choose a resident in the room or in the list below to hear a word from them, chat with them or transform them.",
+  },
+  bgm: {
+    settings: "BGM settings",
+    enable: "Play BGM",
+    enableHint:
+      "Plays the garden's own track normally, and music that fits the scene while an event is shown. Separate from the TSF scenario and salon settings",
+    volume: "Volume",
+    autoplayBlocked:
+      "The browser blocked autoplay. Click anywhere on the screen to start playback.",
   },
   panel: {
     close: "Deselect",
@@ -239,13 +250,29 @@ export const hakoniwa = {
     relations: "Relationships",
     callsThem: "(calls them “{{address}}”)",
     tabsLabel: "{{name}} details",
-    tabDirective: "Transform / Event",
+    tabDirective: "Transform / Event / Rewrite",
     tabProfile: "Profile",
     tabLooks: "Looks & edit",
     editHeading: "Resident settings",
-    modeLabel: "Change a look or start an event",
+    modeLabel: "Transform, start an event or rewrite reality",
     modeTransform: "Transform",
     modeEvent: "Event",
+    modeReality: "Rewrite",
+    realityHeading: "Rewrite this resident's reality",
+    realityPlaceholder:
+      "e.g. Has been working as a maid for years / Has always been a shrine maiden",
+    realityNote:
+      "Unlike a transformation, the resident and everyone else take it as having always been true. Only a faint sense that something is off remains.",
+    realityChangeLook: "Change the look too",
+    realityChangeLookHint:
+      "When on, one look that fits the rewrite is generated",
+    reality: "Rewrite",
+    realityRunning: "Rewriting…",
+    realityListHeading: "Current rewrites",
+    realityRemove: "Remove this rewrite",
+    realityLimit:
+      "Each resident can have up to {{max}} rewrites. Remove one before adding another.",
+    currentReality: "Look from a rewrite: {{description}}",
     transformHeading: "Transform on the spot",
     transformPlaceholder:
       "e.g. Put her in a wedding dress / Give him long silver hair",
@@ -369,7 +396,7 @@ export const hakoniwa = {
     synergyActive: "In effect",
     lookGenerate: "Generate looks ({{count}})",
     lookRedraw: "Redraw ({{count}})",
-    lookGenerating: "Generating one by one…",
+    lookGenerating: "Generating one by one ({{done}} / {{total}})…",
     lookLabel: "the look of the rule “{{name}}”",
     lookConfirmTitle: "Generate looks?",
     lookConfirm: "Generate {{count}}",
@@ -396,11 +423,22 @@ export const hakoniwa = {
     usageHeading: "V5 usage",
     memoHeading: "World memo",
     memoPlaceholder:
-      "e.g. Everyone speaks softly and politely / It is winter, and snow falls every night",
+      "e.g. Every resident is a student at the same academy and wears its uniform every day / It is winter, and snow falls every night",
     memoCount: "{{count}} / {{max}} characters",
     memoSave: "Save memo",
     memoNote:
-      "Passed to every generation (events, greetings, conversations, reactions) as instructions that take precedence over the rules. Nothing is passed when empty.",
+      "What you write becomes this world's common sense (what everyone believes has always been true) and applies right away to events, greetings, conversations and reactions, ahead of the rules. If it changes how every resident looks, everyone's look is redrawn when you save.",
+    memoLookPlanning: "Checking whether the memo changes how residents look…",
+    memoLookHeading: "Memo look",
+    memoLookLabel: "the world memo's look",
+    memoLookTags: "Look: {{tags}}",
+    memoLookBodyOnly: "Look: only the body's sex changes",
+    memoLookBody: "Body: {{gender}}",
+    memoLookNone:
+      "This memo does not change how residents look (it only affects the writing).",
+    memoLookUnchecked:
+      "It has not been checked yet whether this memo changes how residents look.",
+    memoLookCheck: "Check whether it changes looks",
     dissonanceToggle: "Use world strangeness",
     dissonanceNote:
       "Switching rules and transforming residents builds up world strangeness, and the residents gradually notice the rewrites (stillness → stirring → probing → confrontation). At 80, the residents call out to the writer once. When off, the value stops and no investigation or confrontation events happen.",
@@ -626,8 +664,7 @@ export const hakoniwa = {
     invalid_count: "The number of random residents is not valid.",
     invalid_tags:
       "Write tags in English, separated by commas. Rule look tags should describe a look such as clothes or hair.",
-    too_many_tags:
-      "Too many tags (up to 24 tags and 400 characters for residents, 10 tags for rule looks).",
+    too_many_tags: "The tags are too long (up to 2000 characters).",
     tags_gender_mismatch:
       "The gender tag (1girl / 1boy) does not match the resident. Fix the tags or the gender.",
     invalid_event_text: "Enter the event order in 500 characters or fewer.",
@@ -643,6 +680,13 @@ export const hakoniwa = {
       "The residents of this event are gone, so it cannot be continued.",
     world_not_found: "World not found.",
     resident_not_found: "Resident not found.",
+    invalid_reality_text: "Write the rewrite in 300 characters or fewer.",
+    too_many_realities:
+      "Each resident can have up to 5 rewrites. Remove one before adding another.",
+    reality_not_found: "Rewrite not found.",
+    memo_look_failed:
+      "Could not check whether the world memo changes how residents look. Please try again.",
+    no_memo_look: "The world memo does not change how residents look.",
     too_few_residents: "A world needs at least 2 residents.",
     too_many_residents: "A world can have up to 10 residents.",
     too_many_rules: "Up to 3 rules can be active.",

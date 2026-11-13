@@ -300,6 +300,71 @@ def test_transform_records_events_and_can_be_cleared(
     assert ren["transformation"]["image"] == image
 
 
+def test_reality_with_look_is_accepted_as_always_true(
+    client: TestClient, llm_outputs: list
+) -> None:
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    before = world["dissonance"]["value"]
+    llm_outputs.append("1girl, brown hair, bikini")
+
+    response = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/realities",
+        json={"instruction": "昔からグラビアアイドル", "change_look": True},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    aoi = next(r for r in body["world"]["residents"] if r["id"] == "aoi")
+    assert [item["text"] for item in aoi["realities"]] == ["昔からグラビアアイドル"]
+    # 姿は変身と同じ仕組みで付くが、改変の姿として区別し、慣れの段階は始めない
+    assert aoi["transformation"]["kind"] == "reality"
+    assert aoi["display_kind"] == "transform"
+    assert aoi["adaptation"] is None
+    assert [e.get("kind") for e in body["new_events"]] == ["reality"]
+    assert body["world"]["dissonance"]["value"] > before
+
+    # 改変を消すと、その改変で変えた姿も解ける
+    reality_id = aoi["realities"][0]["id"]
+    removed = client.delete(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/realities/{reality_id}"
+    )
+    aoi = next(r for r in removed.json()["residents"] if r["id"] == "aoi")
+    assert aoi["realities"] == []
+    assert aoi["transformation"] is None
+    missing = client.delete(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/realities/{reality_id}"
+    )
+    assert missing.json()["detail"]["code"] == "reality_not_found"
+
+
+def test_reality_without_look_changes_only_the_facts(
+    client: TestClient, llm_outputs: list
+) -> None:
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+
+    response = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/ren/realities",
+        json={"instruction": "昔から料理が得意", "change_look": False},
+    )
+
+    assert response.status_code == 200, response.text
+    ren = next(r for r in response.json()["world"]["residents"] if r["id"] == "ren")
+    assert ren["transformation"] is None
+    assert ren["realities"][0]["text"] == "昔から料理が得意"
+    for index in range(4):
+        client.post(
+            f"/api/hakoniwa/worlds/{wid}/residents/ren/realities",
+            json={"instruction": f"事実{index}", "change_look": False},
+        )
+    over = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/ren/realities",
+        json={"instruction": "6件目", "change_look": False},
+    )
+    assert over.json()["detail"]["code"] == "too_many_realities"
+
+
 def test_transform_fails_cleanly_when_tags_cannot_be_made(client: TestClient) -> None:
     world = _create(client, ["aoi", "ren"])
 
@@ -620,7 +685,12 @@ def test_rule_look_generates_one_resident_at_a_time(
     wid = world["id"]
     rule = _custom_rule(client, wid, appearance_tags="maid outfit, 1girl")
     assert rule["appearance_tags"] == "maid outfit"
-    assert rule["look"] == {"ready": 0, "stale": 0, "total": 2}
+    assert rule["look"] == {
+        "ready": 0,
+        "stale": 0,
+        "total": 2,
+        "pending": ["aoi", "ren"],
+    }
 
     running = {"now": 0, "max": 0}
     captured: list[str] = []
@@ -647,12 +717,103 @@ def test_rule_look_generates_one_resident_at_a_time(
     by_id = {r["id"]: r for r in body["world"]["residents"]}
     assert by_id["aoi"]["display_kind"] == "rule"
     card = next(c for c in body["world"]["rule_cards"] if c["id"] == rule["id"])
-    assert card["look"] == {"ready": 2, "stale": 0, "total": 2}
+    assert card["look"] == {"ready": 2, "stale": 0, "total": 2, "pending": []}
 
     again = client.post(
         f"/api/hakoniwa/worlds/{wid}/custom-rules/{rule['id']}/look", json={}
     ).json()
     assert again["generated"] == 0
+
+
+def test_rule_look_for_one_resident_saves_each_time(
+    client: TestClient, llm_outputs, monkeypatch
+):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    rule = _custom_rule(client, wid, appearance_tags="maid outfit")
+
+    async def fake_avatar(tags, *, image_model, nsfw_mode):
+        return _png()
+
+    monkeypatch.setattr(service_module, "generate_avatar_bytes", fake_avatar)
+    llm_outputs.extend(["1girl, brown hair, maid outfit"])
+    url = f"/api/hakoniwa/worlds/{wid}/custom-rules/{rule['id']}/look"
+
+    first = client.post(url, json={"resident_id": "aoi"}).json()
+    assert (first["generated"], first["failed"]) == (1, 0)
+    card = next(c for c in first["world"]["rule_cards"] if c["id"] == rule["id"])
+    # 1人ぶんで保存され、進み具合が数に出る
+    assert card["look"]["ready"] == 1
+    assert card["look"]["pending"] == ["ren"]
+    saved = client.get(f"/api/hakoniwa/worlds/{wid}").json()
+    saved_card = next(c for c in saved["rule_cards"] if c["id"] == rule["id"])
+    assert saved_card["look"]["ready"] == 1
+
+    # 生成済みの住民をもう一度頼んでも、描き直しでなければ何もしない
+    again = client.post(url, json={"resident_id": "aoi"}).json()
+    assert (again["generated"], again["failed"]) == (0, 0)
+
+    missing = client.post(url, json={"resident_id": "nobody"})
+    assert missing.json()["detail"]["code"] == "resident_not_found"
+
+
+def test_world_memo_look_is_planned_then_drawn_one_by_one(
+    client: TestClient, llm_outputs, monkeypatch
+):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    captured: list[str] = []
+
+    async def fake_avatar(tags, *, image_model, nsfw_mode):
+        captured.append(tags)
+        return _png()
+
+    monkeypatch.setattr(service_module, "generate_avatar_bytes", fake_avatar)
+    client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings",
+        json={"world_memo": "住民は全員グラビアアイドルとして暮らしている"},
+    )
+    llm_outputs.append(
+        '{"changes_look": true, "appearance_tags": "1girl, bikini", "body_gender": "keep"}'
+    )
+    planned = client.post(f"/api/hakoniwa/worlds/{wid}/memo-look/plan", json={})
+    assert planned.status_code == 200, planned.text
+    body = planned.json()
+    assert body["changes_look"] is True
+    # 人物の性別・人数のタグは外す
+    assert body["world"]["memo_look"]["tags"] == "bikini"
+    assert body["world"]["memo_look"]["pending"] == ["aoi", "ren"]
+    assert body["world"]["memo_look_planned"] is True
+
+    # 同じメモでは LLM を呼ばない(呼べば出力が足りず失敗する)
+    again = client.post(f"/api/hakoniwa/worlds/{wid}/memo-look/plan", json={})
+    assert again.json()["changes_look"] is True
+
+    llm_outputs.append("1girl, brown hair, bikini")
+    drawn = client.post(
+        f"/api/hakoniwa/worlds/{wid}/memo-look", json={"resident_id": "aoi"}
+    ).json()
+    assert drawn["generated"] == 1
+    aoi = next(r for r in drawn["world"]["residents"] if r["id"] == "aoi")
+    assert aoi["display_kind"] == "memo"
+    assert drawn["world"]["memo_look"]["pending"] == ["ren"]
+
+    # メモを変えると、確かめ直すまでメモの姿は効かない
+    client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings", json={"world_memo": "文体は軽めに"}
+    )
+    changed = client.get(f"/api/hakoniwa/worlds/{wid}").json()
+    assert changed["memo_look"] is None
+    assert changed["memo_look_planned"] is False
+    aoi = next(r for r in changed["residents"] if r["id"] == "aoi")
+    assert aoi["display_kind"] != "memo"
+    llm_outputs.append(
+        '{"changes_look": false, "appearance_tags": "", "body_gender": "keep"}'
+    )
+    style_only = client.post(f"/api/hakoniwa/worlds/{wid}/memo-look/plan", json={})
+    assert style_only.json()["changes_look"] is False
+    missing = client.post(f"/api/hakoniwa/worlds/{wid}/memo-look", json={})
+    assert missing.json()["detail"]["code"] == "no_memo_look"
 
 
 def test_body_changing_rule_look_sets_gender_token(
@@ -699,7 +860,12 @@ def test_body_changing_rule_look_sets_gender_token(
     ).json()
     card = next(c for c in edited["rule_cards"] if c["id"] == rule["id"])
     assert card["body_gender"] is None
-    assert card["look"] == {"ready": 0, "stale": 2, "total": 2}
+    assert card["look"] == {
+        "ready": 0,
+        "stale": 2,
+        "total": 2,
+        "pending": ["aoi", "ren"],
+    }
     by_id = {r["id"]: r for r in edited["residents"]}
     assert by_id["ren"]["body_gender"] == "male"
 
@@ -1074,8 +1240,14 @@ def test_hand_written_tags_are_checked(client: TestClient) -> None:
     assert japanese.json()["detail"]["code"] == "invalid_tags"
     mismatch = _edit_aoi(client, wid, dress_tags="1boy, suit")
     assert mismatch.json()["detail"]["code"] == "tags_gender_mismatch"
-    too_many = _edit_aoi(client, wid, base_tags=", ".join(f"tag{i}" for i in range(30)))
-    assert too_many.json()["detail"]["code"] == "too_many_tags"
+    # 個数は制限しない(プレイと同じ)。長さはつないだあと 2000 文字まで
+    many = _edit_aoi(client, wid, base_tags=", ".join(f"tag{i}" for i in range(60)))
+    assert many.status_code == 200
+    # 改行はカンマ区切りに直すので、入力が 2000 文字以内でもつなぐと超えることがある
+    too_long = _edit_aoi(
+        client, wid, base_tags="\n".join(f"tag{i:04d}" for i in range(250))
+    )
+    assert too_long.json()["detail"]["code"] == "too_many_tags"
 
 
 def test_custom_rule_look_tags_are_saved_as_written(client: TestClient) -> None:
@@ -1261,7 +1433,11 @@ def test_directed_event_request_validation(client: TestClient):
 def test_directed_event_at_an_outside_place(client: TestClient, llm_outputs: list):
     world = _create(client, ["aoi", "ren"])
     wid = world["id"]
-    assert {"id": "shopping_street", "name": "商店街"} in world["locations"]
+    assert {
+        "id": "shopping_street",
+        "name": "商店街",
+        "background_url": "/hakoniwa-assets/location_shopping_street.png",
+    } in world["locations"]
     llm_outputs.append(_directed_event_json(["高瀬 葵"]))
 
     body = client.post(

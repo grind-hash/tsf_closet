@@ -2,6 +2,9 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { HakoniwaTagsOutcome } from "../../contexts/HakoniwaContext";
 
+/** タグの長さの上限(バックエンドの HAKONIWA_TAGS_MAX_LENGTH・プレイの appearance_tags と同じ) */
+const TAGS_MAX_LENGTH = 2000;
+
 interface HakoniwaLookFieldsProps {
   descriptionLabel: string;
   description: string;
@@ -119,6 +122,7 @@ export default function HakoniwaLookFields({
           className="hakoniwa-look-fields__tags"
           rows={3}
           value={tags}
+          maxLength={TAGS_MAX_LENGTH}
           placeholder={tagsPlaceholder}
           spellCheck={false}
           required={required}

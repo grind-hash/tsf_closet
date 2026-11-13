@@ -11,6 +11,11 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import {
+  LookControls,
+  type LookRequest,
+  lookRequest,
+} from "./HakoniwaRulesTab";
 import HakoniwaThemePicker, { normalizeTheme } from "./HakoniwaThemePicker";
 
 const DEFAULT_MODEL = "default";
@@ -36,7 +41,15 @@ export default function HakoniwaSettingsTab() {
     setWorldMemo,
     setExperimentTheme,
     deleteWorld,
+    lookTarget,
+    lookProgress,
+    generateLook,
+    applyMemoLook,
+    playbackQueue,
   } = useHakoniwa();
+  const [confirmMemoLook, setConfirmMemoLook] = useState<LookRequest | null>(
+    null,
+  );
   const modelId = useId();
   const dissonanceId = useId();
   const memoId = useId();
@@ -127,6 +140,16 @@ export default function HakoniwaSettingsTab() {
           </button>
         </div>
         <p className="hakoniwa-note">{t("hakoniwa.settings.memoNote")}</p>
+        {savedMemo && (
+          <MemoLookStatus
+            planning={
+              lookTarget === "memo" && lookProgress === null && busy === "look"
+            }
+            locked={busy !== null || playbackQueue.length > 0}
+            onCheck={() => void applyMemoLook(world.id)}
+            onRequest={(request) => setConfirmMemoLook(request)}
+          />
+        )}
       </section>
 
       <section className="hakoniwa-settings__section">
@@ -187,6 +210,33 @@ export default function HakoniwaSettingsTab() {
       </section>
 
       <ConfirmDialog
+        open={confirmMemoLook !== null}
+        title={t("hakoniwa.rules.lookConfirmTitle")}
+        confirmLabel={t("hakoniwa.rules.lookConfirm", {
+          count: confirmMemoLook?.count ?? 0,
+        })}
+        cancelLabel={t("hakoniwa.residentForm.cancel")}
+        onCancel={() => setConfirmMemoLook(null)}
+        onConfirm={() => {
+          if (confirmMemoLook) {
+            generateLook(confirmMemoLook.target, confirmMemoLook.regenerate);
+          }
+          setConfirmMemoLook(null);
+        }}
+      >
+        <p>
+          {t(
+            confirmMemoLook?.regenerate
+              ? "hakoniwa.rules.lookConfirmRedraw"
+              : "hakoniwa.rules.lookConfirmBody",
+            {
+              label: confirmMemoLook?.label ?? "",
+              count: confirmMemoLook?.count ?? 0,
+            },
+          )}
+        </p>
+      </ConfirmDialog>
+      <ConfirmDialog
         open={confirmDelete}
         title={t("hakoniwa.hub.deleteTitle")}
         confirmLabel={t("hakoniwa.hub.deleteConfirm")}
@@ -202,6 +252,78 @@ export default function HakoniwaSettingsTab() {
       >
         <p>{t("hakoniwa.hub.deleteBody", { name: world.name })}</p>
       </ConfirmDialog>
+    </div>
+  );
+}
+
+/**
+ * 世界のメモが住民全員に与える姿の状態。姿に関わるかを確かめている間はスピナー、
+ * 関わるなら見た目のタグと生成状況、関わらないならその旨を出す
+ */
+function MemoLookStatus({
+  planning,
+  locked,
+  onCheck,
+  onRequest,
+}: {
+  planning: boolean;
+  locked: boolean;
+  onCheck: () => void;
+  onRequest: (request: LookRequest) => void;
+}) {
+  const { t } = useTranslation();
+  const { world } = useHakoniwa();
+  if (!world) return null;
+  const memoLook = world.memo_look ?? null;
+  if (planning) {
+    return (
+      <div className="hakoniwa-progress" role="status">
+        <span className="hakoniwa-spinner" aria-hidden />
+        {t("hakoniwa.settings.memoLookPlanning")}
+      </div>
+    );
+  }
+  if (memoLook) {
+    const label = t("hakoniwa.settings.memoLookLabel");
+    return (
+      <div className="hakoniwa-settings__memo-look">
+        <strong>{t("hakoniwa.settings.memoLookHeading")}</strong>
+        <p className="hakoniwa-note">
+          {memoLook.tags
+            ? t("hakoniwa.settings.memoLookTags", { tags: memoLook.tags })
+            : t("hakoniwa.settings.memoLookBodyOnly")}
+          {memoLook.body_gender &&
+            ` ${t("hakoniwa.settings.memoLookBody", {
+              gender: t(`hakoniwa.gender.${memoLook.body_gender}`),
+            })}`}
+        </p>
+        <LookControls
+          status={memoLook}
+          target="memo"
+          disabled={locked}
+          onRequest={() => onRequest(lookRequest("memo", label, memoLook))}
+        />
+      </div>
+    );
+  }
+  if (world.memo_look_planned) {
+    return (
+      <p className="hakoniwa-note">{t("hakoniwa.settings.memoLookNone")}</p>
+    );
+  }
+  return (
+    <div className="hakoniwa-settings__memo-look">
+      <p className="hakoniwa-note">
+        {t("hakoniwa.settings.memoLookUnchecked")}
+      </p>
+      <button
+        type="button"
+        className="hakoniwa-button hakoniwa-button--ghost"
+        onClick={onCheck}
+        disabled={locked}
+      >
+        {t("hakoniwa.settings.memoLookCheck")}
+      </button>
     </div>
   );
 }

@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import json
 import random
+from pathlib import Path
 
 import pytest
 
-from gateway.consts.hakoniwa import HAKONIWA_LOCATION_MAP, event_location
+from gateway.consts.hakoniwa import (
+    HAKONIWA_EXTRA_LOCATIONS,
+    HAKONIWA_LOCATION_MAP,
+    event_location,
+    location_background_url,
+)
 from gateway.services import hakoniwa_generation as gen
 from gateway.services import hakoniwa_logic as logic
 from gateway.services.hakoniwa_errors import HakoniwaError
@@ -216,3 +222,23 @@ def test_scene_image_uses_the_place_background():
 
     assert HAKONIWA_LOCATION_MAP["beach"]["scene_tags"] in request["prompt"]
     assert "living room" not in request["prompt"]
+
+
+# --- ADV の背景 ---
+
+
+def test_every_place_has_a_bundled_adv_background():
+    assert location_background_url("living") == "/hakoniwa-assets/room.png"
+    assert location_background_url("garden") == "/hakoniwa-assets/area_garden.png"
+    for location in HAKONIWA_EXTRA_LOCATIONS:
+        assert location_background_url(location["id"]) == (
+            f"/hakoniwa-assets/location_{location['id']}.png"
+        )
+    assert location_background_url("nowhere") is None
+
+
+def test_bundled_adv_backgrounds_exist():
+    assets = Path(__file__).resolve().parents[3] / "frontend" / "public"
+    for location in HAKONIWA_EXTRA_LOCATIONS:
+        url = location_background_url(location["id"])
+        assert (assets / url.lstrip("/")).is_file(), url

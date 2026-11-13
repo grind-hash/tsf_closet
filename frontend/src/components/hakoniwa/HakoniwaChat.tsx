@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import { useTransparentImages } from "../../hooks/useTransparentImages";
+import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 
 // 背景の色は四隅から読み取る(生成画像の背景は白とは限らない)
 const ALPHA_OPTIONS = { targetColor: null, threshold: 12, featherRadius: 1.8 };
@@ -111,6 +112,7 @@ export default function HakoniwaChat() {
       {backgroundUrl && (
         <img className="hakoniwa-adv__background" src={backgroundUrl} alt="" />
       )}
+      <HakoniwaErrorBanner placement="overlay" clearOnMount />
       {portrait && (
         <div className="hakoniwa-adv__cast">
           <img

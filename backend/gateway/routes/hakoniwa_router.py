@@ -33,8 +33,10 @@ from ..schemas.hakoniwa import (
     HakoniwaLanguageRequest,
     HakoniwaLookRequest,
     HakoniwaLookResponse,
+    HakoniwaMemoLookPlanResponse,
     HakoniwaRandomResidentsRequest,
     HakoniwaRandomResidentsResponse,
+    HakoniwaRealityRequest,
     HakoniwaReapplyRequest,
     HakoniwaResidentChangeResponse,
     HakoniwaResidentRequest,
@@ -316,6 +318,7 @@ async def generate_rule_look(
             world_id,
             rule_id,
             regenerate=request.regenerate,
+            resident_id=request.resident_id,
             language=request.language,
         )
     )
@@ -337,7 +340,51 @@ async def generate_combo_look(
 ) -> HakoniwaLookResponse:
     result = await _call(
         hakoniwa_service.generate_combo_look(
-            world_id, regenerate=request.regenerate, language=request.language
+            world_id,
+            regenerate=request.regenerate,
+            resident_id=request.resident_id,
+            language=request.language,
+        )
+    )
+    return HakoniwaLookResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/memo-look/plan",
+    response_model=HakoniwaMemoLookPlanResponse,
+    summary="世界のメモが姿に関わるかを確かめる",
+    description=(
+        "いまの世界のメモが住民全員の見た目を変えるかを LLM が判断し、変えるなら見た目の"
+        "タグを保存する。同じメモでもう確かめていれば LLM を呼ばない"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def plan_memo_look(
+    world_id: str, request: HakoniwaLanguageRequest
+) -> HakoniwaMemoLookPlanResponse:
+    result = await _call(hakoniwa_service.plan_memo_look(world_id, request.language))
+    return HakoniwaMemoLookPlanResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/memo-look",
+    response_model=HakoniwaLookResponse,
+    summary="世界のメモの姿を生成",
+    description=(
+        "世界のメモが住民全員に与える姿を1人ずつ生成する(resident_id ならその1人)。"
+        "regenerate=false なら、今のメモの姿でまだ生成していない住民だけ"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def generate_memo_look(
+    world_id: str, request: HakoniwaLookRequest
+) -> HakoniwaLookResponse:
+    result = await _call(
+        hakoniwa_service.generate_memo_look(
+            world_id,
+            regenerate=request.regenerate,
+            resident_id=request.resident_id,
+            language=request.language,
         )
     )
     return HakoniwaLookResponse(**result)
@@ -594,6 +641,47 @@ async def transform_resident(
         )
     )
     return HakoniwaDayResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/residents/{resident_id}/realities",
+    response_model=HakoniwaDayResponse,
+    summary="住民を改変",
+    description=(
+        "その住民についての世界の常識を書き換える。本人も周りも昔からそうだと受け止める。"
+        "change_look なら改変に合う姿も生成し、新しい日常の一場面を年代記に積む"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def alter_resident_reality(
+    world_id: str, resident_id: str, request: HakoniwaRealityRequest
+) -> HakoniwaDayResponse:
+    result = await _call(
+        hakoniwa_service.alter_reality(
+            world_id,
+            resident_id,
+            request.instruction,
+            change_look=request.change_look,
+            language=request.language,
+        )
+    )
+    return HakoniwaDayResponse(**result)
+
+
+@router.delete(
+    "/worlds/{world_id}/residents/{resident_id}/realities/{reality_id}",
+    response_model=HakoniwaWorldResponse,
+    summary="住民の改変を消す",
+    description="改変を1件消す。その改変で変えた姿がいまの姿なら、元の姿に戻る",
+    responses=_ERROR_RESPONSES,
+)
+async def remove_resident_reality(
+    world_id: str, resident_id: str, reality_id: str, language: str | None = Query(None)
+) -> HakoniwaWorldResponse:
+    world = await _call(
+        hakoniwa_service.remove_reality(world_id, resident_id, reality_id, language)
+    )
+    return HakoniwaWorldResponse(**world)
 
 
 @router.post(

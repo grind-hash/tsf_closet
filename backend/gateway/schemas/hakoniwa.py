@@ -15,6 +15,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_MANUAL_TAGS_INPUT_MAX,
     HAKONIWA_MAX_RESIDENTS,
     HAKONIWA_PERSONALITY_MAX,
+    HAKONIWA_REALITY_TEXT_MAX,
     HAKONIWA_RESIDENT_NAME_MAX,
     HAKONIWA_RULE_APPEARANCE_TEXT_MAX,
     HAKONIWA_TRANSFORM_TEXT_MAX,
@@ -171,6 +172,13 @@ class HakoniwaLookRequest(HakoniwaLanguageRequest):
     regenerate: bool = Field(
         False, description="生成済みの住民も描き直す。false はまだの住民だけ"
     )
+    resident_id: str | None = Field(
+        None,
+        description=(
+            "この住民の姿だけを生成する(画面は1人ずつ呼んで進み具合を出す)。"
+            "省略すると対象の住民全員を順に生成する"
+        ),
+    )
 
 
 class HakoniwaResidentRequest(HakoniwaLanguageRequest):
@@ -235,6 +243,18 @@ class HakoniwaTransformRequest(HakoniwaLanguageRequest):
     instruction: str = Field(..., min_length=1, max_length=HAKONIWA_TRANSFORM_TEXT_MAX)
 
 
+class HakoniwaRealityRequest(HakoniwaLanguageRequest):
+    instruction: str = Field(
+        ...,
+        min_length=1,
+        max_length=HAKONIWA_REALITY_TEXT_MAX,
+        description="その住民についての新しい世界の常識(例: 昔からグラビアアイドル)",
+    )
+    change_look: bool = Field(
+        True, description="変身と同じ仕組みで、改変に合う姿も生成する"
+    )
+
+
 class HakoniwaDirectedEventRequest(HakoniwaLanguageRequest):
     instruction: str = Field(
         ..., min_length=1, max_length=HAKONIWA_DIRECTED_EVENT_TEXT_MAX
@@ -292,7 +312,8 @@ class HakoniwaEvent(BaseModel):
     affinity_delta: int
     source: str = Field(..., description="llm / template / player")
     kind: str | None = Field(
-        None, description="transform(変身の出来事)・directed(指示した出来事)など"
+        None,
+        description="transform(変身の出来事)・reality(住民の改変)・directed(指示した出来事)など",
     )
     change_text: str | None = None
     instruction: str | None = Field(
@@ -313,6 +334,10 @@ class HakoniwaEvent(BaseModel):
     )
     arc_id: str | None = Field(None, description="続きを描いた物語の弧の id")
     arc_climax: bool | None = Field(None, description="物語の弧の山場の出来事")
+    bgm: str | None = Field(
+        None,
+        description="出来事を見せる間の BGM のキー(LLM が選んだときだけ。無ければふだんの曲)",
+    )
 
 
 class HakoniwaAdaptation(BaseModel):
@@ -361,6 +386,15 @@ class HakoniwaTransformation(BaseModel):
     image: str
     image_url: str | None
     day: int
+    kind: str | None = Field(
+        None, description="reality は住民の改変で変えた姿(昔からそうだと受け止める)"
+    )
+
+
+class HakoniwaReality(BaseModel):
+    id: str
+    text: str = Field(..., description="その住民についての世界の常識")
+    day: int
 
 
 class HakoniwaResident(BaseModel):
@@ -390,6 +424,9 @@ class HakoniwaResident(BaseModel):
     affinities: dict[str, int]
     transformation: HakoniwaTransformation | None
     transformation_history: list[HakoniwaTransformation]
+    realities: list[HakoniwaReality] = Field(
+        default_factory=list, description="住民の改変(古い順)"
+    )
     swapped_with: str | None
     display_avatar_url: str | None = Field(..., description="いま表示する姿")
     display_kind: str = Field(
@@ -434,6 +471,10 @@ class HakoniwaLookStatus(BaseModel):
     ready: int = Field(..., description="今の見た目で姿を生成済みの住民の数")
     stale: int = Field(..., description="見た目を変える前に生成した姿の住民の数")
     total: int
+    pending: list[str] = Field(
+        default_factory=list,
+        description="まだ生成していないか、見た目を変える前の姿の住民の id(住民の並び順)",
+    )
 
 
 class HakoniwaRuleCard(BaseModel):
@@ -461,6 +502,15 @@ class HakoniwaComboLook(HakoniwaLookStatus):
     includes_dress: bool
 
 
+class HakoniwaMemoLook(HakoniwaLookStatus):
+    tags: str = Field(
+        ..., description="世界のメモから作った、住民全員に効く見た目のタグ"
+    )
+    body_gender: str | None = Field(
+        None, description="メモが定める体の性別(None は住民それぞれのまま)"
+    )
+
+
 class HakoniwaSlot(BaseModel):
     x: int
     y: int
@@ -477,6 +527,9 @@ class HakoniwaArea(BaseModel):
 class HakoniwaLocation(BaseModel):
     id: str
     name: str
+    background_url: str | None = Field(
+        None, description="ADV の背景にする同梱の画像(場面の絵が無いとき)"
+    )
 
 
 class HakoniwaFurniture(BaseModel):
@@ -533,6 +586,13 @@ class HakoniwaWorldResponse(BaseModel):
     )
     combo_look: HakoniwaComboLook | None = Field(
         None, description="見た目の掟が2つ以上重なっているときの複合の姿"
+    )
+    memo_look: HakoniwaMemoLook | None = Field(
+        None,
+        description="世界のメモが住民全員に与える姿(メモが姿を変えていなければ null)",
+    )
+    memo_look_planned: bool = Field(
+        False, description="いまの世界のメモが姿に関わるかを、もう確かめたか"
     )
     world_memo: str = Field("", description="世界のメモ")
     experiment_theme: HakoniwaThemeInput | None = Field(
@@ -630,6 +690,12 @@ class HakoniwaGreetingResponse(BaseModel):
 
 class HakoniwaImageResponse(BaseModel):
     world: HakoniwaWorldResponse
+    cost_usd: float | None = None
+
+
+class HakoniwaMemoLookPlanResponse(BaseModel):
+    world: HakoniwaWorldResponse
+    changes_look: bool = Field(..., description="世界のメモが住民全員の姿を変えるか")
     cost_usd: float | None = None
 
 

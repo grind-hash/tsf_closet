@@ -7,10 +7,18 @@ import random
 from gateway.services import hakoniwa_logic as logic
 from gateway.services.hakoniwa_generation import clean_look_tags
 from gateway.services.hakoniwa_prompts import (
+    REALITY_STANCE,
+    active_rules_text,
     appearance_focus_text,
     appearance_note,
     current_appearance_summary,
+    look_hint,
+    male_confusion_guidance,
+    memo_section,
+    residents_text,
+    risque_focus_text,
     rule_look_instruction,
+    transform_reaction_prompts,
 )
 from gateway.services.hakoniwa_scene import look_tags
 
@@ -135,6 +143,7 @@ def test_look_status_tracks_stale_images_and_rule_deletion():
         "ready": 1,
         "stale": 1,
         "total": 2,
+        "pending": ["ren"],
     }
     deleted = logic.delete_custom_rule(state, rule_id)
     assert all(not r["rule_images"] for r in deleted["residents"])
@@ -149,6 +158,82 @@ def test_prompt_links_rule_look_to_rule_text_and_feminine_form():
     assert logic.is_male_in_feminine_form(state, ren)
     text = appearance_focus_text(state, (logic.find_resident(state, "aoi"), ren), "ja")
     assert "set by the world rules ('メイドの日': 全員がメイド服で過ごす)" in text
+
+
+def test_rule_look_is_lived_as_common_sense_without_complaints():
+    state, _ = _with_rule(_world(), name="グラビアの日", tags="bikini")
+    aoi = logic.find_resident(state, "aoi")
+    ren = logic.find_resident(state, "ren")
+
+    assert logic.is_reality_look(state, aoi)
+    text = appearance_focus_text(state, (aoi, ren), "ja")
+    # 掟の姿には、変身のような照れ・ぼやきの反応を要求しない
+    assert "grumbling" not in text
+    assert "always show the current look as part of everyday life" in text
+    assert REALITY_STANCE in text
+    # 元は男性の住民も、戸惑いではなく受け入れたうえでのかすかな違和感だけ
+    guidance = male_confusion_guidance(state, ren, "Ren")
+    assert "takes it as normal" in guidance
+    assert "Do not have him accept it calmly" not in text
+    assert "normal in this world" in look_hint(state, aoi)
+    assert REALITY_STANCE in active_rules_text(state, "ja")
+
+
+def test_transform_look_still_asks_for_reactions():
+    state = logic.set_transformation(
+        _world(),
+        "aoi",
+        {"description": "猫耳", "tags": "1girl, cat ears", "image": "tf.png", "day": 1},
+    )
+    aoi = logic.find_resident(state, "aoi")
+
+    assert not logic.is_reality_look(state, aoi)
+    text = appearance_focus_text(state, (aoi,), "ja")
+    assert "always include reactions to the current look" in text
+
+
+def test_reality_look_and_facts_are_written_as_always_true():
+    state, reality = logic.add_reality(_world(), "aoi", "昔からグラビアアイドル")
+    state = logic.set_transformation(
+        state,
+        "aoi",
+        {
+            "description": "昔からグラビアアイドル",
+            "tags": "1girl, bikini",
+            "image": "tf.png",
+            "day": 1,
+            "kind": "reality",
+            "reality_id": reality["id"],
+        },
+    )
+    aoi = logic.find_resident(state, "aoi")
+    ren = logic.find_resident(state, "ren")
+
+    assert logic.is_reality_look(state, aoi)
+    assert aoi["adaptation"] is None
+    assert "always show the current look as part of everyday life" in (
+        appearance_focus_text(state, (aoi, ren), "ja")
+    )
+    # 際どい姿も、照れではなく当たり前として描く
+    risque = risque_focus_text(state, (aoi,), "ja")
+    assert "carries it naturally" in risque
+    assert "trying to cover up" not in risque
+    assert "common sense about" in residents_text(state, "ja")
+    system, user = transform_reaction_prompts(
+        state, aoi, "昔からグラビアアイドル", [ren], "ja", nsfw=False, reality=True
+    )
+    assert "nobody notices any change" in system
+    assert "surprise, embarrassment" not in system
+    assert "The new common sense" in user
+
+
+def test_world_memo_is_passed_as_the_reality_of_the_world():
+    state = {**_world(), "world_memo": "住民は全員グラビアアイドルとして暮らしている"}
+
+    section = memo_section(state)
+    assert "common sense" in section
+    assert REALITY_STANCE in section
+    assert section.endswith("住民は全員グラビアアイドルとして暮らしている")
 
 
 def test_normalize_keeps_looks_and_old_rules_get_empty_appearance():
@@ -219,6 +304,7 @@ def test_look_status_is_stale_after_body_gender_changes():
         "ready": 0,
         "stale": 1,
         "total": 2,
+        "pending": ["aoi", "ren"],
     }
     redrawn = _look(changed, "aoi", "rule", rule_id, body="female")
     assert logic.rule_look_status(redrawn, rule_id)["ready"] == 1

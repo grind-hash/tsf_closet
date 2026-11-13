@@ -9,6 +9,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..consts.adventure_bgm import (
+    HAKONIWA_BGM_SELECTION_RULES,
+    get_hakoniwa_bgm_prompt_guide,
+    get_hakoniwa_event_bgm_keys,
+)
 from ..consts.hakoniwa import (
     CUSTOM_RULE_PRIORITY_NOTE,
     DEFAULT_AREA_ID,
@@ -19,12 +24,12 @@ from ..consts.hakoniwa import (
     HAKONIWA_LOCATION_MAP,
     HAKONIWA_LOCATIONS,
     HAKONIWA_PERSONALITY_PROMPT_MAX,
+    HAKONIWA_REALITY_PROMPT_MAX,
     HAKONIWA_RECENT_EVENTS_CONTEXT,
     HAKONIWA_RECENT_NARRATION_SNIPPET,
-    HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT,
     HAKONIWA_RULE_MAP,
     HAKONIWA_SCENE_ATTIRES,
-    HAKONIWA_TAGS_MAX_COUNT,
+    HAKONIWA_TAGS_SUGGESTED_COUNT,
     HAKONIWA_TRANSFORM_DESC_PROMPT_MAX,
     RULE_PRIORITY_NOTE,
     WORLD_BRIEF,
@@ -43,6 +48,7 @@ from . import hakoniwa_story_text as story_text
 from .hakoniwa_logic import (
     active_combo,
     active_custom_rules,
+    active_memo_look,
     address_name,
     appearance_kind,
     body_gender,
@@ -51,8 +57,10 @@ from .hakoniwa_logic import (
     custom_rule,
     is_feminine_transformation,
     is_male_in_feminine_form,
+    is_reality_look,
     look_rule_ids,
     male_body_pairs,
+    realities,
     resident_gender,
     resident_name,
     resident_text,
@@ -99,13 +107,45 @@ MALE_OUTFIT_GUIDANCE = (
 )
 
 
+# 掟・世界のメモ・住民の改変は「世界の常識の書き換え」。本人も周りも昔からそうだと受け止め、
+# 不満や拒否は描かせない。残るのはかすかな違和感だけ(強さは違和感の段階の文脈に任せる)
+REALITY_STANCE = (
+    "These are rewrites of this world's common sense, not costumes or chores: "
+    "everyone, including the person concerned, believes it has always been this "
+    "way and lives by it naturally and willingly, as their own normal. Nobody "
+    "refuses it, questions it out loud or complains about its practicality (hard "
+    "to move in, cold, embarrassing to wear, a hassle). The only crack allowed is "
+    "a faint, hard-to-name sense that something is off (a fleeting 'huh, was it "
+    "always like this?' that passes at once), at most once in a scene."
+)
+
+REALITY_MALE_GUIDANCE = (
+    "{name} is originally a man, but in this world's common sense this look is "
+    "simply how he lives now, and he takes it as normal. The unfamiliarity of the "
+    "body or the clothes (the hem, the draft, a different center of gravity or "
+    "voice) may surface only as a faint sense that something is off that he cannot "
+    "put into words, never as complaints, refusal or a wish to change back."
+)
+
+REALITY_RISQUE_GUIDANCE = (
+    "{name}'s look is revealing and daring, but in this world it is normal for "
+    "{name}: {name} carries it naturally and confidently, as the role demands, and "
+    "others treat it as normal too (admiring glances or compliments are fine). At "
+    "most a fleeting self-consciousness that feels oddly out of place may surface; "
+    "no covering up or wanting to change."
+)
+
+
 def male_confusion_guidance(
     state: dict[str, Any], resident: dict[str, Any], name: str
 ) -> str:
     """本来は男性の住民への戸惑いの指示。体が女性になっているか、服だけかで書き分ける。
 
     適応が「慣れかけ」以上に進んでいれば、和らいだ戸惑いの指示にする。
+    世界の常識の書き換えで決まった姿なら、受け入れたうえでのかすかな違和感だけにする。
     """
+    if is_reality_look(state, resident):
+        return REALITY_MALE_GUIDANCE.format(name=name)
     if story_text.male_guidance_is_softened(state, resident):
         return story_text.adapted_male_guidance(name)
     if body_gender(state, resident) == "female":
@@ -254,14 +294,19 @@ def _gender_label(gender: str) -> str:
 
 
 def memo_section(state: dict[str, Any]) -> str:
-    """プレイヤーの「世界のメモ」。掟より優先する指示として載せる(空なら何も載せない)。"""
+    """プレイヤーの「世界のメモ」。世界の現実(常識の書き換え)として、掟より優先して載せる。
+
+    空なら何も載せない。文体の指示が書かれていれば、それにも従わせる。
+    """
     memo = play.world_memo(state)
     if not memo:
         return ""
     return (
-        "\n\nHighest-priority instructions from the player (the style and facts of "
-        "this world set by the player; they take precedence over the world rules, and "
-        "the text you write must follow them):\n"
+        "\n\nThe reality of this world, set by the player (highest priority; it "
+        "takes precedence over the world rules). Facts written here are this "
+        "world's common sense from this moment on, and the text you write must "
+        "follow them; style instructions written here apply to your writing too. "
+        f"{REALITY_STANCE}\n"
         f"{memo}"
     )
 
@@ -322,9 +367,9 @@ def active_rules_text(state: dict[str, Any], language: str) -> str:
     if has_custom:
         lines.append(
             "(Player-written rules are absolute laws of this world and every "
-            "resident obeys them. Show concretely, through actions and lines, how "
+            "resident lives by them. Show concretely, through actions and lines, how "
             "each rule appears in daily life. Do not swap the rule's subject for a "
-            "harmless complaint such as clothes being inconvenient.)"
+            f"harmless complaint such as clothes being inconvenient. {REALITY_STANCE})"
         )
     return "\n".join(lines)
 
@@ -338,6 +383,10 @@ def current_appearance_summary(
         description = str(transformation.get("description") or "")[
             :HAKONIWA_TRANSFORM_DESC_PROMPT_MAX
         ]
+        if transformation.get("kind") == "reality":
+            return (
+                f"the look that this world's common sense gives them ('{description}')"
+            )
         return f"a look transformed into: '{description}'"
     if kind == "combo":
         combo = active_combo(state) or {"rule_ids": [], "includes_dress": False}
@@ -353,6 +402,12 @@ def current_appearance_summary(
                 f"a look set by the rule '{rules[-1]['name']}'"
                 f"{_tags_note(tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX])}"
             )
+    if kind == "memo":
+        tags = str((active_memo_look(state) or {}).get("tags") or "")
+        return (
+            "the look that this world's reality (the player's memo) gives everyone"
+            f"{_tags_note(tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX])}"
+        )
     if kind == "dress":
         return "wearing a dress"
     return None
@@ -386,8 +441,8 @@ def look_rule_link_text(state: dict[str, Any], kind: str | None) -> str:
         for rule in rules
     )
     return (
-        f" These looks are set by the world rules ({texts}); describe the look as "
-        "something the rule brought about."
+        f" These looks are set by the world rules ({texts}); in this world the look "
+        "is simply what the rule makes normal."
     )
 
 
@@ -453,6 +508,22 @@ def address_text(
     return f" Calls housemates: {', '.join(pairs)}." if pairs else ""
 
 
+def reality_note(resident: dict[str, Any], language: str) -> str:
+    """住民の改変(その住民についての世界の常識)を、住民の説明に添える一文。"""
+    items = realities(resident)
+    if not items:
+        return ""
+    name = resident_name(resident, language)
+    facts = "; ".join(
+        f"'{str(item['text'])[:HAKONIWA_REALITY_PROMPT_MAX]}'" for item in items
+    )
+    return (
+        f" This world's common sense about {name} (rewritten by the player; "
+        f"everyone, including {name}, takes it as having always been true, and "
+        f"nobody questions or complains about it): {facts}."
+    )
+
+
 def residents_text(state: dict[str, Any], language: str) -> str:
     names = {item["id"]: resident_name(item, language) for item in state["residents"]}
     lines = []
@@ -473,6 +544,7 @@ def residents_text(state: dict[str, Any], language: str) -> str:
             f"{address_text(state, resident, language)}"
             f"{_swap_note(state, resident, language)}"
             f"{appearance_note(state, resident)}"
+            f"{reality_note(resident, language)}"
             f"{story_text.story_notes(state, resident, language)}"
         )
     return "\n".join(lines)
@@ -558,7 +630,13 @@ def swap_focus_text(
 def appearance_focus_text(
     state: dict[str, Any], group: tuple[dict[str, Any], ...], language: str
 ) -> str:
+    """いまの姿を出来事に出させる指示。
+
+    変身・ドレスの姿には反応(照れ・戸惑い)を、世界の常識の書き換え(掟・メモ・改変)で
+    決まった姿には、その姿で自然に暮らす様子を描かせる。
+    """
     targets = []
+    reality_targets = []
     confused = []
     for resident in group:
         kind = appearance_kind(state, resident)
@@ -568,11 +646,36 @@ def appearance_focus_text(
             continue
         summary = current_appearance_summary(state, resident)
         name = resident_name(resident, language)
-        targets.append(f"{name} ({summary})")
+        if is_reality_look(state, resident):
+            reality_targets.append(f"{name} ({summary})")
+        else:
+            targets.append(f"{name} ({summary})")
         if is_male_in_feminine_form(state, resident):
             confused.append((resident, name))
-    if not targets:
+    if not targets and not reality_targets:
         return ""
+    text = ""
+    if targets:
+        text += _reaction_focus_text(group, targets)
+    if reality_targets:
+        text += (
+            "\n\n[Important: always show the current look as part of everyday life]\n"
+            f"Among the main characters, {', '.join(reality_targets)} look the way "
+            "this world's common sense now says. Do not write the day as if the look "
+            "did not exist: show them living in that look and in the role it implies, "
+            "concretely in both actions and lines (for example, gravure idols do photo "
+            "shoots, strike poses and care about how they look on camera), and mention "
+            "the look concretely in the narration too. Others treat it as perfectly "
+            f"normal; impressions and compliments are fine. {REALITY_STANCE}"
+            f"{look_rule_link_text(state, appearance_kind(state, group[0]))}"
+        )
+    for resident, name in confused:
+        text += "\n" + male_confusion_guidance(state, resident, name)
+    return text
+
+
+def _reaction_focus_text(group: tuple[dict[str, Any], ...], targets: list[str]) -> str:
+    """変身・ドレスの姿への反応(照れ・戸惑い)を必ず入れさせる指示。"""
     if len(group) == 1:
         clause = (
             "As a reaction to the look, include at least one self-aware line from the "
@@ -586,15 +689,11 @@ def appearance_focus_text(
             "grumbling) or another main character commenting on it (impression, "
             "remark, compliment), and mention the look concretely in the narration too."
         )
-    text = (
+    return (
         "\n\n[Important: always include reactions to the current look]\n"
         f"Among the main characters, {', '.join(targets)} look different from usual. "
         f"Do not write the day as if the look did not exist. {clause}"
-        f"{look_rule_link_text(state, appearance_kind(state, group[0]))}"
     )
-    for resident, name in confused:
-        text += "\n" + male_confusion_guidance(state, resident, name)
-    return text
 
 
 def risque_focus_text(
@@ -605,6 +704,10 @@ def risque_focus_text(
         if not appearance_is_risque(state, resident):
             continue
         name = resident_name(resident, language)
+        if is_reality_look(state, resident):
+            # 世界の常識で決まった際どい姿は、照れではなく当たり前のこととして描く
+            lines.append(REALITY_RISQUE_GUIDANCE.format(name=name))
+            continue
         lines.append(RISQUE_REACTION_GUIDANCE.format(name=name))
         if is_male_in_feminine_form(state, resident):
             lines.append(
@@ -783,8 +886,22 @@ def _event_schema(
         '"lines": [{"speaker": "name of the speaking resident", "text": "one line of dialogue"}], '
         f'"participants": [{participants}], '
         + ("" if location_first else location)
-        + f'"mood_delta": {{{moods}}}{affinity}}}\n'
-        f"Write {lo}-{hi} lines."
+        + f'"mood_delta": {{{moods}}}{affinity}, {_bgm_field()}}}\n'
+        f"Write {lo}-{hi} lines.\n{bgm_guide()}"
+    )
+
+
+def _bgm_field() -> str:
+    """出来事の JSON の bgm の欄(場面を書いたあとに選ばせるため末尾に置く)。"""
+    return f'"bgm": "{"|".join(get_hakoniwa_event_bgm_keys())}"'
+
+
+def bgm_guide() -> str:
+    """出来事を見せる間の BGM の選び方(選べる曲と、重要度を物語の進み具合で測る方針)。"""
+    return (
+        f"bgm is the background music while this scene is shown, one of: "
+        f"{get_hakoniwa_bgm_prompt_guide()}. {HAKONIWA_BGM_SELECTION_RULES} "
+        "Write only the key, never a filename."
     )
 
 
@@ -1142,6 +1259,7 @@ def resident_profile_text(
         f"Currently in the {area_name(resident.get('current_area'), 'en').lower()}."
         f"{address_text(state, resident, language)}"
         f"{_swap_note(state, resident, language)}{appearance_note(state, resident)}"
+        f"{reality_note(resident, language)}"
         f"{story_text.story_notes(state, resident, language)}"
     )
 
@@ -1149,6 +1267,12 @@ def resident_profile_text(
 def look_hint(state: dict[str, Any], resident: dict[str, Any]) -> str:
     """いまの姿に触れてよい旨と、男性の戸惑い・際どい姿の羞恥の指示。"""
     hint = ""
+    if is_reality_look(state, resident):
+        return (
+            " The line may touch on the character's current look, which is simply "
+            "normal in this world (no complaints or embarrassment about it; at most "
+            "a faint, fleeting sense that something is off)."
+        )
     if appearance_kind(state, resident) or swap_partner_id(state, resident["id"]):
         hint = " The line may touch on the character's current look."
         if is_male_in_feminine_form(state, resident):
@@ -1307,12 +1431,38 @@ def transform_tags_prompts(instruction: str, base_tags: str) -> tuple[str, str]:
         "gender, replace the gender token accordingly. Replace clothing and items as "
         "instructed and drop the replaced clothing tags. For a partial change (only the "
         "hair, only an accessory), you may keep the untouched clothing tags.\n"
-        f"Output all tags of the finished look, comma-separated, at most "
-        f"{HAKONIWA_TAGS_MAX_COUNT} tags, on a single line, in English only. No "
-        "explanation, preface or code fence."
+        "Output all tags of the finished look, comma-separated, on a single line, "
+        "in English only. Do not drop current tags that the instruction leaves "
+        "untouched just to shorten the list. No explanation, preface or code fence."
     )
     user_prompt = f"Current tags: {base_tags}\nInstruction: {instruction}"
     return system_prompt, user_prompt
+
+
+def memo_look_prompts(memo: str) -> tuple[str, str]:
+    """世界のメモが住民全員の見た目を変えるかを判断させ、変えるなら見た目のタグにさせる。"""
+    system_prompt = (
+        "You read the player's memo for a miniature world. The memo rewrites the "
+        "world's reality (its common sense) and may also contain style instructions "
+        "for the writing. Decide whether it changes how every resident looks: their "
+        "clothing, accessories and items, visible additions such as animal ears, or "
+        "their sex. A role or occupation whose look is obvious counts (for example, "
+        "everyone being gravure idols means swimsuits such as a bikini; everyone "
+        "being maids means a maid outfit). Personality, relationships, speech, "
+        "events, writing style, or a change for only some of the residents do not "
+        "count.\n"
+        "If it changes the look, create Danbooru-style tags for that change only: "
+        "each item once, no extra clothing or decorations that the memo does not "
+        "state or clearly imply. Tag hair, eyes or body features only when "
+        "explicitly stated. Never include tags for sex, gender or the number of "
+        "people (1girl, 1boy, woman, man, female, male, solo); set body_gender "
+        "instead, and only when the memo changes everyone's sex.\n"
+        "Output only one JSON object, with no explanation or code fence: "
+        '{"changes_look": true or false, "appearance_tags": "comma-separated '
+        'English tags, or an empty string", "body_gender": "female" | "male" | '
+        '"keep"}'
+    )
+    return system_prompt, f"Memo:\n{memo}"
 
 
 def rule_look_tags_prompts(name: str, text: str, description: str) -> tuple[str, str]:
@@ -1330,9 +1480,9 @@ def rule_look_tags_prompts(name: str, text: str, description: str) -> tuple[str,
         "eyes or body features only when they are explicitly stated (for example "
         "long hair); otherwise each resident keeps their own. Never include tags "
         "for sex, gender or the number of people (1girl, 1boy, woman, man, female, "
-        "male, solo), because a change of sex is set separately. Output at most "
-        f"{HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT} tags, comma-separated, on a single line, "
-        "in English only. No Japanese, explanation, preface or code fence."
+        "male, solo), because a change of sex is set separately. Output the tags "
+        "comma-separated, on a single line, in English only. No Japanese, "
+        "explanation, preface or code fence."
     )
     user_prompt = f"Rule name: {name}\nRule text: {text}"
     if description:
@@ -1398,7 +1548,7 @@ def appearance_tags_prompts(
         f"Rules: always include the gender token ({token}). Tag the hair style, hair "
         "color, eye color and other features, and the clothing. You may fill in "
         "details not written in the description with plausible, modest choices.\n"
-        f"Output the tags comma-separated, at most {HAKONIWA_TAGS_MAX_COUNT} tags, on "
+        f"Output the tags comma-separated, about {HAKONIWA_TAGS_SUGGESTED_COUNT} tags, on "
         "a single line. No explanation, preface or code fence."
     )
     return system_prompt, f"Appearance description: {description}"
@@ -1412,19 +1562,41 @@ def transform_reaction_prompts(
     language: str,
     *,
     nsfw: bool,
+    reality: bool = False,
 ) -> tuple[str, str]:
+    """変身の直後の反応の出来事のプロンプト。
+
+    reality=True は住民の改変(その住民についての世界の常識の書き換え)で、驚きの反応ではなく、
+    昔からそうだったように過ごす一場面を描かせる。
+    """
     involved = [target, *bystanders]
     names = [resident_name(resident, language) for resident in involved]
     moods = ", ".join(f'"{name}": mood change (integer -10..10)' for name in names)
+    if reality:
+        moment = (
+            "You are the narrator of this miniature world. The player has just "
+            "rewritten this world's common sense about one resident; from this moment "
+            "it has always been true, for everyone including that resident. Create "
+            "exactly one short event showing an ordinary moment of the everyday life "
+            "it now shapes (not the moment of change: nobody notices any change).\n"
+            "Lines are from that resident and the residents who were there, 1-4 lines "
+            "in total; every speaker must be one of the involved residents. "
+            f"{REALITY_STANCE} Narration must not contain dialogue in quotation marks.\n"
+        )
+    else:
+        moment = (
+            "You are the narrator of this miniature world. One resident has just had "
+            "their look changed on the spot by the player's power. Create exactly one "
+            "short event showing that moment.\n"
+            "Lines are the reactions of the transformed resident and the residents who "
+            "were there, 1-4 lines in total; every speaker must be one of the involved "
+            "residents. Depict honest reactions to the changed look such as surprise, "
+            "embarrassment or admiration. Narration must not contain dialogue in "
+            "quotation marks.\n"
+        )
     system_prompt = (
         f"{WORLD_BRIEF}\n"
-        "You are the narrator of this miniature world. One resident has just had their "
-        "look changed on the spot by the player's power. Create exactly one short event "
-        "showing that moment.\n"
-        "Lines are the reactions of the transformed resident and the residents who were "
-        "there, 1-4 lines in total; every speaker must be one of the involved residents. "
-        "Depict honest reactions to the changed look such as surprise, embarrassment or "
-        "admiration. Narration must not contain dialogue in quotation marks.\n"
+        f"{moment}"
         f"{gender_address_rules(language)}\n"
         f"{NO_MALE_ROMANCE_RULE}\n"
         f"{content_rule(nsfw)}\n"
@@ -1432,7 +1604,8 @@ def transform_reaction_prompts(
         '{"title": "short heading", "narration": "narration without dialogue, 1-2 sentences", '
         '"lines": [{"speaker": "resident name", "text": "one line"}], '
         f'"participants": [{", ".join(f"{chr(34)}{name}{chr(34)}" for name in names)}], '
-        f'"mood_delta": {{{moods}}}}}\n'
+        f'"mood_delta": {{{moods}}}, {_bgm_field()}}}\n'
+        f"{bgm_guide()}\n"
         f"Write the title, narration and lines in {response_language(language)}."
     )
     involved_text = "; ".join(
@@ -1441,7 +1614,8 @@ def transform_reaction_prompts(
         f"; First-person pronoun: {resident_text(resident, language)['pronoun']}"
         f".{address_text(state, resident, language, involved)}"
         f"{_swap_note(state, resident, language)}"
-        f"{appearance_note(state, resident)})"
+        f"{appearance_note(state, resident)}"
+        f"{reality_note(resident, language)})"
         for resident in involved
     )
     target_name = resident_name(target, language)
@@ -1453,7 +1627,9 @@ def transform_reaction_prompts(
     if confused:
         extra += male_confusion_guidance(state, target, target_name) + "\n"
     transformation = current_transformation(state, target) or {}
-    if is_risque_text(f"{transformation.get('tags', '')} {change_text}"):
+    if reality and is_risque_text(f"{transformation.get('tags', '')} {change_text}"):
+        extra += REALITY_RISQUE_GUIDANCE.format(name=target_name) + "\n"
+    elif is_risque_text(f"{transformation.get('tags', '')} {change_text}"):
         extra += RISQUE_REACTION_GUIDANCE.format(name=target_name) + "\n"
         if confused:
             extra += (
@@ -1461,8 +1637,13 @@ def transform_reaction_prompts(
                 "bewilderment at the daring feminine look overlaps with the "
                 "embarrassment and sways even harder.\n"
             )
+    subject = (
+        f'Resident whose reality was rewritten: {target_name}. The new common sense: "{change_text}".\n'
+        if reality
+        else f'Transformed resident: {target_name}. The instruction: "{change_text}".\n'
+    )
     user_prompt = (
-        f'Transformed resident: {target_name}. The instruction: "{change_text}".\n'
+        f"{subject}"
         f"Involved residents: {involved_text}.\n"
         f"{place_text(state, target.get('current_area'))}"
         f"{story_text.dissonance_context_text(state)}\n"
@@ -1601,7 +1782,7 @@ def random_residents_prompts(
         "hair style, hair color, eye color and everyday clothes. appearance_tags are "
         "English Danbooru-style tags for exactly that appearance: start with the "
         "gender token (1girl or 1boy), then solo, the age, hair, eyes and clothes, "
-        f"at most {HAKONIWA_TAGS_MAX_COUNT} tags, modest everyday clothing. "
+        f"about {HAKONIWA_TAGS_SUGGESTED_COUNT} tags, modest everyday clothing. "
         f"{pronoun_rule} {address_rule}\n"
         f"Write name, age, job, personality, pronoun and appearance in {lang}; "
         f"appearance_tags are always English.{chinese_rule}\n"

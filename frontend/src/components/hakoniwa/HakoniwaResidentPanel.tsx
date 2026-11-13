@@ -6,6 +6,7 @@ import { readStorage, writeStorage } from "../../utils/storage";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaEventComposer from "./HakoniwaEventComposer";
 import HakoniwaPortrait from "./HakoniwaPortrait";
+import HakoniwaRealityComposer from "./HakoniwaRealityComposer";
 import HakoniwaTouchPreview from "./HakoniwaTouchPreview";
 import {
   adaptationStageKey,
@@ -16,12 +17,16 @@ import {
 
 const TRANSFORM_MAX = 500;
 
-/** 変身(姿を変える)か、出来事(いまの姿のまま場面を起こす)か */
-type DirectiveMode = "transform" | "event";
-const DIRECTIVE_MODES: DirectiveMode[] = ["transform", "event"];
+/**
+ * 変身(姿を変える)か、出来事(いまの姿のまま場面を起こす)か、
+ * 改変(その住民の常識を書き換える。本人も周りも昔からそうだと受け止める)か
+ */
+type DirectiveMode = "transform" | "event" | "reality";
+const DIRECTIVE_MODES: DirectiveMode[] = ["transform", "event", "reality"];
 const DIRECTIVE_MODE_LABEL_KEYS = {
   transform: "hakoniwa.panel.modeTransform",
   event: "hakoniwa.panel.modeEvent",
+  reality: "hakoniwa.panel.modeReality",
 } as const;
 
 /**
@@ -182,7 +187,11 @@ export default function HakoniwaResidentPanel({
             )}
             {resident.transformation && (
               <li className="hakoniwa-badge hakoniwa-badge--accent">
-                {t("hakoniwa.residents.transformed")}
+                {t(
+                  resident.transformation.kind === "reality"
+                    ? "hakoniwa.residents.realityLook"
+                    : "hakoniwa.residents.transformed",
+                )}
               </li>
             )}
             {resident.display_kind === "dress" && (
@@ -198,6 +207,11 @@ export default function HakoniwaResidentPanel({
             {resident.display_kind === "combo" && (
               <li className="hakoniwa-badge">
                 {t("hakoniwa.residents.comboLook")}
+              </li>
+            )}
+            {resident.display_kind === "memo" && (
+              <li className="hakoniwa-badge">
+                {t("hakoniwa.residents.memoLook")}
               </li>
             )}
             {resident.adaptation && (
@@ -343,12 +357,18 @@ export default function HakoniwaResidentPanel({
         <div className="hakoniwa-resident__mode" hidden={mode !== "event"}>
           <HakoniwaEventComposer resident={resident} />
         </div>
+        <div className="hakoniwa-resident__mode" hidden={mode !== "reality"}>
+          <HakoniwaRealityComposer resident={resident} />
+        </div>
         {resident.transformation && (
           <div className="hakoniwa-resident__current">
             <p>
-              {t("hakoniwa.panel.currentTransform", {
-                description: resident.transformation.description,
-              })}
+              {t(
+                resident.transformation.kind === "reality"
+                  ? "hakoniwa.panel.currentReality"
+                  : "hakoniwa.panel.currentTransform",
+                { description: resident.transformation.description },
+              )}
             </p>
             <button
               type="button"

@@ -6,6 +6,7 @@ import {
   hakoniwaMediaUrl,
 } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
+import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 import HakoniwaPortrait from "./HakoniwaPortrait";
 
 // 立ち絵の高さに対する境目: 上 30% は頭、58% までは胸、それより下は腰から下
@@ -78,6 +79,7 @@ export default function HakoniwaTouchPreview({
             ×
           </button>
         </div>
+        <HakoniwaErrorBanner placement="dialog" clearOnMount />
         <p className="hakoniwa-note">{t("hakoniwa.touch.hint")}</p>
         <button
           type="button"

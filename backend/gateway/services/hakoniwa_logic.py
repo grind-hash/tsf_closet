@@ -65,6 +65,8 @@ from ..consts.hakoniwa import (
     HAKONIWA_PRESET_CHARACTER_REVISIONS,
     HAKONIWA_PRESET_MAP,
     HAKONIWA_PRESET_REVISIONS,
+    HAKONIWA_REALITIES_MAX,
+    HAKONIWA_REALITY_TEXT_MAX,
     HAKONIWA_RESIDENT_AREA_MOVE_CHANCE,
     HAKONIWA_RESIDENT_NAME_MAX,
     HAKONIWA_RULE_APPEARANCE_TEXT_MAX,
@@ -92,6 +94,8 @@ EVENT_EXTRA_KEYS = (
     "scene_image",
     "arc_id",
     "arc_climax",
+    # 出来事を見せる間の BGM のキー(LLM が選んだときだけ)
+    "bgm",
 )
 
 
@@ -267,7 +271,11 @@ def own_body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
         return tags_gender(str(transformation.get("tags") or "")) or resident_gender(
             resident
         )
-    return active_look_body_gender(state) or resident_gender(resident)
+    return (
+        active_look_body_gender(state)
+        or memo_look_body_gender(state)
+        or resident_gender(resident)
+    )
 
 
 def body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
@@ -283,7 +291,7 @@ def body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
 
 
 def appearance_kind(state: dict[str, Any], resident: dict[str, Any]) -> str | None:
-    """物語に効く目立つ姿の種類: transform / combo / rule / dress / None。
+    """物語に効く目立つ姿の種類: transform / combo / rule / memo / dress / None。
 
     表示と同じ優先順位。文章の文脈に使うので、画像の有無は見ない(掟の見た目のタグで決める)。
     """
@@ -293,6 +301,8 @@ def appearance_kind(state: dict[str, Any], resident: dict[str, Any]) -> str | No
         return "combo"
     if look_rule_ids(state):
         return "rule"
+    if active_memo_look(state) is not None:
+        return "memo"
     if "dress" in state.get("active_rules", []):
         return "dress"
     return None
@@ -311,6 +321,8 @@ def is_male_in_feminine_form(state: dict[str, Any], resident: dict[str, Any]) ->
         return is_feminine_transformation(state, resident)
     if kind in ("combo", "rule"):
         return has_feminine_marker(look_rules_tags(state, kind))
+    if kind == "memo":
+        return has_feminine_marker((active_memo_look(state) or {}).get("tags", ""))
     return False
 
 
@@ -354,6 +366,19 @@ def is_feminine_transformation(state: dict[str, Any], resident: dict[str, Any]) 
 
 
 # --- 掟の姿と複合の姿 ---
+
+
+# 世界の常識の書き換えで決まる姿(掟の姿・複合の姿・世界のメモの姿)。本人も周りも
+# 「昔からそう」と受け止める姿で、変身のような驚きの反応は描かせない
+REALITY_LOOK_KINDS = frozenset({"rule", "combo", "memo"})
+
+
+def is_reality_look(state: dict[str, Any], resident: dict[str, Any]) -> bool:
+    """いまの姿が、世界の常識の書き換え(掟・メモ・住民の改変)で決まった姿か。"""
+    kind = appearance_kind(state, resident)
+    if kind == "transform":
+        return (current_transformation(state, resident) or {}).get("kind") == "reality"
+    return kind in REALITY_LOOK_KINDS
 
 
 def custom_rule(state: dict[str, Any], rule_id: str) -> dict[str, Any] | None:
@@ -457,27 +482,35 @@ def look_entry_is_current(entry: dict[str, Any], tags: str, body: str | None) ->
 
 def _look_status(
     state: dict[str, Any], field: str, key: str, tags: str, body: str | None
-) -> dict[str, int]:
+) -> dict[str, Any]:
     ready = stale = 0
+    pending: list[str] = []
     for resident in state["residents"]:
         entry = (resident.get(field) or {}).get(key)
         if not entry or not entry.get("image"):
+            pending.append(resident["id"])
             continue
         if look_entry_is_current(entry, tags, body):
             ready += 1
         else:
             stale += 1
-    return {"ready": ready, "stale": stale, "total": len(state["residents"])}
+            pending.append(resident["id"])
+    return {
+        "ready": ready,
+        "stale": stale,
+        "total": len(state["residents"]),
+        "pending": pending,
+    }
 
 
-def rule_look_status(state: dict[str, Any], rule_id: str) -> dict[str, int]:
+def rule_look_status(state: dict[str, Any], rule_id: str) -> dict[str, Any]:
     """掟の姿の生成状況。ready は今の見た目で生成済み、stale は見た目を変える前の姿。"""
     rule = custom_rule(state, rule_id)
     tags = str((rule or {}).get("appearance_tags") or "")
     return _look_status(state, "rule_images", rule_id, tags, rule_body_gender(rule))
 
 
-def combo_look_status(state: dict[str, Any], combo: dict[str, Any]) -> dict[str, int]:
+def combo_look_status(state: dict[str, Any], combo: dict[str, Any]) -> dict[str, Any]:
     return _look_status(
         state,
         "combo_images",
@@ -485,6 +518,86 @@ def combo_look_status(state: dict[str, Any], combo: dict[str, Any]) -> dict[str,
         combo_tags(state, combo["rule_ids"]),
         look_body_gender(state, combo["rule_ids"]),
     )
+
+
+# 世界のメモの姿: メモから LLM が作った、住民全員に効く見た目の変化
+# state["memo_look"] = {memo: 作った元のメモ, tags, body_gender}、住民の memo_images[MEMO_LOOK_KEY]
+MEMO_LOOK_KEY = "memo"
+_LOOK_IMAGE_FIELDS = {
+    "rule": "rule_images",
+    "combo": "combo_images",
+    "memo": "memo_images",
+}
+
+
+def look_image_field(kind: str) -> str:
+    """掟の姿・複合の姿・メモの姿の画像を持つ住民の項目名。"""
+    return _LOOK_IMAGE_FIELDS[kind]
+
+
+def _normalize_memo_look(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    tags = str(value.get("tags") or "").strip()
+    body = rule_body_gender(value)
+    if not tags and body is None:
+        return None
+    return {"memo": str(value.get("memo") or ""), "tags": tags, "body_gender": body}
+
+
+def active_memo_look(state: dict[str, Any]) -> dict[str, Any] | None:
+    """いまの世界のメモから作った姿の指定 {tags, body_gender}(メモを変えたあとは無効)。"""
+    look = _normalize_memo_look(state.get("memo_look"))
+    if look is None or look["memo"] != play.world_memo(state):
+        return None
+    return {"tags": look["tags"], "body_gender": look["body_gender"]}
+
+
+def memo_look_planned(state: dict[str, Any]) -> bool:
+    """いまの世界のメモについて、姿に関わるかをもう確かめたか(関わらないと分かった場合も含む)。"""
+    planned = state.get("memo_look_planned_for")
+    return planned is not None and planned == play.world_memo(state)
+
+
+def memo_look_body_gender(state: dict[str, Any]) -> str | None:
+    return (active_memo_look(state) or {}).get("body_gender")
+
+
+def set_memo_look(
+    state: dict[str, Any], tags: str, body_gender: str | None
+) -> dict[str, Any]:
+    """いまの世界のメモから作った姿の指定を保存する。タグも体の性別も無ければ消す。"""
+    new_state = deepcopy(state)
+    memo = play.world_memo(new_state)
+    look = _normalize_memo_look(
+        {"memo": memo, "tags": tags, "body_gender": body_gender}
+    )
+    new_state["memo_look"] = look
+    new_state["memo_look_planned_for"] = memo
+    return new_state
+
+
+def memo_look_status(state: dict[str, Any]) -> dict[str, Any] | None:
+    """メモの姿の生成状況(メモが姿を変えていなければ None)。"""
+    look = active_memo_look(state)
+    if look is None:
+        return None
+    return _look_status(
+        state, "memo_images", MEMO_LOOK_KEY, look["tags"], look["body_gender"]
+    )
+
+
+def current_memo_look_tags(state: dict[str, Any], resident: dict[str, Any]) -> str:
+    """住民のメモの姿のタグ(いまのメモで生成済みのときだけ。掟の姿の元にする)。"""
+    look = active_memo_look(state)
+    if look is None:
+        return ""
+    entry = (resident.get("memo_images") or {}).get(MEMO_LOOK_KEY) or {}
+    if entry.get("image") and look_entry_is_current(
+        entry, look["tags"], look["body_gender"]
+    ):
+        return str(entry.get("tags") or "")
+    return ""
 
 
 def set_look_image(
@@ -495,10 +608,11 @@ def set_look_image(
     key: str,
     entry: dict[str, Any],
 ) -> dict[str, Any]:
-    """住民の掟の姿(kind=rule, key=掟 id)か複合の姿(kind=combo, key=組み合わせ)を設定する。"""
+    """住民の掟の姿(kind=rule, key=掟 id)・複合の姿(kind=combo, key=組み合わせ)・
+    メモの姿(kind=memo, key=MEMO_LOOK_KEY)を設定する。"""
     new_state = deepcopy(state)
     target = find_resident(new_state, resident_id)
-    field = "rule_images" if kind == "rule" else "combo_images"
+    field = look_image_field(kind)
     images = dict(target.get(field) or {})
     images[key] = {
         "image": str(entry["image"]),
@@ -516,10 +630,10 @@ def set_look_image(
 def own_look(state: dict[str, Any], resident: dict[str, Any]) -> dict[str, Any]:
     """入れ替わりを考えない、本人の今の姿。
 
-    戻り値 {kind: transform | combo | rule | dress | base, file: 世界フォルダの画像名 | None,
+    戻り値 {kind: transform | combo | rule | memo | dress | base, file: 世界フォルダの画像名 | None,
     bundled: 同梱素材を使うか, tags?: その姿のタグ}。優先順位は 変身 → 複合の姿 →
-    掟の姿(後から有効にした掟が勝つ) → ドレス(掟が有効で画像あり) → 通常。
-    複合の姿・掟の姿は、その住民の画像が生成済みのときだけ。
+    掟の姿(後から有効にした掟が勝つ) → 世界のメモの姿 → ドレス(掟が有効で画像あり) → 通常。
+    複合の姿・掟の姿・メモの姿は、その住民の画像が生成済みのときだけ。
     """
     transformation = resident.get("transformation") or {}
     if transformation.get("image"):
@@ -548,6 +662,15 @@ def own_look(state: dict[str, Any], resident: dict[str, Any]) -> dict[str, Any]:
                 "bundled": False,
                 "tags": str(entry.get("tags") or ""),
                 "rule_id": rule_id,
+            }
+    if active_memo_look(state) is not None:
+        entry = (resident.get("memo_images") or {}).get(MEMO_LOOK_KEY)
+        if entry and entry.get("image"):
+            return {
+                "kind": "memo",
+                "file": entry["image"],
+                "bundled": False,
+                "tags": str(entry.get("tags") or ""),
             }
     is_preset = resident.get("source") == "preset"
     if "dress" in state.get("active_rules", []):
@@ -607,8 +730,11 @@ def _base_resident(**fields: Any) -> dict[str, Any]:
         "affinities": {},
         "transformation": None,
         "transformation_history": [],
+        # 住民の改変: その住民についての世界の常識 [{id, text, day}]。本人も周りも昔からそうだと受け止める
+        "realities": [],
         "rule_images": {},
         "combo_images": {},
+        "memo_images": {},
         "current_area": DEFAULT_AREA_ID,
         "adaptation": None,
         "remnant": None,
@@ -894,6 +1020,10 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         "last_digest": state.get("last_digest")
         if isinstance(state.get("last_digest"), dict)
         else None,
+        "memo_look": _normalize_memo_look(state.get("memo_look")),
+        "memo_look_planned_for": state.get("memo_look_planned_for")
+        if isinstance(state.get("memo_look_planned_for"), str)
+        else None,
     }
     for resident in state.get("residents") or []:
         entry = _base_resident(**resident)
@@ -906,7 +1036,16 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         entry["transformation_history"] = list(
             resident.get("transformation_history") or []
         )
-        for field in ("rule_images", "combo_images"):
+        entry["realities"] = [
+            {
+                "id": str(item["id"]),
+                "text": str(item.get("text") or ""),
+                "day": int(item.get("day") or 1),
+            }
+            for item in resident.get("realities") or []
+            if isinstance(item, dict) and item.get("id") and item.get("text")
+        ][-HAKONIWA_REALITIES_MAX:]
+        for field in ("rule_images", "combo_images", "memo_images"):
             images = resident.get(field)
             entry[field] = {
                 str(key): dict(value)
@@ -1559,6 +1698,55 @@ def validate_transform_text(text: Any) -> str:
     )
 
 
+def validate_reality_text(text: Any) -> str:
+    return _clean_text(
+        text, HAKONIWA_REALITY_TEXT_MAX, required=True, code="invalid_reality_text"
+    )
+
+
+def realities(resident: dict[str, Any]) -> list[dict[str, Any]]:
+    """住民の改変(その住民についての世界の常識)。古い順。"""
+    return list(resident.get("realities") or [])
+
+
+def add_reality(
+    state: dict[str, Any], resident_id: str, text: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """住民の改変を1件積む。戻り値は (状態, 積んだ改変)。上限を超えるなら断る。"""
+    new_state = deepcopy(state)
+    resident = find_resident(new_state, resident_id)
+    current = realities(resident)
+    if len(current) >= HAKONIWA_REALITIES_MAX:
+        raise HakoniwaError(
+            "too_many_realities",
+            f"改変は1人{HAKONIWA_REALITIES_MAX}件までです。先に消してください",
+        )
+    entry = {
+        "id": "reality_" + uuid.uuid4().hex[:10],
+        "text": validate_reality_text(text),
+        "day": int(new_state["day"]),
+    }
+    resident["realities"] = [*current, entry]
+    return new_state, entry
+
+
+def remove_reality(
+    state: dict[str, Any], resident_id: str, reality_id: str
+) -> dict[str, Any]:
+    """住民の改変を消す。その改変で変えた姿がいまの姿なら、それも解く。"""
+    new_state = deepcopy(state)
+    person = find_resident(new_state, resident_id)
+    current = realities(person)
+    if not any(item["id"] == reality_id for item in current):
+        raise HakoniwaError("reality_not_found", "改変が見つかりません")
+    person["realities"] = [item for item in current if item["id"] != reality_id]
+    body = body_of(new_state, person)
+    transformation = body.get("transformation") or {}
+    if transformation.get("reality_id") == reality_id:
+        body["transformation"] = None
+    return new_state
+
+
 def validate_event_instruction(text: Any) -> str:
     return _clean_text(
         text, HAKONIWA_DIRECTED_EVENT_TEXT_MAX, required=True, code="invalid_event_text"
@@ -1571,7 +1759,8 @@ def set_transformation(
     """住民がいまいる体に変身を設定し、その体の履歴(最大10件)に積んだ状態を返す。
 
     変身は体に付く。入れ替わり中なら相手の体(本人がいま入っている体)が変わり、
-    適応はその体にいる本人に付く。
+    適応はその体にいる本人に付く。kind="reality" は住民の改変で変えた姿で、
+    本人も周りも昔からそうだと受け止めるので、慣れの段階は始めない。
     """
     new_state = deepcopy(state)
     person = find_resident(new_state, resident_id)
@@ -1582,6 +1771,10 @@ def set_transformation(
         "image": str(transformation["image"]),
         "day": int(transformation["day"]),
     }
+    reality = transformation.get("kind") == "reality"
+    if reality:
+        entry["kind"] = "reality"
+        entry["reality_id"] = str(transformation.get("reality_id") or "")
     body["transformation"] = entry
     history = [
         item
@@ -1590,7 +1783,8 @@ def set_transformation(
     ]
     history.append(dict(entry))
     body["transformation_history"] = history[-HAKONIWA_TRANSFORMATION_HISTORY_MAX:]
-    story.start_adaptation(person, "transform", int(new_state["day"]))
+    if not reality:
+        story.start_adaptation(person, "transform", int(new_state["day"]))
     return new_state
 
 

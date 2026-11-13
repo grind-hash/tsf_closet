@@ -11,11 +11,12 @@ import { jsonInit, requestJson } from "../utils/http";
 
 export type HakoniwaGender = "female" | "male";
 export type HakoniwaResidentSource = "preset" | "character" | "custom";
-/** 表示中の姿の種類(優先順位は 変身 → 複合の姿 → 掟の姿 → ドレス → 通常) */
+/** 表示中の姿の種類(優先順位は 変身 → 複合の姿 → 掟の姿 → 世界のメモの姿 → ドレス → 通常) */
 export type HakoniwaLookKind =
   | "transform"
   | "combo"
   | "rule"
+  | "memo"
   | "dress"
   | "base";
 
@@ -55,6 +56,8 @@ export interface HakoniwaEvent {
   /** 続きを描いた物語の弧 */
   arc_id?: string | null;
   arc_climax?: boolean | null;
+  /** 出来事を見せる間の BGM のキー(LLM が選んだときだけ。無ければふだんの曲) */
+  bgm?: string | null;
 }
 
 export type HakoniwaAdaptationKind = "swap" | "transform";
@@ -284,6 +287,15 @@ export interface HakoniwaTransformation {
   image: string;
   image_url: string | null;
   day: number;
+  /** "reality" は住民の改変で変えた姿(本人も周りも昔からそうだと受け止める) */
+  kind?: string | null;
+}
+
+/** 住民の改変: その住民についての世界の常識 */
+export interface HakoniwaReality {
+  id: string;
+  text: string;
+  day: number;
 }
 
 export interface HakoniwaResident {
@@ -313,6 +325,8 @@ export interface HakoniwaResident {
   affinities: Record<string, number>;
   transformation: HakoniwaTransformation | null;
   transformation_history: HakoniwaTransformation[];
+  /** 住民の改変(古い順) */
+  realities?: HakoniwaReality[];
   swapped_with: string | null;
   /** いま表示する姿(入れ替わり中は相手の姿) */
   display_avatar_url: string | null;
@@ -338,6 +352,8 @@ export interface HakoniwaLookStatus {
   /** 見た目を変える前に生成した姿の住民の数 */
   stale: number;
   total: number;
+  /** まだ生成していないか、見た目を変える前の姿の住民の id(住民の並び順) */
+  pending: string[];
 }
 
 export interface HakoniwaRuleCard {
@@ -417,6 +433,20 @@ export interface HakoniwaComboLook extends HakoniwaLookStatus {
   includes_dress: boolean;
 }
 
+/** 世界のメモが住民全員に与える姿と、その生成状況 */
+export interface HakoniwaMemoLook extends HakoniwaLookStatus {
+  tags: string;
+  /** メモが定める体の性別(null は住民それぞれのまま) */
+  body_gender: HakoniwaGender | null;
+}
+
+export interface HakoniwaMemoLookPlanResult {
+  world: HakoniwaWorld;
+  /** 世界のメモが住民全員の姿を変えるか */
+  changes_look: boolean;
+  cost_usd: number | null;
+}
+
 export interface HakoniwaLookResult {
   world: HakoniwaWorld;
   generated: number;
@@ -463,6 +493,10 @@ export interface HakoniwaWorld {
   /** 進行中と、最近閉じた物語の弧 */
   story_arcs: HakoniwaStoryArc[];
   combo_look: HakoniwaComboLook | null;
+  /** 世界のメモが住民全員に与える姿(メモが姿を変えていなければ null) */
+  memo_look?: HakoniwaMemoLook | null;
+  /** いまの世界のメモが姿に関わるかを、もう確かめたか */
+  memo_look_planned?: boolean;
   /** 世界のメモ(全生成に最優先の指示として載せる) */
   world_memo: string;
   /** この応答で新しく達成した観察記録(実績)。通知に使う */
@@ -743,10 +777,15 @@ export function generateHakoniwaRuleLook(
   ruleId: string,
   regenerate: boolean,
   language: string,
+  residentId?: string,
 ): Promise<HakoniwaLookResult> {
   return requestJson<HakoniwaLookResult>(
     `${WORLDS}/${worldId}/custom-rules/${encodeURIComponent(ruleId)}/look`,
-    jsonInit("POST", { regenerate, language }),
+    jsonInit("POST", {
+      regenerate,
+      language,
+      resident_id: residentId ?? null,
+    }),
   );
 }
 
@@ -755,10 +794,43 @@ export function generateHakoniwaComboLook(
   worldId: string,
   regenerate: boolean,
   language: string,
+  residentId?: string,
 ): Promise<HakoniwaLookResult> {
   return requestJson<HakoniwaLookResult>(
     `${WORLDS}/${worldId}/combo-look`,
-    jsonInit("POST", { regenerate, language }),
+    jsonInit("POST", {
+      regenerate,
+      language,
+      resident_id: residentId ?? null,
+    }),
+  );
+}
+
+/** 世界のメモが住民全員の姿を変えるかを確かめる(同じメモで確かめ済みなら LLM を呼ばない) */
+export function planHakoniwaMemoLook(
+  worldId: string,
+  language: string,
+): Promise<HakoniwaMemoLookPlanResult> {
+  return requestJson<HakoniwaMemoLookPlanResult>(
+    `${WORLDS}/${worldId}/memo-look/plan`,
+    jsonInit("POST", { language }),
+  );
+}
+
+/** 世界のメモの姿を生成する(residentId ならその1人) */
+export function generateHakoniwaMemoLook(
+  worldId: string,
+  regenerate: boolean,
+  language: string,
+  residentId?: string,
+): Promise<HakoniwaLookResult> {
+  return requestJson<HakoniwaLookResult>(
+    `${WORLDS}/${worldId}/memo-look`,
+    jsonInit("POST", {
+      regenerate,
+      language,
+      resident_id: residentId ?? null,
+    }),
   );
 }
 
@@ -853,9 +925,38 @@ export function transformHakoniwaResident(
   );
 }
 
+/** 住民の改変(その住民についての世界の常識の書き換え)。changeLook なら姿も生成する */
+export function alterHakoniwaReality(
+  worldId: string,
+  residentId: string,
+  instruction: string,
+  changeLook: boolean,
+  language: string,
+): Promise<HakoniwaDayResult> {
+  return requestJson<HakoniwaDayResult>(
+    `${WORLDS}/${worldId}/residents/${encodeURIComponent(residentId)}/realities`,
+    jsonInit("POST", { instruction, change_look: changeLook, language }),
+  );
+}
+
+/** 住民の改変を1件消す(その改変で変えた姿がいまの姿なら、元の姿に戻る) */
+export function removeHakoniwaReality(
+  worldId: string,
+  residentId: string,
+  realityId: string,
+  language: string,
+): Promise<HakoniwaWorld> {
+  return requestJson<HakoniwaWorld>(
+    `${WORLDS}/${worldId}/residents/${encodeURIComponent(residentId)}/realities/${encodeURIComponent(realityId)}${query(language)}`,
+    jsonInit("DELETE"),
+  );
+}
+
 export interface HakoniwaLocation {
   id: string;
   name: string;
+  /** ADV の背景にする同梱の画像(場面の絵が無いとき) */
+  background_url?: string | null;
 }
 
 /** 指示した出来事の巻き込み方: 本人だけ / 選んだ住民と / 同じ部屋の住民と */

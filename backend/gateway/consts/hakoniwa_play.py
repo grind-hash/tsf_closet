@@ -360,12 +360,12 @@ RULE_REACTION_TEMPLATES = {
         "en": "Oh my, from today we all speak like refined young ladies. Good day to you.",
     },
     "custom_look": {
-        "ja": "『{rule}』の掟が始まったみたい。……この姿、少し恥ずかしいかも",
-        "en": "The rule '{rule}' seems to have started... This look is a little embarrassing.",
+        "ja": "『{rule}』のとおりのこの姿、すっかり当たり前だね。……あれ、前からこうだったっけ？",
+        "en": "Looking the way '{rule}' says is just normal... Huh, has it always been like this?",
     },
     "custom": {
-        "ja": "『{rule}』の掟が始まったみたい。気をつけて過ごさないと",
-        "en": "The rule '{rule}' seems to have started. I should be careful.",
+        "ja": "『{rule}』のとおりに過ごすのが当たり前だもんね。……今、何か変な感じがしたような",
+        "en": "Living by '{rule}' is just how things are... Did something feel off just now?",
     },
     "other_start": {
         "ja": "何だか今日から様子が変わりそう。……気のせいかな",

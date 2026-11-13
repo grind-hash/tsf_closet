@@ -226,9 +226,20 @@ export const hakoniwa = {
     dressed: "ドレス姿",
     ruleLook: "掟の姿",
     comboLook: "複合の姿",
+    memoLook: "メモの姿",
+    realityLook: "改変の姿",
     noAvatar: "姿がまだありません",
     selectHint:
       "部屋の住民か、下の一覧から住民を選ぶと、ひとこと聞いたり、チャットしたり、変身させたりできます。",
+  },
+  bgm: {
+    settings: "BGM の設定",
+    enable: "BGM を流す",
+    enableHint:
+      "ふだんは箱庭の曲、出来事を見せている間は場面に合わせた曲を流します。TSF シナリオ・サロンとは別の設定です",
+    volume: "音量",
+    autoplayBlocked:
+      "ブラウザにより自動再生がブロックされています。画面のどこかをクリックすると再生が始まります。",
   },
   panel: {
     close: "選択を外す",
@@ -239,13 +250,28 @@ export const hakoniwa = {
     relations: "関係",
     callsThem: "（「{{address}}」と呼ぶ）",
     tabsLabel: "{{name}}の詳細",
-    tabDirective: "変身・出来事",
+    tabDirective: "変身・出来事・改変",
     tabProfile: "プロフィール",
     tabLooks: "姿・編集",
     editHeading: "住民の設定",
-    modeLabel: "姿を変えるか、出来事を起こすか",
+    modeLabel: "変身・出来事・改変のどれをするか",
     modeTransform: "変身",
     modeEvent: "出来事",
+    modeReality: "改変",
+    realityHeading: "この住民の常識を書き換える",
+    realityPlaceholder:
+      "例: ずっと前からメイドとして働いている／昔から神社の巫女をしている",
+    realityNote:
+      "変身と違い、本人も周りも「昔からそうだった」と受け止めます。残るのはかすかな違和感だけです。",
+    realityChangeLook: "姿も変える",
+    realityChangeLookHint: "オンなら、改変に合う姿を1枚生成します",
+    reality: "改変する",
+    realityRunning: "書き換えています…",
+    realityListHeading: "いまの改変",
+    realityRemove: "この改変を消す",
+    realityLimit:
+      "改変は1人{{max}}件までです。増やすときは先にどれかを消してください。",
+    currentReality: "改変で変えた姿: {{description}}",
     transformHeading: "その場で変身",
     transformPlaceholder:
       "例: ウェディングドレス姿にして／髪を銀色のロングにして",
@@ -369,7 +395,7 @@ export const hakoniwa = {
     synergyActive: "発動中",
     lookGenerate: "姿を生成（{{count}}人分）",
     lookRedraw: "描き直す（{{count}}人分）",
-    lookGenerating: "1人ずつ生成しています…",
+    lookGenerating: "1人ずつ生成しています（{{done}} / {{total}}人）…",
     lookLabel: "掟「{{name}}」の姿",
     lookConfirmTitle: "姿を生成しますか？",
     lookConfirm: "{{count}}人分を生成",
@@ -396,11 +422,20 @@ export const hakoniwa = {
     usageHeading: "V5 の利用状況",
     memoHeading: "世界のメモ",
     memoPlaceholder:
-      "例: 全員がやわらかい敬語で話す／季節は冬で、毎晩雪が降っている",
+      "例: 住民はみんな同じ学園の生徒で、毎日制服で過ごしている／季節は冬で、毎晩雪が降っている",
     memoCount: "{{count}} / {{max}}文字",
     memoSave: "メモを保存",
     memoNote:
-      "出来事・一言・会話・反応のすべての生成に、掟より優先する指示として載せます（空なら載せません）。",
+      "書いたことは、この世界の常識（みんな昔からそうだと思っていること）として、出来事・一言・会話・反応にすぐ効きます（掟より優先）。住民全員の見た目に関わる内容なら、保存したときに全員の姿も描き直します。",
+    memoLookPlanning: "メモが住民の見た目に関わるか確かめています…",
+    memoLookHeading: "メモの姿",
+    memoLookLabel: "世界のメモの姿",
+    memoLookTags: "見た目: {{tags}}",
+    memoLookBodyOnly: "見た目: 体の性別だけ変わる",
+    memoLookBody: "体: {{gender}}になる",
+    memoLookNone: "このメモは住民の見た目を変えません（文章にだけ効きます）。",
+    memoLookUnchecked: "このメモが見た目に関わるかは、まだ確かめていません。",
+    memoLookCheck: "見た目に関わるか確かめる",
     dissonanceToggle: "世界の違和感を使う",
     dissonanceNote:
       "掟の切り替えや変身で世界の違和感が溜まり、住民たちが書き換えに気づいていきます（静けさ → ざわめき → 探り合い → 対面）。80 に達すると一度だけ、住民が書き手へ呼びかける出来事が起きます。OFF にすると値は止まり、調査や対面の出来事は起きません。",
@@ -619,8 +654,7 @@ export const hakoniwa = {
     invalid_count: "おまかせの住民の人数が正しくありません。",
     invalid_tags:
       "タグは英語（半角の英数字と記号）のカンマ区切りで書いてください。掟の見た目のタグには、服装や髪型などの見た目を書いてください。",
-    too_many_tags:
-      "タグが多すぎます（住民のタグは24個・400文字、掟の見た目のタグは10個まで）。",
+    too_many_tags: "タグが長すぎます（タグは2000文字まで）。",
     tags_gender_mismatch:
       "タグの性別（1girl / 1boy）が住民の性別と合っていません。タグか性別を直してください。",
     invalid_event_text: "出来事の指示を500文字以内で入力してください。",
@@ -636,6 +670,13 @@ export const hakoniwa = {
       "この出来事に出た住民がもういないため、続きを指示できません。",
     world_not_found: "世界が見つかりません。",
     resident_not_found: "住民が見つかりません。",
+    invalid_reality_text: "改変の内容を300文字以内で書いてください。",
+    too_many_realities:
+      "改変は1人5件までです。増やすときは先にどれかを消してください。",
+    reality_not_found: "改変が見つかりません。",
+    memo_look_failed:
+      "世界のメモが見た目に関わるかを確かめられませんでした。もう一度お試しください。",
+    no_memo_look: "世界のメモは住民の見た目を変えていません。",
     too_few_residents: "住民は2人以上必要です。",
     too_many_residents: "住民は10人までです。",
     too_many_rules: "有効にできる掟は3枚までです。",

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { HakoniwaLookStatus, HakoniwaRuleCard } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 import HakoniwaLookFields from "./HakoniwaLookFields";
 
 const MAX_ACTIVE = 3;
@@ -15,7 +16,7 @@ const BODY_OPTIONS = ["keep", "female", "male"] as const;
 type BodyOption = (typeof BODY_OPTIONS)[number];
 
 /** 生成の確認に使う、これから生成する人数と描き直すかどうか */
-interface LookRequest {
+export interface LookRequest {
   target: string;
   label: string;
   count: number;
@@ -23,7 +24,7 @@ interface LookRequest {
 }
 
 /** まだの住民だけ生成するか、全員ぶんを描き直すか */
-function lookRequest(
+export function lookRequest(
   target: string,
   label: string,
   status: HakoniwaLookStatus,
@@ -168,8 +169,8 @@ export default function HakoniwaRulesTab() {
   );
 }
 
-/** 掟の姿・複合の姿の生成状況と、生成(まだの住民だけ)/描き直しのボタン */
-function LookControls({
+/** 掟の姿・複合の姿・メモの姿の生成状況と、生成(まだの住民だけ)/描き直しのボタン */
+export function LookControls({
   status,
   target,
   disabled,
@@ -181,9 +182,10 @@ function LookControls({
   onRequest: () => void;
 }) {
   const { t } = useTranslation();
-  const { lookTarget } = useHakoniwa();
+  const { lookTarget, lookProgress } = useHakoniwa();
   const missing = status.total - status.ready;
   const generating = lookTarget === target;
+  const progress = lookProgress?.target === target ? lookProgress : null;
   return (
     <div className="hakoniwa-rule__look">
       <span className="hakoniwa-rule__look-status">
@@ -205,7 +207,10 @@ function LookControls({
         {generating ? (
           <>
             <span className="hakoniwa-spinner" aria-hidden />
-            {t("hakoniwa.rules.lookGenerating")}
+            {t("hakoniwa.rules.lookGenerating", {
+              done: progress?.done ?? 0,
+              total: progress?.total ?? missing,
+            })}
           </>
         ) : missing > 0 ? (
           t("hakoniwa.rules.lookGenerate", { count: missing })
@@ -389,6 +394,7 @@ function CustomRuleModal({
       }}
     >
       <div className="hakoniwa-form">
+        <HakoniwaErrorBanner placement="dialog" clearOnMount />
         <label className="hakoniwa-field" htmlFor={nameId}>
           <span>{t("hakoniwa.rules.name")}</span>
           <input

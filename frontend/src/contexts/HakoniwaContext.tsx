@@ -22,6 +22,7 @@ import {
   addHakoniwaCustomRule,
   addHakoniwaResident,
   advanceHakoniwaDay,
+  alterHakoniwaReality,
   chatHakoniwaResident,
   clearHakoniwaTransform,
   continueHakoniwaEvent,
@@ -35,6 +36,7 @@ import {
   fetchHakoniwaWorlds,
   generateHakoniwaAvatar,
   generateHakoniwaComboLook,
+  generateHakoniwaMemoLook,
   generateHakoniwaRandomResidents,
   generateHakoniwaRuleLook,
   generateHakoniwaSceneImage,
@@ -59,7 +61,9 @@ import {
   makeHakoniwaResidentTags,
   makeHakoniwaRuleLookTags,
   placeHakoniwaFurniture,
+  planHakoniwaMemoLook,
   reapplyHakoniwaTransform,
+  removeHakoniwaReality,
   removeHakoniwaResident,
   setHakoniwaFavorite,
   setHakoniwaIntervention,
@@ -89,6 +93,7 @@ export type HakoniwaBusy =
   | "rule"
   | "resident"
   | "transform"
+  | "reality"
   | "event"
   | "avatar"
   | "settings"
@@ -119,6 +124,14 @@ export interface HakoniwaCreateInput {
 
 /** 立ち絵の無い住民をまとめて生成している進み具合 */
 export interface HakoniwaAvatarBatch {
+  done: number;
+  total: number;
+}
+
+/** 掟の姿・複合の姿・メモの姿を1人ずつ生成している進み具合 */
+export interface HakoniwaLookProgress {
+  /** 掟の id か "combo" */
+  target: string;
   done: number;
   total: number;
 }
@@ -176,6 +189,11 @@ export const HAKONIWA_ERROR_CODES = [
   "invalid_location",
   "event_not_today",
   "event_cast_gone",
+  "invalid_reality_text",
+  "too_many_realities",
+  "reality_not_found",
+  "memo_look_failed",
+  "no_memo_look",
 ] as const;
 type HakoniwaErrorCode = (typeof HAKONIWA_ERROR_CODES)[number];
 
@@ -241,10 +259,14 @@ interface HakoniwaContextValue {
     rule: HakoniwaCustomRuleInput,
     ruleId?: string,
   ) => Promise<boolean>;
-  /** 掟の姿(ruleId)か複合の姿("combo")を住民の人数分生成する */
+  /** 掟の姿(ruleId)・複合の姿("combo")・メモの姿("memo")を住民の人数分、1人ずつ生成する */
   generateLook: (target: string, regenerate: boolean) => void;
+  /** 世界のメモが姿に関わるかを確かめ直し、関わるならまだの住民の姿を生成する */
+  applyMemoLook: (worldId: string) => Promise<void>;
   /** 生成中の掟の姿("combo" は複合の姿) */
   lookTarget: string | null;
+  /** 生成中の姿の進み具合(1人ずつ呼ぶので、終わった人数) */
+  lookProgress: HakoniwaLookProgress | null;
   deleteCustomRule: (ruleId: string) => Promise<void>;
   saveResident: (
     input: HakoniwaResidentInput,
@@ -263,6 +285,13 @@ interface HakoniwaContextValue {
   greet: (residentId: string) => Promise<void>;
   dismissGreeting: () => void;
   transform: (residentId: string, instruction: string) => void;
+  /** 住民の改変(その住民の常識を書き換える)。changeLook なら姿も生成する */
+  alterReality: (
+    residentId: string,
+    instruction: string,
+    changeLook: boolean,
+  ) => void;
+  removeReality: (residentId: string, realityId: string) => Promise<void>;
   /** 書き手の指示で出来事を起こし、できた場面を ADV で開く */
   directEvent: (
     residentId: string,
@@ -353,6 +382,9 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const [world, setWorld] = useState<HakoniwaWorld | null>(null);
   const [busy, setBusy] = useState<HakoniwaBusy>(null);
   const [lookTarget, setLookTarget] = useState<string | null>(null);
+  const [lookProgress, setLookProgress] = useState<HakoniwaLookProgress | null>(
+    null,
+  );
   const [touchReaction, setTouchReaction] =
     useState<HakoniwaTouchReaction | null>(null);
   const [chatResidentId, setChatResidentId] = useState<string | null>(null);
@@ -380,6 +412,11 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const greetingKey = useRef(0);
   const language = settingsState.language;
   const worldId = world?.id ?? null;
+  // 1人ずつ続ける生成の途中で世界を切り替えたら止めるための、いま開いている世界
+  const currentWorldIdRef = useRef<string | null>(worldId);
+  useEffect(() => {
+    currentWorldIdRef.current = worldId;
+  }, [worldId]);
 
   const errorText = useCallback(
     (caught: unknown): string => {
@@ -883,6 +920,54 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const alterReality = useCallback(
+    (residentId: string, instruction: string, changeLook: boolean) => {
+      if (!worldId) return;
+      const task = () => {
+        void (async () => {
+          const result = await run("reality", () =>
+            alterHakoniwaReality(
+              worldId,
+              residentId,
+              instruction,
+              changeLook,
+              language,
+            ),
+          );
+          if (!result) return;
+          applyWorld(result.world);
+          recordCost(result.cost_usd);
+          if (changeLook) refreshUsage();
+          setGreeting(null);
+          setPlaybackQueue((current) => [...current, ...result.new_events]);
+        })();
+      };
+      // 姿を変えないときは画像を作らないので、利用上限の確認は要らない
+      if (changeLook) guardImageGeneration(task);
+      else task();
+    },
+    [
+      applyWorld,
+      guardImageGeneration,
+      language,
+      recordCost,
+      refreshUsage,
+      run,
+      worldId,
+    ],
+  );
+
+  const removeReality = useCallback(
+    async (residentId: string, realityId: string) => {
+      if (!worldId) return;
+      const updated = await run("reality", () =>
+        removeHakoniwaReality(worldId, residentId, realityId, language),
+      );
+      if (updated) applyWorld(updated);
+    },
+    [applyWorld, language, run, worldId],
+  );
+
   const directEvent = useCallback(
     async (residentId: string, input: HakoniwaDirectedEventInput) => {
       if (!worldId) return;
@@ -1011,19 +1096,6 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     worldId,
   ]);
 
-  const setWorldMemo = useCallback(
-    async (memo: string) => {
-      if (!worldId) return false;
-      const updated = await run("settings", () =>
-        updateHakoniwaSettings(worldId, { world_memo: memo }, language),
-      );
-      if (!updated) return false;
-      applyWorld(updated);
-      return true;
-    },
-    [applyWorld, language, run, worldId],
-  );
-
   const setIntervention = useCallback(
     async (choice: HakoniwaInterventionChoice) => {
       if (!worldId) return;
@@ -1128,38 +1200,138 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  const generateLook = useCallback(
-    (target: string, regenerate: boolean) => {
-      if (!worldId) return;
+  /** 掟の姿・複合の姿・メモの姿を、source の世界の状態をもとに1人ずつ生成する */
+  const runLookGeneration = useCallback(
+    (source: HakoniwaWorld, target: string, regenerate: boolean) => {
+      const startWorldId = source.id;
+      const status =
+        target === "combo"
+          ? source.combo_look
+          : target === "memo"
+            ? source.memo_look
+            : source.rule_cards.find((card) => card.id === target)?.look;
+      // 描き直しは全員、それ以外はまだ(または見た目を変える前)の住民だけ
+      const residentIds = regenerate
+        ? source.residents.map((resident) => resident.id)
+        : (status?.pending ?? []);
+      if (residentIds.length === 0) return;
       guardImageGeneration(() => {
         void (async () => {
+          const total = residentIds.length;
           setLookTarget(target);
-          const result = await run("look", () =>
-            target === "combo"
-              ? generateHakoniwaComboLook(worldId, regenerate, language)
-              : generateHakoniwaRuleLook(worldId, target, regenerate, language),
-          );
-          setLookTarget(null);
-          if (!result) return;
-          applyWorld(result.world);
-          recordCost(result.cost_usd);
-          refreshUsage();
-          if (result.failed > 0) {
-            setError(t("hakoniwa.rules.lookPartial", { count: result.failed }));
+          setLookProgress({ target, done: 0, total });
+          setBusy("look");
+          setError(null);
+          let generated = 0;
+          let failed = 0;
+          let lastError: string | null = null;
+          try {
+            // 1人ずつ呼び、そのたびに保存された世界を映して進み具合を出す
+            for (const [index, residentId] of residentIds.entries()) {
+              if (currentWorldIdRef.current !== startWorldId) break;
+              try {
+                const result =
+                  target === "combo"
+                    ? await generateHakoniwaComboLook(
+                        startWorldId,
+                        regenerate,
+                        language,
+                        residentId,
+                      )
+                    : target === "memo"
+                      ? await generateHakoniwaMemoLook(
+                          startWorldId,
+                          regenerate,
+                          language,
+                          residentId,
+                        )
+                      : await generateHakoniwaRuleLook(
+                          startWorldId,
+                          target,
+                          regenerate,
+                          language,
+                          residentId,
+                        );
+                if (currentWorldIdRef.current !== startWorldId) break;
+                applyWorld(result.world);
+                recordCost(result.cost_usd);
+                generated += result.generated;
+                failed += result.failed;
+              } catch (caught) {
+                failed += 1;
+                lastError = errorText(caught);
+                // 画像の失敗以外(掟が消えた・設定の不足など)は、次の住民でも同じになるので止める
+                const code = caught instanceof ApiError ? caught.code : null;
+                if (code !== "image_generation_failed") break;
+              }
+              setLookProgress({ target, done: index + 1, total });
+            }
+          } finally {
+            setBusy(null);
+            setLookTarget(null);
+            setLookProgress(null);
+            refreshUsage();
+          }
+          if (failed > 0) {
+            setError(
+              generated > 0 || !lastError
+                ? t("hakoniwa.rules.lookPartial", { count: failed })
+                : lastError,
+            );
           }
         })();
       });
     },
     [
       applyWorld,
+      errorText,
       guardImageGeneration,
       language,
       recordCost,
       refreshUsage,
-      run,
       t,
-      worldId,
     ],
+  );
+
+  const generateLook = useCallback(
+    (target: string, regenerate: boolean) => {
+      if (world) runLookGeneration(world, target, regenerate);
+    },
+    [runLookGeneration, world],
+  );
+
+  /**
+   * いまの世界のメモが住民全員の姿を変えるかを確かめ、変えるなら、まだの住民の姿を
+   * 1人ずつ生成する(同じメモで確かめ済みならバックエンドは LLM を呼ばない)
+   */
+  const applyMemoLook = useCallback(
+    async (targetWorldId: string) => {
+      setLookTarget("memo");
+      const planned = await run("look", () =>
+        planHakoniwaMemoLook(targetWorldId, language),
+      );
+      setLookTarget(null);
+      if (!planned) return;
+      applyWorld(planned.world);
+      recordCost(planned.cost_usd);
+      if (planned.changes_look) runLookGeneration(planned.world, "memo", false);
+    },
+    [applyWorld, language, recordCost, run, runLookGeneration],
+  );
+
+  const setWorldMemo = useCallback(
+    async (memo: string) => {
+      if (!worldId) return false;
+      const updated = await run("settings", () =>
+        updateHakoniwaSettings(worldId, { world_memo: memo }, language),
+      );
+      if (!updated) return false;
+      applyWorld(updated);
+      // メモは世界の現実なので、姿に関わる内容なら住民全員の姿も描き直す
+      if (!updated.memo_look_planned) await applyMemoLook(worldId);
+      return true;
+    },
+    [applyMemoLook, applyWorld, language, run, worldId],
   );
 
   const generateSceneImage = useCallback(
@@ -1300,7 +1472,9 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       toggleRule,
       saveCustomRule,
       generateLook,
+      applyMemoLook,
       lookTarget,
+      lookProgress,
       deleteCustomRule,
       saveResident,
       makeRuleLookTags,
@@ -1310,6 +1484,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       greet,
       dismissGreeting,
       transform,
+      alterReality,
+      removeReality,
       directEvent,
       continueEvent,
       clearTransform,
@@ -1372,7 +1548,9 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       toggleRule,
       saveCustomRule,
       generateLook,
+      applyMemoLook,
       lookTarget,
+      lookProgress,
       deleteCustomRule,
       saveResident,
       makeRuleLookTags,
@@ -1382,6 +1560,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       greet,
       dismissGreeting,
       transform,
+      alterReality,
+      removeReality,
       directEvent,
       continueEvent,
       clearTransform,

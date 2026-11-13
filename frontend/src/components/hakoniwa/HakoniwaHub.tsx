@@ -15,6 +15,7 @@ import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaCharacterAdder, {
   type HakoniwaPickedCharacter,
 } from "./HakoniwaCharacterAdder";
+import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 import HakoniwaPortrait from "./HakoniwaPortrait";
 import HakoniwaRandomRoster from "./HakoniwaRandomRoster";
 import HakoniwaThemePicker, { normalizeTheme } from "./HakoniwaThemePicker";
@@ -31,8 +32,6 @@ export default function HakoniwaHub() {
     catalog,
     worlds,
     busy,
-    error,
-    clearError,
     loadCatalog,
     loadWorlds,
     createWorld,
@@ -111,18 +110,7 @@ export default function HakoniwaHub() {
           <p className="hakoniwa-page__lead">{t("hakoniwa.lead")}</p>
         </header>
 
-        {error && (
-          <div className="hakoniwa-error" role="alert">
-            <span>{error}</span>
-            <button
-              type="button"
-              className="hakoniwa-button hakoniwa-button--ghost"
-              onClick={clearError}
-            >
-              {t("hakoniwa.dismissError")}
-            </button>
-          </div>
-        )}
+        <HakoniwaErrorBanner />
 
         {worlds.length > 0 && (
           <section className="hakoniwa-card">

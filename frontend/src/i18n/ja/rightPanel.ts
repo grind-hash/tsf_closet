@@ -13,7 +13,7 @@ export const rightPanel = {
   presets: "プリセット:",
   addAttribute: "➕ 追加",
   saveAttributePreset: "💾 保存",
-  attributePlaceholder: "例: グラビアポーズ得意",
+  attributePlaceholder: "例: 無意識に内股で座る",
   realityAttrNotify: "現実改変時の属性自動追加通知",
   presetNamePlaceholder: "プリセット名",
   preciseRefTypeError: "{{name}}: PNG, JPEG, WebP のみ対応しています",

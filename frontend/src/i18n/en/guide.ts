@@ -106,7 +106,7 @@ export const guide = {
   },
   hakoniwa: {
     title: "AI Dollhouse",
-    desc: 'Watch residents live on their own in Stardust House, a small boarding house. Each time you press "Advance the day", three events happen and pile up in the chronicle. As the unseen writer, you can rewrite how the world works with rules, transform the residents, and order scenes.',
+    desc: 'Watch residents live on their own in Stardust House, a small boarding house. Each time you press "Advance the day", three events happen and pile up in the chronicle. As the unseen writer, you can rewrite the world’s common sense with rules and the world memo, transform or rewrite the residents, and order scenes.',
     note: "Events, words and chats use text generation; transformations, looks and scene pictures use image generation (choose the image model per world on the Settings tab).",
     details: [
       {
@@ -125,7 +125,7 @@ export const guide = {
           '"Random residents" puts together residents with different names, personalities and looks (swap them out one by one; uses text generation). "Generate looks for residents without a portrait" on the Residents tab draws missing portraits one at a time.',
           "Pick an experiment theme (keep the swap going, a week of the dress rule, grow the strangeness to a confrontation, transformation experiment, free experiment, or write your own) and its progress appears in the recap. A theme you write also gently shapes events and conversations.",
           "On day 1 of a new world, a getting-started guide appears (you can fold or close it).",
-          "Whatever you write in the world memo on the Settings tab takes precedence over the rules in every generation.",
+          "Whatever you write in the world memo on the Settings tab becomes this world’s common sense (what everyone believes has always been true) and applies right away to every generation, ahead of the rules. If it changes how every resident looks, saving it generates a memo look for every resident, one at a time (the same memo is not checked again).",
         ],
       },
       {
@@ -140,7 +140,7 @@ export const guide = {
         items: [
           'Click a resident in the room, or press "Hear a word" on the Residents tab, to hear a word that fits their mood.',
           '"Chat" lets you type messages and talk for as long as you like. Asking "Put on ..." or "Change back" transforms them or undoes it on the spot.',
-          'When you pick a resident on the Residents tab, the tabs under their name switch between "Transform / Event", "Profile" (personality, relationships and memories) and "Looks & edit".',
+          'When you pick a resident on the Residents tab, the tabs under their name switch between "Transform / Event / Rewrite", "Profile" (personality, relationships and memories) and "Looks & edit".',
           "Press a portrait to enlarge it and touch the head, chest or below the waist (the mood shifts a little and nothing goes into the chronicle).",
           'Residents remember transformations, swaps and events that moved a relationship a lot ("Remembers" under "Profile"), and may bring them up later.',
           'When editing a resident, choose how they call the other residents (given name, family name, with or without an honorific); event and chat lines use it. Random residents get a style that fits their personality, and much older housemates get an honorific. "Relationships" under "Profile" shows what each resident calls the others.',
@@ -150,8 +150,9 @@ export const guide = {
         heading: "Rules",
         items: [
           "Up to 3 rules (Ladylike Speech, The Swapped Morning, Rule of Dresses, Romance Ban, Confession Week, and rules you write) can be active at once, and they affect every event from the next day on. Switching a rule makes the residents nearby react briefly (not kept in the chronicle).",
+          "A rule you write rewrites the world’s common sense: residents accept it as how things have always been and live by it without complaining, with only a faint sense that something is off (use a transformation when you want surprised or embarrassed reactions).",
           'Built-in rules have combos (such as swap and dresses): with both active, the Rules tab shows "In effect" and events reflect it.',
-          'The look of your own rule is set by its look tags (a rule with no tags and no body sex change does not change looks). "Generate looks" on the Rules tab generates a rule look for every resident, one at a time. When two or more look rules overlap (the Rule of Dresses counts too), you can also generate a combined look.',
+          'The look of your own rule is set by its look tags (a rule with no tags and no body sex change does not change looks). "Generate looks" on the Rules tab generates a rule look for every resident, one at a time (the progress shows how many are done). When two or more look rules overlap (the Rule of Dresses counts too), you can also generate a combined look.',
           'Choosing "Make female" or "Make male" under "Body sex" on your own rule turns the body of every resident into that sex in the rule look, and events are written with the new body (writing the sex in the look description does not change it). A rule can also change only the body sex, with no look tags. After changing it, generate the looks again.',
         ],
       },
@@ -159,10 +160,10 @@ export const guide = {
         heading: "Transformations and looks",
         items: [
           '"Transform on the spot" under "Transform / Event" generates a new look (nearby residents’ reactions are added to the chronicle).',
-          "Looks are shown in the order transformation → combined look → rule look (the rule turned on last) → dress → usual, and events and scene pictures use the same look.",
+          "Looks are shown in the order transformation or rewritten look → combined look → rule look (the rule turned on last) → memo look → dress → usual, and events and scene pictures use the same look.",
           "A transformation belongs to the body: transforming a swapped resident changes the body they are in now, and when the swap ends the transformed body goes back to its owner.",
           "The resident and the others get used to a transformation or swap day by day (bewildered → trial and error → getting used to it → accepted). After changing back, a remnant lingers for a few days.",
-          'Images of residents (usual and dress looks) and your own rules use the tags in the form as they are. "Make tags from the description" fills the field with tags made from the description (saved only when you save). You can edit the tags by hand; changing the description does not change them. A resident needs usual look tags. To redraw, generate the look again after saving.',
+          'Images of residents (usual and dress looks) and your own rules use the tags in the form as they are. "Make tags from the description" fills the field with tags made from the description (saved only when you save). You can edit the tags by hand (up to 2000 characters); changing the description does not change them. A resident needs usual look tags. To redraw, generate the look again after saving.',
           "With NAI Diffusion V5, looks are generated with a transparent background; with other settings (V4.5 or other providers) they are generated on white and made transparent when shown.",
         ],
       },
@@ -171,17 +172,32 @@ export const guide = {
         items: [
           'Switch the toggle under "Transform / Event" to "Event" to generate one scene that follows your order with the residents in their current looks, without changing them, and read it as a scene (uses text generation).',
           'Choose who takes part: only them, chosen residents (up to 2) or roommates. It stays in the chronicle as an "Ordered event" and affects mood, relationships, memories and world strangeness.',
-          "Besides Auto, the place can be the bathroom, bedroom, kitchen, shopping street, cafe, park, beach or hotel, which becomes the background of the scene picture (daily events also happen there when they fit).",
+          "Besides Auto, the place can be the bathroom, bedroom, kitchen, shopping street, cafe, park, beach or hotel, which becomes the background of the scene and of the scene picture (daily events also happen there when they fit).",
           "No romantic or sexual scene is written between two residents who both have male bodies right now.",
         ],
       },
       {
         heading: "Scenes and scene pictures",
         items: [
-          '"Read as a scene" in the chronicle lets you read an event one beat at a time with a background and portraits. "Log" at the top right of the message window lets you reread what you have already read (for a continued scene, it goes back through the earlier scenes).',
+          '"Read as a scene" in the chronicle lets you read an event one beat at a time with a background and portraits. The background is the event’s place from the start, and becomes the scene picture once you draw one. "Log" at the top right of the message window lets you reread what you have already read (for a continued scene, it goes back through the earlier scenes).',
           '"Continue scene" lets you order how any of today’s events continues, with the same residents in the same place (your order can move them). It stays in the chronicle as an "Ordered continuation", and world strangeness rises only a little.',
           '"Draw this scene" generates one picture of the event’s residents in their current looks. Events with contact or closeness are marked "Worth a picture".',
           "The outfit changes to fit the scene only in the picture (nude or a towel in the bathroom, a swimsuit at the beach and so on; nude only with NSFW mode on). The residents’ looks and portraits stay the same.",
+        ],
+      },
+      {
+        heading: "Rewriting a resident",
+        items: [
+          'Switch the toggle on the Residents tab to "Rewrite" to rewrite the world’s common sense about that resident (for example, "has been working as a maid for years"). Unlike a transformation, the resident and everyone else take it as always having been true, and a moment of the new everyday life goes into the chronicle (uses text generation).',
+          'With "Change the look too" on, one look that fits the rewrite is generated (when off, no image is made and it applies right away). Each resident can have up to 5 rewrites; remove one with × in the list, which also undoes the look it gave.',
+          "A rewrite also rewrites the world, so world strangeness builds up.",
+        ],
+      },
+      {
+        heading: "BGM",
+        items: [
+          "Use ♪ in the top bar or in the scene’s message window to turn the BGM on or off and change the volume (separate from the TSF scenario and salon settings; off at first).",
+          "The garden’s own track plays normally; while an event is shown, the track chosen to fit the scene when the event was made plays instead (a story’s climax or the confrontation with the writer tends to get a special track).",
         ],
       },
       {

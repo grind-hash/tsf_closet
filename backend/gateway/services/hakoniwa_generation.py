@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from ..consts.adventure_bgm import coerce_bgm_key, get_hakoniwa_event_bgm_keys
 from ..consts.hakoniwa import (
     GENERIC_GREETINGS,
     HAKONIWA_ADDRESS_STYLE_DEFAULT,
@@ -29,9 +30,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_PERSONALITY_MAX,
     HAKONIWA_RECENT_EVENTS_CONTEXT,
     HAKONIWA_RESIDENT_NAME_MAX,
-    HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT,
     HAKONIWA_SCENE_ATTIRES,
-    HAKONIWA_TAGS_MAX_COUNT,
     HAKONIWA_TAGS_MAX_LENGTH,
     HAKONIWA_TEMPLATES,
     event_location,
@@ -73,6 +72,7 @@ from .hakoniwa_prompts import (
     event_system_prompt,
     event_user_prompt,
     greeting_prompts,
+    memo_look_prompts,
     random_residents_prompts,
     rule_look_tags_prompts,
     scene_tags_prompts,
@@ -130,6 +130,13 @@ class EventOutput(BaseModel):
     location: Any = None
     mood_delta: dict[str, Any] = Field(default_factory=dict)
     affinity_delta: Any = 0
+    # 出来事を見せる間の BGM のキー。候補に無ければ None(ふだんの曲のまま)にし、修復を起こさない
+    bgm: str | None = None
+
+    @field_validator("bgm", mode="before")
+    @classmethod
+    def _bgm_key(cls, value: Any) -> str | None:
+        return coerce_bgm_key(value, get_hakoniwa_event_bgm_keys())
 
     @field_validator("lines")
     @classmethod
@@ -202,6 +209,7 @@ def _event_from_output(
         if len(group) >= 2
         else 0,
         "source": "llm",
+        **({"bgm": output.bgm} if output.bgm else {}),
     }
 
 
@@ -293,16 +301,21 @@ def template_event(
 
 
 def transform_reaction_template(
-    target: dict[str, Any], bystanders: list[dict[str, Any]], language: str
+    target: dict[str, Any],
+    bystanders: list[dict[str, Any]],
+    language: str,
+    *,
+    reality: bool = False,
 ) -> dict[str, Any]:
     templates = HAKONIWA_TEMPLATES[_lang(language)]
+    key = "reality" if reality else "reaction"
     if bystanders:
         return _instantiate(
-            templates["reaction"][0],
+            templates[key][0],
             {"target": target, "other": bystanders[0]},
             language,
         )
-    return _instantiate(templates["reaction_solo"][0], {"target": target}, language)
+    return _instantiate(templates[f"{key}_solo"][0], {"target": target}, language)
 
 
 # --- 生成 ---
@@ -509,8 +522,20 @@ def clean_tags(raw: str) -> str | None:
     tags = [tag.strip() for tag in line.split(",") if tag.strip()]
     if not tags:
         return None
-    joined = ", ".join(tags[:HAKONIWA_TAGS_MAX_COUNT])
-    return joined[:HAKONIWA_TAGS_MAX_LENGTH].rstrip(", ")
+    return _join_within_limit(tags)
+
+
+def _join_within_limit(tags: list[str]) -> str:
+    """タグをつなげる。長さの上限を超える分は、タグの途中で切らずに後ろから落とす。"""
+    kept: list[str] = []
+    length = 0
+    for tag in tags:
+        added = len(tag) + (2 if kept else 0)
+        if length + added > HAKONIWA_TAGS_MAX_LENGTH:
+            break
+        kept.append(tag)
+        length += added
+    return ", ".join(kept)
 
 
 def needs_tag_expansion(text: str) -> bool:
@@ -554,10 +579,10 @@ def clean_look_tags(raw: str) -> str | None:
     kept = [
         tag.strip() for tag in tags.split(",") if not _PERSON_TAG.match(tag.strip())
     ]
-    return ", ".join(kept[:HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT]) or None
+    return ", ".join(kept) or None
 
 
-def _manual_tag_list(raw: str, max_count: int, max_length: int) -> list[str]:
+def _manual_tag_list(raw: str) -> list[str]:
     """プレイヤーが手で書いたタグを分ける。改行もカンマと同じに扱い、切り詰めずに断る。"""
     text = ", ".join(line.strip() for line in str(raw or "").splitlines())
     tags = [tag.strip() for tag in text.split(",") if tag.strip()]
@@ -566,10 +591,10 @@ def _manual_tag_list(raw: str, max_count: int, max_length: int) -> list[str]:
             "invalid_tags",
             "タグは英語(半角の英数字と記号)のカンマ区切りで書いてください",
         )
-    if len(tags) > max_count or len(", ".join(tags)) > max_length:
+    if len(", ".join(tags)) > HAKONIWA_TAGS_MAX_LENGTH:
         raise HakoniwaError(
             "too_many_tags",
-            f"タグが多すぎます({max_count}個・{max_length}文字まで)",
+            f"タグが長すぎます({HAKONIWA_TAGS_MAX_LENGTH}文字まで)",
         )
     return tags
 
@@ -579,9 +604,7 @@ def clean_manual_tags(raw: str, gender: str) -> str:
 
     性別トークンが無ければ補う(無いと女性寄りに描かれる)。住民の性別と逆の性別トークンは断る。
     """
-    tags = ", ".join(
-        _manual_tag_list(raw, HAKONIWA_TAGS_MAX_COUNT, HAKONIWA_TAGS_MAX_LENGTH)
-    )
+    tags = ", ".join(_manual_tag_list(raw))
     found = tags_gender(tags)
     if found is not None and found != gender:
         raise HakoniwaError(
@@ -593,9 +616,7 @@ def clean_manual_tags(raw: str, gender: str) -> str:
 
 def clean_manual_look_tags(raw: str) -> str:
     """プレイヤーが手で書いた掟の見た目のタグを整える(人物の性別と人数のタグは外す)。"""
-    tags = _manual_tag_list(
-        raw, HAKONIWA_RULE_LOOK_TAGS_MAX_COUNT, HAKONIWA_TAGS_MAX_LENGTH
-    )
+    tags = _manual_tag_list(raw)
     kept = [tag for tag in tags if not _PERSON_TAG.match(tag)]
     if not kept:
         raise HakoniwaError(
@@ -603,6 +624,61 @@ def clean_manual_look_tags(raw: str) -> str:
             "掟の見た目のタグには、服装や髪型などの見た目を書いてください",
         )
     return ", ".join(kept)
+
+
+class MemoLookOutput(BaseModel):
+    """世界のメモが住民全員の見た目を変えるかの判断。"""
+
+    changes_look: bool = False
+    appearance_tags: str = ""
+    body_gender: str | None = None
+
+    @field_validator("appearance_tags", mode="before")
+    @classmethod
+    def _tags(cls, value: Any) -> str:
+        if isinstance(value, list):
+            return ", ".join(str(item) for item in value)
+        return value if isinstance(value, str) else ""
+
+    @field_validator("body_gender", mode="before")
+    @classmethod
+    def _body(cls, value: Any) -> str | None:
+        return value if value in ("female", "male") else None
+
+
+async def plan_memo_look(
+    memo: str, *, novelai_model: str | None
+) -> tuple[str, str | None]:
+    """世界のメモが住民全員の見た目を変えるかを判断し、(見た目のタグ, 体の性別) を返す。
+
+    姿に関わらなければ ("", None)。生成に失敗したら HakoniwaError。
+    """
+    system_prompt, user_prompt = memo_look_prompts(memo)
+
+    async def generate(system: str, user: str) -> str:
+        return await _generate_text(
+            system, user, novelai_model=novelai_model, max_tokens=300
+        )
+
+    try:
+        output = await generate_validated(
+            MemoLookOutput,
+            generate=generate,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa memo look plan failed: %s: %s", type(error).__name__, error
+        )
+        raise HakoniwaError(
+            "memo_look_failed",
+            "世界のメモが姿に関わるかを確かめられませんでした。もう一度お試しください",
+        ) from error
+    if not output.changes_look:
+        return "", None
+    tags = clean_look_tags(output.appearance_tags) or ""
+    return tags, output.body_gender
 
 
 async def generate_rule_look_tags(
@@ -654,12 +730,16 @@ async def generate_transform_reaction(
     *,
     novelai_model: str | None,
     nsfw: bool,
+    reality: bool = False,
 ) -> dict[str, Any]:
-    """変身の直後の反応の出来事。失敗したら定型の反応にする。"""
+    """変身の直後の反応の出来事。失敗したら定型の反応にする。
+
+    reality=True は住民の改変の直後で、昔からそうだったように過ごす一場面にする。
+    """
     group = (target, *bystanders)
     names = [resident_name(resident, language) for resident in group]
     system_prompt, user_prompt = transform_reaction_prompts(
-        state, target, change_text, bystanders, language, nsfw=nsfw
+        state, target, change_text, bystanders, language, nsfw=nsfw, reality=reality
     )
 
     async def generate(system: str, user: str) -> str:
@@ -682,7 +762,7 @@ async def generate_transform_reaction(
         logger.warning(
             "Hakoniwa transform reaction failed: %s: %s", type(error).__name__, error
         )
-    return transform_reaction_template(target, bystanders, language)
+    return transform_reaction_template(target, bystanders, language, reality=reality)
 
 
 async def generate_confrontation_event(

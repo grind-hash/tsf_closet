@@ -9,6 +9,7 @@ import {
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { GenderSegments } from "./HakoniwaCharacterAdder";
+import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 import HakoniwaLookFields from "./HakoniwaLookFields";
 
 const NAME_MAX = 30;
@@ -95,6 +96,7 @@ export default function HakoniwaResidentModal({
       onConfirm={() => void handleSave()}
     >
       <div className="hakoniwa-form">
+        <HakoniwaErrorBanner placement="dialog" clearOnMount />
         <label className="hakoniwa-field" htmlFor={nameId}>
           <span>{t("hakoniwa.residentForm.name")}</span>
           <input

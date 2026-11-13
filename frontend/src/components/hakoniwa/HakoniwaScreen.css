@@ -104,6 +104,30 @@
   background: rgb(232 138 125 / 0.08);
 }
 
+.hakoniwa-error > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ダイアログの本文の先頭に出すとき */
+.hakoniwa-error--dialog {
+  margin: 0 0 12px;
+}
+
+/* 全画面の重ね表示(ADV・会話・タッチ)の上端に重ねるとき */
+.hakoniwa-error--overlay {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 5;
+  width: min(640px, calc(100% - 32px));
+  margin: 0;
+  transform: translateX(-50%);
+  cursor: default;
+  background: var(--hk-surface, #27211d);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+}
+
 .hakoniwa-progress {
   display: flex;
   align-items: center;
@@ -1357,12 +1381,6 @@
   margin-top: 8px;
 }
 
-.hakoniwa-adv__error {
-  margin: 6px 0;
-  color: var(--hk-danger);
-  font-size: 0.88rem;
-}
-
 .hakoniwa-adv__show {
   position: absolute;
   right: 20px;
@@ -1719,6 +1737,41 @@
   margin: 0;
 }
 
+/* 住民の改変: 「姿も変える」の説明と、いまの改変の一覧 */
+.hakoniwa-toggle__hint {
+  display: block;
+  color: var(--hk-muted);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-reality {
+  display: grid;
+  gap: 4px;
+}
+
+.hakoniwa-reality__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-reality__item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--hk-border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.hakoniwa-reality__text {
+  overflow-wrap: anywhere;
+}
+
 .hakoniwa-resident__subheading {
   margin: 6px 0 0;
   color: var(--hk-muted);
@@ -1896,6 +1949,18 @@
 .hakoniwa-settings__section .hakoniwa-field,
 .hakoniwa-settings__section .hakoniwa-toggle {
   width: 100%;
+}
+
+/* 世界のメモの姿(見た目のタグと生成状況) */
+.hakoniwa-settings__memo-look {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hk-border);
+}
+
+.hakoniwa-settings__memo-look > button {
+  justify-self: start;
 }
 
 /* --- フォームのダイアログ --- */
@@ -2410,4 +2475,91 @@
 
 .hakoniwa-residents__batch .hakoniwa-note {
   margin: 6px 0 0;
+}
+
+/* --- BGM(♪ パネル) --- */
+
+.hakoniwa-bgm {
+  position: relative;
+  flex: 0 0 auto;
+  cursor: default;
+}
+
+.hakoniwa-bgm__button {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--hk-border);
+  border-radius: 50%;
+  color: var(--hk-accent);
+  background: transparent;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hakoniwa-bgm__button:hover {
+  border-color: var(--hk-accent);
+}
+
+/* 消音中は斜線を引き、色も落とす */
+.hakoniwa-bgm__button.is-muted {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-bgm__button.is-muted::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 1px;
+  background: var(--hk-muted);
+  content: "";
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.hakoniwa-bgm__panel {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 10px;
+  color: var(--hk-text);
+  background: var(--hk-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  text-align: left;
+}
+
+.hakoniwa-bgm--down .hakoniwa-bgm__panel {
+  top: calc(100% + 8px);
+}
+
+/* ADV のメッセージ窓の中では、窓の上へ開く(位置はボタンから計算して画面基準で置く) */
+.hakoniwa-bgm--up .hakoniwa-bgm__panel {
+  position: fixed;
+}
+
+.hakoniwa-bgm__volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.hakoniwa-bgm__volume input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hakoniwa-bgm__value {
+  min-width: 3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
