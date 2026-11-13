@@ -1377,6 +1377,10 @@
   resize: vertical;
 }
 
+.hakoniwa-adv__scene-toggle {
+  margin-top: 8px;
+}
+
 .hakoniwa-adv__compose .hakoniwa-adv__controls {
   margin-top: 8px;
 }

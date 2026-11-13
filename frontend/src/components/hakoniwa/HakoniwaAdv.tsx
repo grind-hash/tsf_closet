@@ -56,6 +56,8 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
   // 続きの指示を書いている間は、窓の中身を入力欄に替え、幕送りを止める
   const [composing, setComposing] = useState(false);
   const [draft, setDraft] = useState("");
+  // 続きの場面の絵も生成するか(入力欄を開くたびに、今の場面に絵があるかで決め直す)
+  const [withSceneImage, setWithSceneImage] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const nextRef = useRef<HTMLButtonElement | null>(null);
   const showRef = useRef<HTMLButtonElement | null>(null);
@@ -142,6 +144,8 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
 
   const openComposer = () => {
     clearError();
+    // 絵のある場面の続きは絵つきで続ける(立ち絵に戻ると続きに見えないため)
+    setWithSceneImage(Boolean(sceneUrl));
     setComposing(true);
   };
 
@@ -149,7 +153,7 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
     const text = draft.trim();
     if (!text || busy !== null) return;
     // 成功すると新しい場面が開き、入力欄は閉じる。失敗したら書いた指示を残す
-    void continueEvent(event.id, text);
+    continueEvent(event.id, text, withSceneImage);
   };
 
   const advance = () => {
@@ -337,6 +341,24 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
                 disabled={continuing}
                 onChange={(changeEvent) => setDraft(changeEvent.target.value)}
               />
+              <label className="hakoniwa-toggle hakoniwa-adv__scene-toggle">
+                <span>
+                  <strong>{t("hakoniwa.adv.continueWithScene")}</strong>
+                  <small className="hakoniwa-toggle__hint">
+                    {t("hakoniwa.adv.continueWithSceneHint")}
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  className="hakoniwa-toggle__input"
+                  checked={withSceneImage}
+                  disabled={continuing}
+                  onChange={(changeEvent) =>
+                    setWithSceneImage(changeEvent.target.checked)
+                  }
+                />
+                <span className="hakoniwa-toggle__switch" aria-hidden />
+              </label>
               <p className="hakoniwa-note">{t("hakoniwa.adv.continueNote")}</p>
               {malePairsText && (
                 <p className="hakoniwa-note">
@@ -361,7 +383,9 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
                   {continuing ? (
                     <>
                       <span className="hakoniwa-spinner" aria-hidden />
-                      {t("hakoniwa.adv.continuing")}
+                      {withSceneImage
+                        ? t("hakoniwa.adv.continuingWithScene")
+                        : t("hakoniwa.adv.continuing")}
                     </>
                   ) : (
                     t("hakoniwa.adv.continueSubmit")

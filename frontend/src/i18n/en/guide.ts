@@ -180,7 +180,7 @@ export const guide = {
         heading: "Scenes and scene pictures",
         items: [
           '"Read as a scene" in the chronicle lets you read an event one beat at a time with a background and portraits. The background is the event’s place from the start, and becomes the scene picture once you draw one. "Log" at the top right of the message window lets you reread what you have already read (for a continued scene, it goes back through the earlier scenes).',
-          '"Continue scene" lets you order how any of today’s events continues, with the same residents in the same place (your order can move them). It stays in the chronicle as an "Ordered continuation", and world strangeness rises only a little.',
+          '"Continue scene" lets you order how any of today’s events continues, with the same residents in the same place (your order can move them). It stays in the chronicle as an "Ordered continuation", and world strangeness rises only a little. Turn on "Also draw the scene picture" to have the next scene open with its own picture (on by default when the current scene has one).',
           '"Draw this scene" generates one picture of the event’s residents in their current looks. Events with contact or closeness are marked "Worth a picture".',
           "The outfit changes to fit the scene only in the picture (nude or a towel in the bathroom, a swimsuit at the beach and so on; nude only with NSFW mode on). The residents’ looks and portraits stay the same.",
         ],

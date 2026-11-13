@@ -126,8 +126,12 @@ export const hakoniwa = {
       "例: そのまま二人で朝まで過ごす／場所を浴室に移して続ける",
     continueNote:
       "同じ住民・同じ場所のまま、この場面の続きを1つ生成して開きます（指示で場所を移せます）。年代記に「指示した続き」として残り、世界の違和感は少しだけ溜まります。",
+    continueWithScene: "場面の絵も生成する",
+    continueWithSceneHint:
+      "絵ができてから続きの場面を開きます。いまの場面に絵があれば最初からオンです。",
     continueSubmit: "続きを生成",
     continuing: "続きを生成しています…",
+    continuingWithScene: "続きと場面の絵を生成しています…",
     continueCancel: "やめる",
   },
   digest: {

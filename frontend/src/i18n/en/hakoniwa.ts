@@ -125,8 +125,12 @@ export const hakoniwa = {
       "e.g. They stay together until morning / Move to the bathroom and go on",
     continueNote:
       "Generates one more scene that continues this one, with the same residents in the same place (your order can move them), and opens it. It stays in the chronicle as an “Ordered continuation”, and world strangeness rises only a little.",
+    continueWithScene: "Also draw the scene picture",
+    continueWithSceneHint:
+      "The next scene opens once its picture is ready. On by default when this scene has a picture.",
     continueSubmit: "Generate what happens next",
     continuing: "Generating what happens next…",
+    continuingWithScene: "Generating what happens next and its picture…",
     continueCancel: "Cancel",
   },
   digest: {

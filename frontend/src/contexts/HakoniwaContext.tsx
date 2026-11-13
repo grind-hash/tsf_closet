@@ -298,10 +298,16 @@ interface HakoniwaContextValue {
     input: HakoniwaDirectedEventInput,
   ) => Promise<void>;
   /**
-   * 今日の出来事の続きを指示して起こし、できた場面を ADV で開く。成功したら true
-   * (参加者と場所は元の場面のまま)
+   * 今日の出来事の続きを指示して起こし、できた場面を ADV で開く
+   * (参加者と場所は元の場面のまま)。
+   * withSceneImage なら続きの場面の絵も生成し、絵ができてから開く
+   * (絵の生成に失敗しても場面は開き、エラーを出す)
    */
-  continueEvent: (eventId: string, instruction: string) => Promise<boolean>;
+  continueEvent: (
+    eventId: string,
+    instruction: string,
+    withSceneImage: boolean,
+  ) => void;
   clearTransform: (residentId: string) => Promise<void>;
   reapplyTransform: (residentId: string, image: string) => Promise<void>;
   generateAvatar: (residentId: string, variant: "base" | "dress") => void;
@@ -987,21 +993,57 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   );
 
   const continueEvent = useCallback(
-    async (eventId: string, instruction: string) => {
-      if (!worldId) return false;
-      const result = await run("event", () =>
-        continueHakoniwaEvent(worldId, eventId, instruction, language),
-      );
-      if (!result) return false;
-      applyWorld(result.world);
-      recordCost(result.cost_usd);
-      const [scene, ...followUps] = result.new_events;
-      if (!scene) return false;
-      setAdvFollowUps((current) => [...current, ...followUps]);
-      setAdvEventId(scene.id);
-      return true;
+    (eventId: string, instruction: string, withSceneImage: boolean) => {
+      if (!worldId) return;
+      const task = () => {
+        void (async () => {
+          // 文章と絵を1つの操作として busy を保ち、絵ができるまで前の場面を見せておく
+          const result = await run("event", async () => {
+            const continued = await continueHakoniwaEvent(
+              worldId,
+              eventId,
+              instruction,
+              language,
+            );
+            applyWorld(continued.world);
+            recordCost(continued.cost_usd);
+            const scene = continued.new_events[0];
+            if (!withSceneImage || !scene) return continued;
+            try {
+              const drawn = await generateHakoniwaSceneImage(
+                worldId,
+                scene.id,
+                language,
+              );
+              applyWorld(drawn.world);
+              recordCost(drawn.cost_usd);
+              refreshUsage();
+            } catch (caught) {
+              // 続きの文章はできているので、絵が無いまま場面を開いてエラーを出す
+              setError(errorText(caught));
+            }
+            return continued;
+          });
+          if (!result) return;
+          const [scene, ...followUps] = result.new_events;
+          if (!scene) return;
+          setAdvFollowUps((current) => [...current, ...followUps]);
+          setAdvEventId(scene.id);
+        })();
+      };
+      if (withSceneImage) guardImageGeneration(task);
+      else task();
     },
-    [applyWorld, language, recordCost, run, worldId],
+    [
+      applyWorld,
+      errorText,
+      guardImageGeneration,
+      language,
+      recordCost,
+      refreshUsage,
+      run,
+      worldId,
+    ],
   );
 
   const generateAvatar = useCallback(
