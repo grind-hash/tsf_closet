@@ -38,6 +38,7 @@ from ..consts.hakoniwa import (
 from ..consts.hakoniwa_play import (
     HAKONIWA_CHAT_HISTORY_CONTEXT,
     HAKONIWA_CHAT_REPLY_MAX,
+    HAKONIWA_EVENT_CHAT_LINE_MAX,
     INTERVENTION_DIRECTIVES,
     PLAYER_AFFINITY_TALK_DELTA_LIMIT,
     TOUCH_PART_PROMPTS,
@@ -526,6 +527,19 @@ def reality_note(resident: dict[str, Any], language: str) -> str:
     )
 
 
+def speech_sample_text(text: dict[str, Any]) -> str:
+    """住民の話し方の手本(プリセットの一言)。出来事の台詞の口調を本人にそろえる。
+
+    手本が無いと年齢から口調を推し量り、50代の住民が老人語になることがあった。
+    台詞は JSON の文字列で渡す(「」で渡すと出力の JSON にも書き写して壊れる)。
+    """
+    greetings = text.get("greetings") or []
+    if not greetings:
+        return ""
+    sample = json.dumps(str(greetings[0]), ensure_ascii=False)
+    return f" Speech style sample (match this tone; do not reuse the line): {sample}."
+
+
 def residents_text(state: dict[str, Any], language: str) -> str:
     names = {item["id"]: resident_name(item, language) for item in state["residents"]}
     lines = []
@@ -541,7 +555,8 @@ def residents_text(state: dict[str, Any], language: str) -> str:
         )
         lines.append(
             f"- {text['name']} ({_gender_label(resident_gender(resident))}, "
-            f"{text['age']}, {text['job']}): {personality}{pronoun} "
+            f"{text['age']}, {text['job']}): {personality}{pronoun}"
+            f"{speech_sample_text(text)} "
             f"Mood {resident['mood']}/100. {affinities}."
             f"{address_text(state, resident, language)}"
             f"{_swap_note(state, resident, language)}"
@@ -550,6 +565,45 @@ def residents_text(state: dict[str, Any], language: str) -> str:
             f"{story_text.story_notes(state, resident, language)}"
         )
     return "\n".join(lines)
+
+
+def player_talk_text(
+    state: dict[str, Any], group: tuple[dict[str, Any], ...], language: str
+) -> str:
+    """主役の住民とプレイヤーの直近の会話。出来事での気持ちを会話の内容とそろえる。
+
+    台詞は出力と同じ JSON の形で渡す(「」で渡すと出力の JSON にも書き写して壊れる)。
+    """
+    player = play.player_name(state) or "Player"
+    blocks = []
+    for resident in group:
+        entries = play.recent_chat_for_events(state, resident["id"])
+        if not entries:
+            continue
+        name = resident_name(resident, language)
+        speakers = {"player": player, "resident": name, "system": "(system)"}
+        lines = "\n".join(
+            json.dumps(
+                {
+                    "speaker": speakers.get(str(entry.get("role")), "(system)"),
+                    "text": str(entry.get("text") or "")[:HAKONIWA_EVENT_CHAT_LINE_MAX],
+                },
+                ensure_ascii=False,
+            )
+            for entry in entries
+        )
+        blocks.append(f"{name} talking with the player:\n{lines}")
+    if not blocks:
+        return ""
+    return (
+        "\n\nRecent talks with the player (what was actually said face to face; the "
+        "player is the one who watches over and rewrites this world):\n"
+        + "\n".join(blocks)
+        + "\n(Keep each resident's feelings consistent with these talks: if they said "
+        "they like or accept their current look, do not make them complain about it or "
+        "want to change back. Housemates did not hear these talks unless that resident "
+        "tells them.)"
+    )
 
 
 def recent_events_text(state: dict[str, Any]) -> str:
@@ -1206,6 +1260,7 @@ def event_user_prompt(
         f"Residents:\n{residents_text(state, language)}\n\n"
         f"Recent events:\n{recent_events_text(state)}"
         f"{story_text.memories_context_text(state, group, language)}"
+        f"{player_talk_text(state, group, language)}"
         f"{story_text.arcs_context_text(state, language)}\n"
         f"{others}"
         f"{variety}"
@@ -1482,7 +1537,12 @@ def chat_reply_prompts(
         "narration, headings, quotation marks, lists or meta explanations. Reflect "
         "the active rules, your current look, mood, relationships and feelings toward "
         "the player, and continue the flow of the recent conversation. Do not pretend "
-        "to know things you do not know; keep the everyday feel of a resident.\n"
+        "to know things you do not know; keep the everyday feel of a resident. Your "
+        "look and clothes change only when the system carries out a change (shown as "
+        "a system line in the conversation); if the player's message describes "
+        "changing your look or clothes and no such change was carried out, do not act "
+        "as if you are already wearing or have become it: treat it as a suggestion or "
+        "a wish and react to that.\n"
         f"{gender_address_rules(language)}\n"
         f"{story_text.player_address_rule(state, language, direct=True)}\n"
         f"{content_rule(nsfw)}\n"
@@ -1511,8 +1571,12 @@ def alteration_prompts(
         "on the spot, and output only one JSON object: "
         '{"action": "transform" | "clear" | "none", "instruction": "the change to make"}.\n'
         "Impressions, questions, wishes and mentioning clothes as a topic are none. "
-        "Only imperative instructions that change the look or outfit are transform; an "
-        "instruction to go back to the usual look is clear. No explanation."
+        "Only instructions that change the look or outfit (including hats, scarves, "
+        "glasses and other accessories) are transform; an instruction to go back to "
+        "the usual look is clear. Besides imperatives, a stage-direction style "
+        "sentence in the plain form that states the resident's change is also an "
+        "instruction (in Japanese, for example 「〜に着替える」「〜を装備する」"
+        "「〜を身につける」). No explanation."
     )
     user_prompt = (
         f"Resident: {resident_label}. Current look: {current_look}.\n"

@@ -161,9 +161,12 @@ def test_arc_boost_raises_affinity_between_arc_members():
         ("髪を銀色のロングにして", "transform"),
         ("Please put on a maid outfit", "transform"),
         ("Transform into a magical girl", "transform"),
+        ("ニット帽と手編みのマフラーを装備して", "transform"),
+        ("冬らしくマフラーを巻いて", "transform"),
         ("元に戻して", "clear"),
         ("Change back, please", "clear"),
         ("メイド服を着てるの？", "none"),
+        ("ニット帽を被ってるんだね", "none"),
         ("その服にしてるんだね、似合ってる", "none"),
         ("You wear that well", "none"),
         ("おはよう、今日もいい天気だね", "none"),
@@ -175,6 +178,10 @@ def test_detect_chat_alteration(message, action):
 
 def test_alteration_candidate_only_for_look_related_statements():
     assert play.alteration_candidate("その服、もっと派手なのがいいな")
+    # 命令形でない書き方(〜を装備する)も分類に回す
+    assert play.alteration_candidate(
+        "冬にぴったりのニット帽と手編みのマフラーを装備する"
+    )
     assert not play.alteration_candidate("その服、どこで買ったの？")
     assert not play.alteration_candidate("おはよう")
 
@@ -331,3 +338,73 @@ def test_player_impression_is_read_and_clamped():
     assert '{"delta": an integer from -3 to 3}' in system
     assert "The player's latest message: かわいいね" in user
     assert "高瀬 葵: おはよう" in user
+
+
+def test_chat_entries_keep_the_day_and_events_read_only_recent_talks():
+    state = {**_world(), "day": 1}
+    state = play.append_chat(state, "aoi", [{"role": "player", "text": "1日目"}])
+    state = {**state, "day": 3}
+    state = play.append_chat(
+        state,
+        "aoi",
+        [
+            {"role": "player", "text": "ニットに着替える"},
+            {"role": "resident", "text": "すごく気に入ったよ"},
+        ],
+    )
+    assert [entry["day"] for entry in play.chat_history(state, "aoi")] == [1, 3, 3]
+    # 2日前の会話は渡さない。日の無い古い履歴は直近として扱う
+    assert [e["text"] for e in play.recent_chat_for_events(state, "aoi")] == [
+        "ニットに着替える",
+        "すごく気に入ったよ",
+    ]
+    legacy = {
+        **state,
+        "chat_histories": {"aoi": [{"role": "player", "text": "昔の会話"}]},
+    }
+    assert play.recent_chat_for_events(legacy, "aoi") == [
+        {"role": "player", "text": "昔の会話"}
+    ]
+    for index in range(10):
+        state = play.append_chat(state, "aoi", [{"role": "player", "text": str(index)}])
+    assert len(play.recent_chat_for_events(state, "aoi")) == 6
+
+
+def test_event_prompt_keeps_feelings_from_talks_and_speech_style():
+    state = {**_world(("aoi", "tamako")), "player_name": "はっしゅ"}
+    group = tuple(state["residents"])
+    plain = event_user_prompt(state, group, "ja", nsfw=False)
+    assert "Recent talks with the player" not in plain
+    # プリセットの一言を口調の手本として JSON の文字列で渡す
+    assert (
+        'Speech style sample (match this tone; do not reuse the line): "あらあら'
+        in (plain)
+    )
+
+    state = play.append_chat(
+        state,
+        "tamako",
+        [
+            {"role": "player", "text": "ワンピースに着替える"},
+            {"role": "resident", "text": "嫌じゃないわ。気に入ったの"},
+        ],
+    )
+    text = event_user_prompt(state, group, "ja", nsfw=False)
+    assert "大島 珠子 talking with the player:" in text
+    assert '{"speaker": "はっしゅ", "text": "ワンピースに着替える"}' in text
+    assert '{"speaker": "大島 珠子", "text": "嫌じゃないわ。気に入ったの"}' in text
+    assert "do not make them complain about it or want to change back" in text
+
+
+def test_chat_reply_does_not_pretend_and_classifier_reads_plain_forms():
+    from gateway.services.hakoniwa_prompts import alteration_prompts
+
+    state = _world()
+    aoi = logic.find_resident(state, "aoi")
+    system, _ = chat_reply_prompts(
+        state, aoi, [], "マフラーを装備する", "ja", nsfw=False
+    )
+    assert "do not act as if you are already wearing or have become it" in system
+    system, _ = alteration_prompts("マフラーを装備する", "高瀬 葵", "the usual look")
+    assert "「〜を装備する」" in system
+    assert "hats, scarves" in system

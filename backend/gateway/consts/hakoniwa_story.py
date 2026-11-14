@@ -14,6 +14,8 @@ DISSONANCE_MAX = 100
 DISSONANCE_RULE_GAIN = 8
 DISSONANCE_CUSTOM_RULE_GAIN = 12
 DISSONANCE_TRANSFORM_GAIN = 10
+# 会話の中での変身。本人はプレイヤーが変えたと分かっているので、謎の書き換えとしては少しだけ溜める
+DISSONANCE_CHAT_TRANSFORM_GAIN = 3
 # 住民の改変も世界の書き換えなので、変身と同じだけ違和感を溜める
 DISSONANCE_REALITY_GAIN = 10
 DISSONANCE_DIRECTED_EVENT_GAIN = 10
@@ -196,23 +198,32 @@ WORLD_ADAPTATION_STAGE_NAMES = (
     "settled",
 )
 
+# 体が変わった変身(性別・年齢・体格など)と、服・小物・髪型だけの変身を書き分けさせる。
+# 服だけの変身で「体に慣れない」「元に戻りたい」と書かれ、会話で気に入っていた住民が
+# 翌日に不満を言う食い違いが出たため、戻りたい気持ちは体の変化か本人が言ったときだけにする
 ADAPTATION_STAGE_GUIDANCE = (
     (
-        "They are not at all used to the new body yet. Depict the physical sensations "
-        "in detail: the shifted center of gravity, the weight of the hair, a different "
-        "eye level, clothes touching the skin in unfamiliar ways, the strange sound of "
-        "their own voice. They notice and fumble at every movement, and openly voice "
-        "surprise, embarrassment or the wish to go back. Do not let them handle it "
-        "calmly."
+        "They are not used to the new look yet. If their body itself changed (sex, "
+        "age, build and the like), depict the physical sensations in detail: the "
+        "shifted center of gravity, the weight of the hair, a different eye level, the "
+        "strange sound of their own voice. They notice and fumble at every movement, "
+        "openly voice surprise, embarrassment or even the wish to go back, and do not "
+        "take a body change calmly. If only their clothes, accessories or hairstyle "
+        "changed, it is the outfit, not their body, that they are not used to: how it "
+        "feels to wear, how it moves, how others look at them. Whether they are "
+        "pleased, shy or puzzled follows their personality and what they have said "
+        "about it; for a change of outfit only, do not make them complain about it or "
+        "want to change back unless they have said so themselves."
     ),
     (
-        "They are trying to get used to the new body through trial and error: "
-        "practicing how to wear clothes or move, failing, being taught or watched over "
-        "by others. Let both a small sense of achievement over what they could do "
-        "better than yesterday and frustration over what they still cannot do show."
+        "They are trying to get used to the new look through trial and error: "
+        "practicing how to move or wear it, failing, being taught or watched over by "
+        "others. Let both a small sense of achievement over what they could do better "
+        "than yesterday and frustration over what they still cannot do show. For a "
+        "change of outfit only, keep it to small knacks of wearing and moving in it."
     ),
     (
-        "They have grown fairly used to the new body. Gestures and manners that suit "
+        "They have grown fairly used to the new look. Gestures and manners that suit "
         "the look come out unconsciously, but include a moment where they suddenly "
         "notice their own change and are surprised or embarrassed. A contrast with "
         "what they could not do before works well."
@@ -292,12 +303,14 @@ DISSONANCE_CONTEXT = {
     "stirring": (
         "Premise: lately the residents have faintly noticed unnatural changes in the "
         "world's rules and events, and now and then say that something seems to have "
-        "changed."
+        "changed, lightly and with curiosity rather than fear."
     ),
     "probing": (
         "Premise: the residents seriously discuss whether someone is rewriting the "
         "world's rules and their looks. Some keep records of the changes, and some try "
-        "to witness the moment of a rewrite."
+        "to witness the moment of a rewrite. The mood is curiosity, deduction and a "
+        "little expectation, like solving a mystery together: they are not frightened, "
+        "do not feel threatened, and the story never turns into horror."
     ),
 }
 
@@ -309,7 +322,10 @@ INVESTIGATION_FOCUS = (
     "recording the changes so far; an eyewitness account of the moment a rule "
     "changed; questioning a resident whose look changed; guesses about who the writer "
     "is or what they intend; a plan to witness the next change. Show the residents "
-    "approaching the truth of the world in both narration and lines."
+    "approaching the truth of the world in both narration and lines. Keep the tone "
+    "curious and lively, like amateur detectives, not fearful or ominous. If a "
+    "resident has talked with the player about a change, they may bring up what the "
+    "player said as a clue."
 )
 
 ARC_TITLES = {

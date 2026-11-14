@@ -1083,6 +1083,8 @@ def test_chat_reply_transform_confirmation_and_clear(client: TestClient, llm_out
     ]
     aoi = next(r for r in done["world"]["residents"] if r["id"] == "aoi")
     assert aoi["display_kind"] == "transform"
+    # 会話の中での変身は、本人がプレイヤーの仕業と分かっているので違和感は少しだけ
+    assert done["world"]["dissonance"]["value"] == 3
 
     cleared = client.post(path, json={"message": "元に戻して", "language": "ja"}).json()
     assert cleared["reply"]["text"] == "変身を解いて、元の姿に戻しました。"

@@ -210,7 +210,7 @@ export const guide = {
       {
         heading: "World strangeness and records",
         items: [
-          'In worlds that use "world strangeness" (set when creating the world or on the Settings tab; on by default), switching rules and transforming residents makes them notice the rewrites (stillness → stirring → probing), and at 80 they call out to the writer once. The stage and value appear in the top bar.',
+          'In worlds that use "world strangeness" (set when creating the world or on the Settings tab; on by default), switching rules and transforming residents makes them notice the rewrites (stillness → stirring → probing), and at 80 they call out to the writer once. Transforming someone during a conversation adds only a little, since they know it was you. The stage and value appear in the top bar.',
           "What you observe in the dollhouse (days, events, rules, transformations, dresses, swaps, strangeness and more, 17 records) is counted across all worlds and recorded under AI Dollhouse on the Achievements screen.",
         ],
       },

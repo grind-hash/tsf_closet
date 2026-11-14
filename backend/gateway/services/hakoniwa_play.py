@@ -32,6 +32,8 @@ from ..consts.hakoniwa_play import (
     CHAT_TRANSFORM_PATTERNS,
     HAKONIWA_CHAT_HISTORY_MAX,
     HAKONIWA_CHAT_MESSAGE_MAX,
+    HAKONIWA_EVENT_CHAT_CONTEXT,
+    HAKONIWA_EVENT_CHAT_DAYS,
     HAKONIWA_INTERVENTIONS,
     HAKONIWA_PLAYER_NAME_MAX,
     HAKONIWA_RULE_SYNERGIES,
@@ -383,14 +385,35 @@ def chat_history(state: dict[str, Any], resident_id: str) -> list[dict[str, Any]
 def append_chat(
     state: dict[str, Any], resident_id: str, entries: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """会話の履歴に足す(住民ごとに直近 HAKONIWA_CHAT_HISTORY_MAX 件)。"""
+    """会話の履歴に足す(住民ごとに直近 HAKONIWA_CHAT_HISTORY_MAX 件)。
+
+    話した日を day に残す(出来事へ渡す直近の会話を日で絞るため)。
+    """
     histories = {
         key: [dict(item) for item in value]
         for key, value in (state.get("chat_histories") or {}).items()
     }
-    items = [*histories.get(resident_id, []), *[dict(item) for item in entries]]
+    day = int(state.get("day") or 1)
+    added = [{**item, "day": item.get("day", day)} for item in entries]
+    items = [*histories.get(resident_id, []), *added]
     histories[resident_id] = items[-HAKONIWA_CHAT_HISTORY_MAX:]
     return {**state, "chat_histories": histories}
+
+
+def recent_chat_for_events(
+    state: dict[str, Any], resident_id: str
+) -> list[dict[str, Any]]:
+    """出来事に渡す、住民とプレイヤーの直近の会話(今日と前日、最大 HAKONIWA_EVENT_CHAT_CONTEXT 件)。
+
+    日の無い古い履歴は、いつ話したか分からないので直近として扱う。
+    """
+    oldest = int(state.get("day") or 1) - HAKONIWA_EVENT_CHAT_DAYS + 1
+    items = [
+        entry
+        for entry in chat_history(state, resident_id)
+        if not isinstance(entry.get("day"), int) or entry["day"] >= oldest
+    ]
+    return items[-HAKONIWA_EVENT_CHAT_CONTEXT:]
 
 
 def forget_chat(state: dict[str, Any], resident_id: str) -> dict[str, Any]:

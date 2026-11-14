@@ -47,6 +47,7 @@ from ..consts.hakoniwa_play import (
     INTERVENTION_REWRITE_DISSONANCE,
 )
 from ..consts.hakoniwa_story import (
+    DISSONANCE_CHAT_TRANSFORM_GAIN,
     DISSONANCE_CONTINUED_EVENT_GAIN,
     DISSONANCE_CUSTOM_RULE_GAIN,
     DISSONANCE_DIRECTED_EVENT_GAIN,
@@ -1691,8 +1692,14 @@ class HakoniwaService:
         change_text: str,
         lang: str,
         user_settings: dict[str, Any],
+        *,
+        dissonance_gain: int = DISSONANCE_TRANSFORM_GAIN,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        """変身の本体(タグ変換・画像・変身と反応の出来事・違和感)。世界のロックの中で呼ぶ。"""
+        """変身の本体(タグ変換・画像・変身と反応の出来事・違和感)。世界のロックの中で呼ぶ。
+
+        dissonance_gain は溜める違和感。会話の中での変身は、本人がプレイヤーの仕業と
+        分かっているので小さくする。
+        """
         novelai_model = user_settings.get("novelai_text_model")
         nsfw = bool(user_settings.get("nsfw_mode"))
         state = await self._change_look(
@@ -1741,7 +1748,7 @@ class HakoniwaService:
         new_events.append(state["events"][-1])
         # 変身は世界の書き換えとして違和感を溜める(対面に届くこともある)
         state, confrontation = await self._apply_dissonance_gain(
-            state, DISSONANCE_TRANSFORM_GAIN, lang, user_settings, rng
+            state, dissonance_gain, lang, user_settings, rng
         )
         new_events.extend(confrontation)
         return state, new_events
@@ -2203,7 +2210,13 @@ class HakoniwaService:
                 instruction = alteration["instruction"] or text
                 try:
                     state, new_events = await self._apply_transform(
-                        world_id, state, resident_id, instruction, lang, user_settings
+                        world_id,
+                        state,
+                        resident_id,
+                        instruction,
+                        lang,
+                        user_settings,
+                        dissonance_gain=DISSONANCE_CHAT_TRANSFORM_GAIN,
                     )
                 except HakoniwaError as error:
                     reply = {

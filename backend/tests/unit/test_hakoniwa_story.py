@@ -368,6 +368,18 @@ def test_event_prompt_includes_story_blocks_only_when_present():
     assert "investigating the world's changes" in text
     assert "Today is the climax of this story" in text
     assert "seriously discuss whether someone is rewriting" in text
+    # 調査は好奇心で進め、怖がらせない
+    assert "they are not frightened" in text
+    assert "like amateur detectives, not fearful" in text
+
+
+def test_adaptation_guidance_separates_outfit_from_body():
+    state = _transform(_world(), "aoi", description="ニットに着替える")
+    by_id = {r["id"]: r for r in state["residents"]}
+    text = event_user_prompt(state, (by_id["aoi"], by_id["ren"]), "ja", nsfw=False)
+    assert "adaptation stage 'bewildered'" in text
+    assert "If only their clothes, accessories or hairstyle changed" in text
+    assert "do not make them complain about it or want to change back" in text
 
 
 def test_male_guidance_softens_after_adaptation():
