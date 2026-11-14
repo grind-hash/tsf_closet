@@ -15,9 +15,6 @@ import {
   BREATH_STRETCH,
   brakePoint,
   depthScale,
-  FLOOR_BOTTOM,
-  FLOOR_TOP,
-  FURNITURE_H,
   focusTargets,
   focusZone,
   GAME_H,
@@ -28,6 +25,7 @@ import {
   isPathBlocked,
   NAME_OFFSET,
   nearestWithin,
+  onFloor,
   type Point,
   pickWanderTarget,
   STEP_STRETCH,
@@ -58,6 +56,9 @@ export interface StageFurniture {
   url: string;
   x: number;
   y: number;
+  height: number;
+  /** 幅と深さは家具の底面に合わせる */
+  shadowWidth: number;
 }
 
 export interface RoomStageCallbacks {
@@ -68,6 +69,7 @@ export interface RoomStageHandle {
   update: (
     residents: StageResident[],
     backgroundUrl: string | null,
+    areaId: string,
     furniture?: StageFurniture[],
   ) => void;
   /** 参加住民を集めて向き合わせる。全員が着くか見切り時間で解決する */
@@ -164,11 +166,16 @@ class RoomStage {
   private pending: {
     residents: StageResident[];
     backgroundUrl: string | null;
+    areaId: string;
     furniture: StageFurniture[];
-  } = { residents: [], backgroundUrl: null, furniture: [] };
+  } = { residents: [], backgroundUrl: null, areaId: "living", furniture: [] };
   private readonly furnitureSprites = new Map<
     string,
-    { image: Phaser.GameObjects.Image; url: string }
+    {
+      group: Phaser.GameObjects.Container;
+      image: Phaser.GameObjects.Image;
+      url: string;
+    }
   >();
   private focus: FocusSession | null = null;
   /** 出来事の再生中に、居合わせない住民が空ける横の範囲 */
@@ -334,7 +341,7 @@ class RoomStage {
 
   private createAgent(resident: StageResident, index: number, count: number) {
     const scene = this.scene as Phaser.Scene;
-    const start = initialPosition(index, count);
+    const start = initialPosition(index, count, this.pending.areaId);
     const container = scene.add.container(start.x, start.y);
     const selRing = scene.add
       .ellipse(0, 4, 158, 32)
@@ -412,25 +419,28 @@ class RoomStage {
     );
     for (const [key, sprite] of this.furnitureSprites) {
       if (desired.get(key)?.url === sprite.url) continue;
-      sprite.image.destroy();
+      sprite.group.destroy();
       this.furnitureSprites.delete(key);
     }
     for (const [key, item] of desired) {
       if (this.furnitureSprites.has(key)) continue;
-      const image = scene.add
-        .image(item.x, item.y, "hakoniwa-blank")
-        .setOrigin(0.5, 1)
+      const shadow = this.shadowImage(scene, {
+        width: item.shadowWidth,
+        height: Math.max(12, item.shadowWidth * 0.16),
+        alpha: 0.43,
+        y: -4,
+      });
+      const image = scene.add.image(0, 0, "hakoniwa-blank").setOrigin(0.5, 1);
+      const group = scene.add
+        .container(item.x, item.y, [shadow, image])
         .setDepth(item.y - 1)
         .setVisible(false);
-      this.furnitureSprites.set(key, { image, url: item.url });
+      this.furnitureSprites.set(key, { group, image, url: item.url });
       this.ensureTexture(item.url, (texture) => {
         if (!image.active || !texture || !this.scene) return;
-        const frame = this.scene.textures.getFrame(texture);
-        const height = frame && frame.height > 0 ? frame.height : FURNITURE_H;
-        image
-          .setTexture(texture)
-          .setScale(FURNITURE_H / height)
-          .setVisible(true);
+        image.setTexture(texture);
+        image.setScale(item.height / image.height);
+        group.setVisible(true);
       });
     }
   }
@@ -501,9 +511,17 @@ class RoomStage {
   update(
     residents: StageResident[],
     backgroundUrl: string | null,
+    areaId: string,
     furniture: StageFurniture[] = [],
   ): void {
-    this.pending = { residents, backgroundUrl, furniture };
+    if (areaId !== this.pending.areaId) {
+      this.releaseFocus();
+      for (const agent of this.agents.values()) {
+        agent.position = onFloor(agent.position, areaId);
+        agent.target = null;
+      }
+    }
+    this.pending = { residents, backgroundUrl, areaId, furniture };
     this.apply();
     this.collectTextures();
   }
@@ -587,7 +605,10 @@ class RoomStage {
       .filter((agent): agent is Agent => agent !== undefined);
     if (group.length === 0) return Promise.resolve(false);
     this.releaseFocus();
-    const targets = focusTargets(group.map((agent) => agent.position));
+    const targets = focusTargets(
+      group.map((agent) => agent.position),
+      this.pending.areaId,
+    );
     this.zone = focusZone(targets);
     // 居合わせない住民は、集まる場所から外へよける
     const members = new Set(group);
@@ -599,6 +620,7 @@ class RoomStage {
         agent.position,
         this.occupiedPoints(agent),
         agent.jitter,
+        this.pending.areaId,
         Math.random,
         this.zone,
       );
@@ -652,6 +674,7 @@ class RoomStage {
           agent.position,
           this.occupiedPoints(agent),
           agent.jitter,
+          this.pending.areaId,
           Math.random,
           this.zone,
         ),
@@ -741,7 +764,7 @@ class RoomStage {
         }
       }
       this.animate(agent, delta);
-      const y = Math.min(Math.max(agent.position.y, FLOOR_TOP), FLOOR_BOTTOM);
+      const y = agent.position.y;
       agent.container.setPosition(agent.position.x, y);
       // 奥に立つほど小さく描く(名札・影・選択の輪もまとめて縮める)
       agent.container.setScale(depthScale(y));
@@ -779,8 +802,8 @@ export function createRoomStage(
     let settled = false;
     let game: Phaser.Game | null = null;
     const handle: RoomStageHandle = {
-      update: (residents, backgroundUrl, furniture) =>
-        stage.update(residents, backgroundUrl, furniture),
+      update: (residents, backgroundUrl, areaId, furniture) =>
+        stage.update(residents, backgroundUrl, areaId, furniture),
       focusGroup: (ids) => stage.focusGroup(ids),
       releaseFocus: () => stage.releaseFocus(),
       setSelected: (id) => stage.setSelected(id),

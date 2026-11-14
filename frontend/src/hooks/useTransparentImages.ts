@@ -7,8 +7,8 @@ import {
 /**
  * 複数の画像の単色背景を抜き、元の URL -> 透過済み URL の対応を返す。
  *
- * 既にアルファを持つ画像(V5 の透過生成や同梱素材)はそのまま返る。処理中や失敗時は
- * 元の URL を使う。表示に使っている間は透過済みの URL を保持し、外れたら手放す。
+ * 既に透過を持つ画像は背景除去を省き、指定された場合のみ下の余白を詰める。
+ * 表示に使っている間は透過済みの URL を保持し、外れたら手放す。
  */
 export function useTransparentImages(
   sources: (string | null | undefined)[],
@@ -25,6 +25,7 @@ export function useTransparentImages(
   const threshold = options?.threshold;
   const featherRadius = options?.featherRadius;
   const targetColor = options?.targetColor;
+  const trimBottom = options?.trimBottom;
 
   useEffect(() => {
     const unique = key ? key.split("\n") : [];
@@ -34,6 +35,7 @@ export function useTransparentImages(
         targetColor,
         threshold,
         featherRadius,
+        trimBottom,
       });
       handle.url
         .then((url) => {
@@ -68,7 +70,7 @@ export function useTransparentImages(
       cancelled = true;
       for (const handle of handles) handle.release();
     };
-  }, [key, targetColor, threshold, featherRadius]);
+  }, [key, targetColor, threshold, featherRadius, trimBottom]);
 
   return processed;
 }

@@ -11,6 +11,7 @@ import {
   FOCUS_SPACING,
   focusTargets,
   focusZone,
+  furnitureSize,
   GAME_H,
   GAME_W,
   initialPosition,
@@ -18,6 +19,7 @@ import {
   NAME_HEIGHT,
   NAME_OFFSET,
   nearestWithin,
+  onFloor,
   PASSING_CLEARANCE,
   PASSING_SPACE_Y,
   PERSONAL_SPACE_X,
@@ -39,8 +41,51 @@ function seededRandom(start = 0): () => number {
 }
 
 describe("roomLayout", () => {
+  it.each([
+    "living",
+    "study",
+    "garden",
+  ])("keeps every walk and event on the %s floor", (areaId) => {
+    const random = seededRandom(23);
+    const positions = Array.from({ length: 5 }, (_, i) =>
+      initialPosition(i, 5, areaId),
+    );
+    const targets = focusTargets(positions.slice(0, 3), areaId);
+    for (let i = 0; i < 100; i += 1) {
+      const from = positions[i % positions.length];
+      const to = targets[i] ?? pickWanderTarget(from, [], 0, areaId, random);
+      for (let j = 0; j <= 10; j += 1) {
+        const t = j / 10;
+        const point = {
+          x: from.x + (to.x - from.x) * t,
+          y: from.y + (to.y - from.y) * t,
+        };
+        const safe = onFloor(point, areaId);
+        expect(safe.x).toBeCloseTo(point.x);
+        expect(safe.y).toBeCloseTo(point.y);
+      }
+      positions[i % positions.length] = to;
+    }
+  });
+
+  it("keeps shoes clear of the side walls on both interior backgrounds", () => {
+    expect(onFloor({ x: 1100, y: 580 }, "living").y).toBeGreaterThan(750);
+    expect(onFloor({ x: 180, y: 580 }, "study").y).toBeGreaterThan(770);
+    expect(onFloor({ x: 750, y: 580 }, "study").y).toBeLessThan(630);
+  });
+
+  it("scales furniture by its real size and distance", () => {
+    expect(furnitureSize("bookshelf", 620).height).toBeGreaterThan(
+      2 * furnitureSize("plush", 710).height,
+    );
+    expect(furnitureSize("kotatsu", 620).height).toBeLessThan(
+      furnitureSize("kotatsu", 710).height,
+    );
+  });
   it("spreads residents across the floor", () => {
-    const positions = [0, 1, 2, 3, 4].map((index) => initialPosition(index, 5));
+    const positions = [0, 1, 2, 3, 4].map((index) =>
+      initialPosition(index, 5, "living"),
+    );
     for (const point of positions) {
       expect(point.x).toBeGreaterThanOrEqual(80);
       expect(point.x).toBeLessThanOrEqual(GAME_W - 80);
@@ -56,7 +101,7 @@ describe("roomLayout", () => {
     const others = [{ x: 600, y: 680 }];
     const random = seededRandom();
     for (let i = 0; i < 20; i += 1) {
-      const target = pickWanderTarget(from, others, 0, random);
+      const target = pickWanderTarget(from, others, 0, "living", random);
       expect(target.y).toBeGreaterThanOrEqual(FLOOR_TOP);
       expect(target.y).toBeLessThanOrEqual(FLOOR_BOTTOM);
       expect(spaceDistance(target, others[0])).toBeGreaterThanOrEqual(1);
@@ -68,7 +113,7 @@ describe("roomLayout", () => {
     const other = { x: 600, y: 680 };
     const random = seededRandom(7);
     for (let i = 0; i < 30; i += 1) {
-      const target = pickWanderTarget(from, [other], 0, random);
+      const target = pickWanderTarget(from, [other], 0, "living", random);
       expect(pathClearance(from, target, other)).toBeGreaterThanOrEqual(
         PASSING_CLEARANCE,
       );
@@ -81,7 +126,7 @@ describe("roomLayout", () => {
     const start = spaceDistance(from, other, PASSING_SPACE_Y);
     const random = seededRandom(11);
     for (let i = 0; i < 30; i += 1) {
-      const target = pickWanderTarget(from, [other], 0, random);
+      const target = pickWanderTarget(from, [other], 0, "living", random);
       const closest = pathClearance(from, target, other);
       expect(closest >= start - 0.01 || closest >= PASSING_CLEARANCE).toBe(
         true,
@@ -94,7 +139,7 @@ describe("roomLayout", () => {
     const random = seededRandom(3);
     let near = 0;
     for (let i = 0; i < 200; i += 1) {
-      const target = pickWanderTarget(from, [], 0, random);
+      const target = pickWanderTarget(from, [], 0, "living", random);
       if (Math.abs(target.x - from.x) <= STROLL_MAX_DX) near += 1;
     }
     expect(near).toBeGreaterThan(120);
@@ -127,7 +172,14 @@ describe("roomLayout", () => {
       { x: 1000, y: 700 },
     ]) {
       for (let i = 0; i < 30; i += 1) {
-        const target = pickWanderTarget(from, [], 0, Math.random, zone);
+        const target = pickWanderTarget(
+          from,
+          [],
+          0,
+          "living",
+          Math.random,
+          zone,
+        );
         expect(target.x <= zone!.min || target.x >= zone!.max).toBe(true);
       }
     }
@@ -166,11 +218,14 @@ describe("roomLayout", () => {
   });
 
   it("lines a group up facing the middle, keeping left-to-right order", () => {
-    const targets = focusTargets([
-      { x: 900, y: 600 },
-      { x: 200, y: 700 },
-      { x: 500, y: 760 },
-    ]);
+    const targets = focusTargets(
+      [
+        { x: 900, y: 600 },
+        { x: 200, y: 700 },
+        { x: 500, y: 760 },
+      ],
+      "living",
+    );
     // 左から 2人目(x=200)、3人目(x=500)、1人目(x=900) の順に並ぶ
     expect(targets[1].x).toBeLessThan(targets[2].x);
     expect(targets[2].x).toBeLessThan(targets[0].x);
@@ -182,7 +237,7 @@ describe("roomLayout", () => {
   });
 
   it("keeps a single resident near where they stand", () => {
-    const [target] = focusTargets([{ x: 100, y: 600 }]);
+    const [target] = focusTargets([{ x: GAME_W / 2, y: 600 }], "study");
     expect(target.flip).toBe(false);
     expect(target.y).toBe(FOCUS_MIN_Y);
   });

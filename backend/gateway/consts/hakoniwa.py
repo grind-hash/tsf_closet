@@ -143,7 +143,7 @@ HAKONIWA_AREAS: list[dict[str, Any]] = [
             "window with curtains, warm sunlight through window, minimal, "
             "wide open floor space, scenery, anime background"
         ),
-        "slots": [(180, 700), (470, 730), (760, 700), (1040, 730)],
+        "slots": [(150, 685), (440, 618), (758, 612), (1026, 662)],
     },
     {
         "id": "garden",
@@ -158,7 +158,7 @@ HAKONIWA_AREAS: list[dict[str, Any]] = [
             "wall, stone path, warm sunlight, minimal, wide open ground, scenery, "
             "anime background"
         ),
-        "slots": [(200, 710), (500, 740), (800, 710), (1050, 740)],
+        "slots": [(159, 668), (452, 596), (752, 570), (1045, 642)],
     },
     {
         "id": "study",
@@ -172,7 +172,7 @@ HAKONIWA_AREAS: list[dict[str, Any]] = [
             "sparse empty study room interior, wooden floor, plain walls, window, "
             "warm light, minimal, wide open floor space, scenery, anime background"
         ),
-        "slots": [(190, 700), (480, 730), (770, 700), (1040, 730)],
+        "slots": [(161, 712), (466, 605), (750, 556), (1006, 641)],
     },
 ]
 HAKONIWA_AREA_MAP: dict[str, dict[str, Any]] = {

@@ -15,6 +15,8 @@ export interface RemoveBackgroundOptions {
   featherRadius?: number;
   /** Worker timeout in milliseconds. */
   timeout?: number;
+  /** 箱庭では靴底を床に合わせるため、下端の透明な行を取り除く */
+  trimBottom?: boolean;
 }
 
 const DEFAULT_OPTIONS: Required<
@@ -26,6 +28,7 @@ const DEFAULT_OPTIONS: Required<
   threshold: 8,
   featherRadius: 1.8,
   timeout: 30000,
+  trimBottom: false,
 };
 
 const WORKER_SOURCE = `
@@ -299,21 +302,34 @@ async function process(
   context.drawImage(image, 0, 0);
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
 
-  // 既に透過を持つ画像（V5のネイティブ透過等）は原本をそのまま返す
-  if (hasMeaningfulAlpha(imageData.data)) {
-    return src;
+  const transparent = hasMeaningfulAlpha(imageData.data);
+  if (!transparent) {
+    imageData.data.set(await runWorker(imageData, options));
   }
-
-  const processed = await runWorker(imageData, options);
-  const output = context.createImageData(canvas.width, canvas.height);
-  output.data.set(processed);
-  context.putImageData(output, 0, 0);
+  const height = options.trimBottom
+    ? visibleHeight(imageData)
+    : imageData.height;
+  if (transparent && height === imageData.height) return src;
+  canvas.height = height;
+  context.putImageData(imageData, 0, 0);
 
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, "image/png"),
   );
   if (!blob) throw new Error("Failed to encode transparent image");
   return URL.createObjectURL(blob);
+}
+
+/** 透過処理の薄いにじみを除き、靴底が見える最後の行までの高さを返す */
+export function visibleHeight({
+  width,
+  height,
+  data,
+}: Pick<ImageData, "width" | "height" | "data">): number {
+  for (let i = data.length - 1; i >= 3; i -= 4) {
+    if (data[i] >= 32) return Math.floor(i / (width * 4)) + 1;
+  }
+  return height;
 }
 
 export interface TransparentImageHandle {
@@ -345,6 +361,7 @@ function resolveOptions(
     threshold: options.threshold ?? DEFAULT_OPTIONS.threshold,
     featherRadius: options.featherRadius ?? DEFAULT_OPTIONS.featherRadius,
     timeout: options.timeout ?? DEFAULT_OPTIONS.timeout,
+    trimBottom: options.trimBottom ?? DEFAULT_OPTIONS.trimBottom,
   };
 }
 
@@ -356,6 +373,7 @@ function cacheKey(
     src,
     options.threshold,
     options.featherRadius,
+    options.trimBottom,
     options.targetColor
       ? `${options.targetColor.r},${options.targetColor.g},${options.targetColor.b}`
       : "auto",

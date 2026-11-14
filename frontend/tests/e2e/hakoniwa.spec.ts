@@ -6,14 +6,19 @@ import type {
   HakoniwaWorld,
 } from "../../src/apis/hakoniwa";
 
-function area(id: string, name: string, file: string): HakoniwaArea {
+function area(
+  id: string,
+  name: string,
+  file: string,
+  spots: number[][],
+): HakoniwaArea {
   return {
     id,
     name,
     background_url: `/hakoniwa-assets/${file}`,
-    slots: [180, 470, 760, 1040].map((x) => ({
+    slots: spots.map(([x, y]) => ({
       x,
-      y: 700,
+      y,
       furniture_id: null,
     })),
   };
@@ -68,6 +73,7 @@ async function mockHakoniwa(
     achievements?: boolean;
     webSearch?: boolean;
     webSearchConfigured?: boolean;
+    furnishedRooms?: boolean;
     /** 送られた本文を記録する(世界の作成・設定) */
     recorded?: { create?: Record<string, unknown>; settings: unknown[] };
   } = {},
@@ -144,9 +150,24 @@ async function mockHakoniwa(
       },
     ],
     areas: [
-      area("living", "リビング", "room.png"),
-      area("garden", "庭", "area_garden.png"),
-      area("study", "書斎", "area_study.png"),
+      area("living", "リビング", "room.png", [
+        [150, 685],
+        [440, 618],
+        [758, 612],
+        [1026, 662],
+      ]),
+      area("garden", "庭", "area_garden.png", [
+        [159, 668],
+        [452, 596],
+        [752, 570],
+        [1045, 642],
+      ]),
+      area("study", "書斎", "area_study.png", [
+        [161, 712],
+        [466, 605],
+        [750, 556],
+        [1006, 641],
+      ]),
     ],
     furniture_catalog: [
       {
@@ -174,6 +195,30 @@ async function mockHakoniwa(
     world_memo: "",
     intervention: { selected: "watch", choices: ["watch", "nudge", "rewrite"] },
   };
+  if (options.furnishedRooms) {
+    world.residents.push(resident("tamako", "大島 珠子"), {
+      ...resident("shiori", "瀬戸 栞"),
+      current_area: "study",
+    });
+    const furniture = [
+      ["houseplant", "観葉植物"],
+      ["bookshelf", "本棚"],
+      ["kotatsu", "こたつ"],
+      ["plush", "ぬいぐるみ"],
+      ["cat_tower", "猫タワー"],
+      ["lamp", "フロアランプ"],
+      ["aquarium", "水槽"],
+      ["round_table", "丸テーブル"],
+    ];
+    world.furniture_catalog = furniture.map(([id, name]) => ({
+      id,
+      name,
+      url: `/hakoniwa-assets/furniture_${id}.png`,
+    }));
+    for (const [index, [id]] of furniture.entries()) {
+      world.areas[index < 4 ? 0 : 2].slots[index % 4].furniture_id = id;
+    }
+  }
   const chats: Record<string, HakoniwaChatEntry[]> = {};
   const webSearch = {
     query: "科学 最新",
@@ -873,11 +918,11 @@ test("ダイアログの上のクリックで住民が反応せず、広い画�
   await page.getByLabel("掟の名前").fill("猫の日");
   await page.getByLabel("本文").fill("全員が猫耳を付けて過ごす");
 
-  // 2人目(苑田 蓮)の初期位置: 部屋の横 3/4、足元 y=697 / 832、高さ 458 の中ほど
+  // 2人目の立ち絵の胴体を覆っているダイアログをクリックする
   const room = await page.getByTestId("hakoniwa-stage").boundingBox();
   if (!room) throw new Error("room not found");
   await page.mouse.click(
-    room.x + room.width * 0.75,
+    room.x + room.width * (853 / 1216),
     room.y + room.height * ((697 - 458 / 2) / 832),
   );
 
@@ -920,6 +965,96 @@ test("右パネルのタブは中身が長くても縮まず、ページ全体�
       barOverflow: 0,
       pageOverflow: 0,
     });
+  }
+});
+
+test("リビングと書斎の床に家具4点と住民を描画する", async ({
+  page,
+}, testInfo) => {
+  await mockHakoniwa(page, true, 0, { furnishedRooms: true });
+  await page.setViewportSize({ width: 1760, height: 960 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await page.getByRole("tab", { name: "家具", exact: true }).click();
+  const canvas = page.locator(".hakoniwa-stage__canvas canvas");
+  await expect(canvas).toHaveCount(1);
+  for (const [label, file, ids] of [
+    ["リビング", "room", ["houseplant", "bookshelf", "kotatsu", "plush"]],
+    ["書斎", "area_study", ["cat_tower", "lamp", "aquarium", "round_table"]],
+  ] as const) {
+    await page.getByRole("tab", { name: new RegExp(`^${label}`) }).click();
+    await expect(
+      page.locator(".hakoniwa-furniture__area.is-viewing select"),
+    ).toHaveCount(4);
+    for (const [i, id] of ids.entries()) {
+      await expect(
+        page.locator(".hakoniwa-furniture__area.is-viewing select").nth(i),
+      ).toHaveValue(id);
+    }
+    await page.waitForLoadState("networkidle");
+    // 透過画像の変換・転送・描画は通信完了より遅れるため、仮の住民カードが消えるまで確かめる
+    await expect(async () => {
+      const rendered = await canvas.screenshot();
+      const matches = await page.evaluate(
+        async ({ png, file, points }) => {
+          const load = async (src: string) => {
+            const img = new Image();
+            img.src = src;
+            await img.decode();
+            const el = document.createElement("canvas");
+            el.width = 1216;
+            el.height = 832;
+            const ctx = el.getContext("2d")!;
+            ctx.drawImage(img, 0, 0, 1216, 832);
+            return ctx;
+          };
+          const [actual, background] = await Promise.all([
+            load(png),
+            load(`/hakoniwa-assets/${file}.png`),
+          ]);
+          const card = actual.getImageData(0, 0, 1216, 832).data;
+          let placeholderPixels = 0;
+          for (let i = 0; i < card.length; i += 64) {
+            if (card[i] === 239 && card[i + 1] === 227 && card[i + 2] === 205)
+              placeholderPixels += 1;
+          }
+          const differences = points.map(([x, y]) => {
+            const a = actual.getImageData(x, y, 5, 5).data;
+            const b = background.getImageData(x, y, 5, 5).data;
+            return (
+              a.reduce((sum, v, i) => sum + Math.abs(v - b[i]), 0) / a.length
+            );
+          });
+          return { differences, placeholderPixels };
+        },
+        {
+          png: `data:image/png;base64,${rendered.toString("base64")}`,
+          file,
+          points:
+            file === "room"
+              ? [
+                  [30, 30],
+                  [150, 654],
+                  [440, 440],
+                  [758, 573],
+                  [1026, 611],
+                ]
+              : [
+                  [30, 30],
+                  [161, 610],
+                  [466, 374],
+                  [750, 430],
+                  [1006, 515],
+                ],
+        },
+      );
+      expect(matches.placeholderPixels).toBeLessThan(100);
+      expect(matches.differences[0]).toBeLessThan(5);
+      for (const difference of matches.differences.slice(1))
+        expect(difference).toBeGreaterThan(9);
+    }).toPass({ timeout: 10_000 });
+    await canvas.screenshot({ path: testInfo.outputPath(`${file}.png`) });
   }
 });
 

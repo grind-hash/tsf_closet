@@ -1,12 +1,16 @@
 // @vitest-environment node
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTransparentImageCache, hasMeaningfulAlpha } from "./imageAlpha";
+import {
+  createTransparentImageCache,
+  hasMeaningfulAlpha,
+  visibleHeight,
+} from "./imageAlpha";
 
 function makePixels(
   count: number,
   alphaForIndex: (index: number) => number,
-): Uint8ClampedArray {
+): Uint8ClampedArray<ArrayBuffer> {
   const data = new Uint8ClampedArray(count * 4);
   for (let i = 0; i < count; i += 1) {
     data[i * 4] = 255;
@@ -18,6 +22,12 @@ function makePixels(
 }
 
 describe("hasMeaningfulAlpha", () => {
+  it("anchors feet at the last visible row, ignoring faint residue underneath", () => {
+    const data = makePixels(20, (i) => (i === 8 ? 255 : 3));
+    expect(visibleHeight({ width: 4, height: 5, data })).toBe(3);
+    data.fill(0);
+    expect(visibleHeight({ width: 4, height: 5, data })).toBe(5);
+  });
   it("returns false for a fully opaque image", () => {
     const data = makePixels(4096, () => 255);
     expect(hasMeaningfulAlpha(data)).toBe(false);

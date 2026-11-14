@@ -133,6 +133,7 @@ export const guide = {
         items: [
           "Stardust House has a living room, a garden and a study; switch the place you watch with the chips above the room. Residents move to where their events happen and wander between places as days pass.",
           "On the Furniture tab, place up to four pieces in each place (each piece is one of a kind, and placed furniture may appear in events when it fits).",
+          "Spots 1 and 4 are closer to you on the left and right. Spots 2 and 3 are farther back, where you can see tall furniture behind passing residents.",
         ],
       },
       {

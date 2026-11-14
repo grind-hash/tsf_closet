@@ -16,6 +16,9 @@ import HakoniwaMessageFooter from "./HakoniwaMessageFooter";
 import {
   anchorRatio,
   depthScale,
+  furnitureSize,
+  GAME_H,
+  GAME_W,
   initialPosition,
   type Point,
 } from "./stage/roomLayout";
@@ -27,7 +30,12 @@ import type {
 import { useHakoniwaPlayback } from "./useHakoniwaPlayback";
 
 // 背景の色は四隅から読み取る(生成画像の背景は白とは限らない)
-const ALPHA_OPTIONS = { targetColor: null, threshold: 12, featherRadius: 1.8 };
+const ALPHA_OPTIONS = {
+  targetColor: null,
+  threshold: 12,
+  featherRadius: 1.8,
+  trimBottom: true,
+};
 /** 一言の吹き出しを出しておく時間 */
 const GREETING_MS = 7000;
 
@@ -38,7 +46,7 @@ interface Bubble {
 
 /**
  * 箱庭の部屋。Phaser のステージ(遅延読み込み)の上に、吹き出しとキャプションを重ねる。
- * Phaser を起動できなければ、住民を並べただけの静止画の部屋で遊べるようにする。
+ * Phaser を起動できない場合は同じ床と家具配置の静止画を表示する。
  */
 export default function HakoniwaStage() {
   const { t } = useTranslation();
@@ -97,14 +105,24 @@ export default function HakoniwaStage() {
   const backgroundUrl = hakoniwaMediaUrl(
     area?.background_url ?? world?.background_url,
   );
+  // エリア外の出来事には既定のリビング背景が使われる
+  const floorAreaId = area?.id ?? "living";
   const catalog = world?.furniture_catalog;
   const furniture = useMemo<StageFurniture[]>(() => {
     if (!area) return [];
     return area.slots.flatMap((slot, index) => {
       const item = catalog?.find((entry) => entry.id === slot.furniture_id);
       const url = item ? hakoniwaMediaUrl(item.url) : null;
-      return url
-        ? [{ key: `${area.id}:${index}`, url, x: slot.x, y: slot.y }]
+      return item && url
+        ? [
+            {
+              key: `${area.id}:${index}`,
+              url,
+              x: slot.x,
+              y: slot.y,
+              ...furnitureSize(item.id, slot.y),
+            },
+          ]
         : [];
     });
   }, [area, catalog]);
@@ -165,8 +183,8 @@ export default function HakoniwaStage() {
   }, []);
 
   useEffect(() => {
-    stage?.update(stageResidents, backgroundUrl, furniture);
-  }, [stage, stageResidents, backgroundUrl, furniture]);
+    stage?.update(stageResidents, backgroundUrl, floorAreaId, furniture);
+  }, [stage, stageResidents, backgroundUrl, floorAreaId, furniture]);
 
   useEffect(() => {
     stage?.setMotionEnabled(!reducedMotion);
@@ -193,9 +211,9 @@ export default function HakoniwaStage() {
     (residentId: string): Point | null => {
       const index = residents.findIndex((item) => item.id === residentId);
       if (index < 0) return null;
-      return anchorRatio(initialPosition(index, residents.length));
+      return anchorRatio(initialPosition(index, residents.length, floorAreaId));
     },
-    [residents],
+    [residents, floorAreaId],
   );
 
   // 吹き出しを住民の頭上に追従させる(歩いている間も)
@@ -278,6 +296,8 @@ export default function HakoniwaStage() {
             {stageFailed ? (
               <FallbackRoom
                 backgroundUrl={backgroundUrl}
+                areaId={floorAreaId}
+                furniture={furniture}
                 residents={stageResidents}
                 selectedResidentId={selectedResidentId}
                 onResidentClick={(id) => clickRef.current(id)}
@@ -360,6 +380,8 @@ export default function HakoniwaStage() {
 
 interface FallbackRoomProps {
   backgroundUrl: string | null;
+  areaId: string;
+  furniture: StageFurniture[];
   residents: StageResident[];
   selectedResidentId: string | null;
   onResidentClick: (id: string) => void;
@@ -368,6 +390,8 @@ interface FallbackRoomProps {
 /** Phaser を起動できなかったときの静止画の部屋 */
 function FallbackRoom({
   backgroundUrl,
+  areaId,
+  furniture,
   residents,
   selectedResidentId,
   onResidentClick,
@@ -379,8 +403,26 @@ function FallbackRoom({
         backgroundUrl ? { backgroundImage: `url(${backgroundUrl})` } : undefined
       }
     >
+      {furniture.map((item) => (
+        <div
+          key={item.key}
+          aria-hidden="true"
+          className="hakoniwa-stage__fallback-furniture"
+          style={
+            {
+              left: `${(item.x / GAME_W) * 100}%`,
+              top: `${(item.y / GAME_H) * 100}%`,
+              height: `${(item.height / GAME_H) * 100}%`,
+              zIndex: item.y - 1,
+              "--hk-shadow-width": `${(item.shadowWidth / GAME_W) * 100}cqw`,
+            } as CSSProperties
+          }
+        >
+          <img src={item.url} alt="" />
+        </div>
+      ))}
       {residents.map((resident, index) => {
-        const position = initialPosition(index, residents.length);
+        const position = initialPosition(index, residents.length, areaId);
         return (
           <button
             key={resident.id}
@@ -390,8 +432,9 @@ function FallbackRoom({
             }`}
             style={
               {
-                left: `${(position.x / 1216) * 100}%`,
-                top: `${(position.y / 832) * 100}%`,
+                left: `${(position.x / GAME_W) * 100}%`,
+                top: `${(position.y / GAME_H) * 100}%`,
+                zIndex: Math.round(position.y),
                 "--hk-depth-scale": depthScale(position.y),
               } as CSSProperties
             }

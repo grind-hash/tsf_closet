@@ -35,8 +35,28 @@ export const TURN_MS = 200;
 export const TURN_MIN_WIDTH = 0.4;
 /** 横の移動がこれより小さい歩き(奥・手前への移動)では振り向かない */
 export const TURN_MIN_DX = 28;
-/** 部屋の中での家具の表示高さ */
-export const FURNITURE_H = 215;
+/** 手前での家具の高さ。住民の身長を基準にしたゲーム座標 */
+const FURNITURE_SIZES: Readonly<
+  Record<string, { height: number; shadowWidth: number }>
+> = {
+  houseplant: { height: 248, shadowWidth: 68 },
+  cat_tower: { height: 278, shadowWidth: 159 },
+  bookshelf: { height: 338, shadowWidth: 254 },
+  round_table: { height: 169, shadowWidth: 169 },
+  lamp: { height: 347, shadowWidth: 76 },
+  plush: { height: 104, shadowWidth: 77 },
+  aquarium: { height: 245, shadowWidth: 158 },
+  kotatsu: { height: 103, shadowWidth: 279 },
+};
+
+export function furnitureSize(id: string, y: number) {
+  const { height, shadowWidth } = FURNITURE_SIZES[id] ?? {
+    height: 215,
+    shadowWidth: 120,
+  };
+  const scale = depthScale(y);
+  return { height: height * scale, shadowWidth: shadowWidth * scale };
+}
 /** 歩く速さ(ゲーム座標 px / 秒) */
 export const WALK_SPEED = 70;
 /** 歩き出しで速さが上がりきるまでの時間と、立ち止まる前に減速し始める距離 */
@@ -80,16 +100,60 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** 背景の幅1216に対する床の奥端。左右の壁と家具の手前に靴を置ける余白を取る。
+ * 折れ線の傾きを単調増加にして、床上の任意の2点を結ぶ直線も床に収める。 */
+const FLOOR_EDGES: Readonly<Record<string, readonly Point[]>> = {
+  living: [
+    { x: 0, y: 784 },
+    { x: 418, y: 652 },
+    { x: 801, y: 654 },
+    { x: GAME_W, y: 812 },
+  ],
+  study: [
+    { x: 0, y: 846 },
+    { x: 520, y: 643 },
+    { x: 788, y: 599 },
+    { x: GAME_W, y: 827 },
+  ],
+  garden: [
+    { x: 0, y: 762 },
+    { x: 420, y: 629 },
+    { x: 790, y: 606 },
+    { x: GAME_W, y: 747 },
+  ],
+};
+
+/** 背景と横位置から歩ける範囲を求める。書斎の両端には床幅が足りない。 */
+export function onFloor(point: Point, areaId: string): Point {
+  const inset = areaId === "study" ? 174 : 80;
+  const x = clamp(point.x, inset, GAME_W - inset);
+  const edge = FLOOR_EDGES[areaId];
+  const rightIndex = edge?.findIndex((p) => p.x >= x) ?? -1;
+  let top = FLOOR_TOP;
+  if (edge && rightIndex > 0) {
+    const left = edge[rightIndex - 1];
+    const right = edge[rightIndex];
+    top = left.y + ((x - left.x) / (right.x - left.x)) * (right.y - left.y);
+  }
+  return { x, y: clamp(point.y, top, FLOOR_BOTTOM) };
+}
+
 /** 住民の初期位置。並び順で横に散らし、足元の高さも少しずつずらす */
-export function initialPosition(index: number, count: number): Point {
+export function initialPosition(
+  index: number,
+  count: number,
+  areaId: string,
+): Point {
   const slots = Math.max(count, 1);
-  const x = clamp(((index + 0.5) / slots) * GAME_W, 80, GAME_W - 80);
+  // 入室直後は両端の置き場所を少し空けて、小物が住民の真後ろに隠れないようにする
+  const inset = 118;
+  const x = inset + ((index + 0.5) / slots) * (GAME_W - 2 * inset);
   const y = clamp(
     FLOOR_TOP + 70 + ((index * 47) % 170),
     FLOOR_TOP,
     FLOOR_BOTTOM,
   );
-  return { x, y };
+  return onFloor({ x, y }, areaId);
 }
 
 /** 住民ごとの足元の高さの癖(重なりにくくする) */
@@ -176,13 +240,16 @@ export function pickWanderTarget(
   from: Point,
   others: Point[],
   jitter: number,
+  areaId: string,
   random: () => number = Math.random,
   avoid: XRange | null = null,
 ): Point {
   let best: Point = { x: GAME_W / 2, y: (FLOOR_TOP + FLOOR_BOTTOM) / 2 };
   let bestScore = Number.NEGATIVE_INFINITY;
   // 出来事の再生中は、集まっている場所の外側だけから選ぶ
-  const ranges = avoid ? freeRanges(avoid) : [{ min: 100, max: GAME_W - 100 }];
+  const inset = areaId === "study" ? 174 : 100;
+  const walkRange = { min: inset, max: GAME_W - inset };
+  const ranges = avoid ? freeRanges(avoid, walkRange) : [walkRange];
   for (let attempt = 0; attempt < 12; attempt += 1) {
     let candidate: Point;
     if (random() < STROLL_CHANCE) {
@@ -207,6 +274,7 @@ export function pickWanderTarget(
         ),
       };
     }
+    candidate = onFloor(candidate, areaId);
     const score = targetScore(from, candidate, others);
     if (score > bestScore) {
       best = candidate;
@@ -293,13 +361,14 @@ export interface XRange {
 }
 
 /** 避ける範囲の左右に残る、歩ける横の範囲 */
-function freeRanges(avoid: XRange): XRange[] {
+function freeRanges(avoid: XRange, walk: XRange): XRange[] {
   const ranges: XRange[] = [];
-  if (avoid.min - 100 > 60) ranges.push({ min: 100, max: avoid.min });
-  if (GAME_W - 100 - avoid.max > 60) {
-    ranges.push({ min: avoid.max, max: GAME_W - 100 });
+  if (avoid.min - walk.min > 60)
+    ranges.push({ min: walk.min, max: Math.min(avoid.min, walk.max) });
+  if (walk.max - avoid.max > 60) {
+    ranges.push({ min: Math.max(avoid.max, walk.min), max: walk.max });
   }
-  return ranges.length > 0 ? ranges : [{ min: 100, max: GAME_W - 100 }];
+  return ranges.length > 0 ? ranges : [walk];
 }
 
 /** 出来事の参加住民が集まる横の範囲(居合わせない住民はここを空ける) */
@@ -321,12 +390,23 @@ export interface FocusTarget extends Point {
  * 出来事の参加住民(1〜3人)を集める位置。今の位置の左から順に並べ、端の住民は
  * 中央を向く。1人なら今の位置の近くで正面を向く。
  */
-export function focusTargets(positions: Point[]): FocusTarget[] {
+export function focusTargets(
+  positions: Point[],
+  areaId: string,
+): FocusTarget[] {
   if (positions.length === 0) return [];
+  const left = onFloor({ x: 0, y: FLOOR_BOTTOM }, areaId).x;
+  const width = GAME_W - 2 * left;
+  const spacing = Math.min(
+    FOCUS_SPACING,
+    width / Math.max(1, positions.length - 1),
+  );
+  const span = spacing * (positions.length - 1);
+  const margin = Math.max(240, left + span / 2);
   const midX = clamp(
     positions.reduce((sum, point) => sum + point.x, 0) / positions.length,
-    240,
-    GAME_W - 240,
+    margin,
+    GAME_W - margin,
   );
   const midY = clamp(
     positions.reduce((sum, point) => sum + point.y, 0) / positions.length,
@@ -334,18 +414,20 @@ export function focusTargets(positions: Point[]): FocusTarget[] {
     FLOOR_BOTTOM - 20,
   );
   if (positions.length === 1) {
-    return [{ x: midX, y: midY, flip: false }];
+    return [{ ...onFloor({ x: midX, y: midY }, areaId), flip: false }];
   }
   const order = positions
     .map((point, index) => ({ point, index }))
     .sort((a, b) => a.point.x - b.point.x);
-  const span = FOCUS_SPACING * (positions.length - 1);
   const targets: FocusTarget[] = new Array(positions.length);
   order.forEach(({ index }, rank) => {
-    const x = midX - span / 2 + rank * FOCUS_SPACING;
+    const x = midX - span / 2 + rank * spacing;
     // 右側の住民ほど左(中央)を向く。3人の中央は正面のまま
     const center = (positions.length - 1) / 2;
-    targets[index] = { x, y: midY, flip: rank > center };
+    targets[index] = {
+      ...onFloor({ x, y: midY }, areaId),
+      flip: rank > center,
+    };
   });
   return targets;
 }

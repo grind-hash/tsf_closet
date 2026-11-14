@@ -837,8 +837,33 @@
 }
 
 .hakoniwa-stage__fallback {
+  isolation: isolate;
+  container-type: inline-size;
   background-size: cover;
   background-position: center;
+}
+
+.hakoniwa-stage__fallback-furniture {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+.hakoniwa-stage__fallback-furniture img {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+
+.hakoniwa-stage__fallback-furniture::before {
+  position: absolute;
+  bottom: -3%;
+  left: 50%;
+  width: var(--hk-shadow-width);
+  aspect-ratio: 6;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse, rgb(0 0 0 / 43%), transparent 72%);
+  content: "";
 }
 
 .hakoniwa-stage__fallback-avatar {
