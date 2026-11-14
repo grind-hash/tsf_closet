@@ -219,7 +219,8 @@ RULE_FOCUS_RETRY_NOTE = (
 )
 
 DIRECTED_EVENT_PRIORITY_NOTE = (
-    " This scene was ordered directly by the player, the writer of this world: "
+    " This scene was ordered directly by the player, the unseen one who rewrites "
+    "this world: "
     "the order decides the subject matter and tone of this scene, overriding the "
     "default calm, warm mood described above."
 )
@@ -228,7 +229,7 @@ DIRECTED_EVENT_PRIORITY_NOTE = (
 DIRECTED_EVENT_MASK_CHARS = ("〇", "○", "●", "◯", "◎", "□", "■", "×", "✕", "*", "＊")
 
 DIRECTED_EVENT_RETRY_NOTE = (
-    "\n\n[Repeated, mandatory] Depicting what the writer's instruction above orders, "
+    "\n\n[Repeated, mandatory] Depicting what the player's instruction above orders, "
     "as the center of the scene, is an absolute condition. A scene that swaps it for "
     "something else or only talks about it is not acceptable. Output the scene in the "
     "specified JSON format, with every speaker and participant written exactly as "
@@ -784,7 +785,7 @@ def directed_event_focus_text(
     male = "".join(
         f" {resident_name(a, language)} and {resident_name(b, language)} both "
         "currently have male bodies: never depict romantic or sexual feelings or acts "
-        "between the two of them. This limit takes precedence over the writer's "
+        "between the two of them. This limit takes precedence over the player's "
         "order: if the order asks for romance or intimacy between them, do not carry "
         "out that part at all, not even off-screen, as a joke or as a greeting (no "
         "kiss, embrace or caress), and do not hint at it (no leaning in, getting too "
@@ -800,8 +801,9 @@ def directed_event_focus_text(
         else ""
     )
     return (
-        "\n\n[Most important: the scene the writer has ordered]\n"
-        "The player, the writer of this world, has directly ordered this event:\n"
+        "\n\n[Most important: the scene the player has ordered]\n"
+        "The player, the unseen one who rewrites this world, has directly ordered "
+        "this event:\n"
         f'"{instruction}"\n'
         f"{masked}"
         "The order has the same force as a player-written rule: it simply happens in "
@@ -1142,12 +1144,12 @@ def event_user_prompt(
     if directed_instruction:
         if continues_event:
             lead += (
-                "\nThe writer has ordered how the previous scene continues: "
+                "\nThe player has ordered how the previous scene continues: "
                 f'"{directed_instruction}"'
             )
             previous = previous_scene_text(state, continues_event, language)
         else:
-            lead += f'\nThe scene the writer has ordered: "{directed_instruction}"'
+            lead += f'\nThe scene the player has ordered: "{directed_instruction}"'
         focus = directed_event_focus_text(
             state, group, directed_instruction, language, nsfw=nsfw
         )
@@ -1194,7 +1196,8 @@ def event_user_prompt(
         f"Today is day {state['day']} at Stardust House.\n"
         f"{lead}\n"
         f"{place}"
-        f"{story_text.dissonance_context_text(state)}\n\n"
+        f"{story_text.dissonance_context_text(state)}"
+        f"{story_text.acknowledged_player_rule(state, language)}\n\n"
         f"World rules:\n{active_rules_text(state, language)}\n\n"
         f"Residents:\n{residents_text(state, language)}\n\n"
         f"Recent events:\n{recent_events_text(state)}"
@@ -1221,6 +1224,7 @@ def greeting_prompts(
         "headings, quotation marks or explanations. If rules are active, always reflect "
         "their speech style and premise.\n"
         f"{gender_address_rules(language)}\n"
+        f"{story_text.player_address_rule(state, language, direct=True)}\n"
         f"{content_rule(nsfw)}\n"
         f"Reply in {response_language(language)}."
     )
@@ -1334,6 +1338,7 @@ def touch_prompts(
         "English words). Output only the spoken words: no narration, headings, "
         "quotation marks or explanations. If rules are active, reflect their premise.\n"
         f"{gender_address_rules(language)}\n"
+        f"{story_text.player_address_rule(state, language, direct=True)}\n"
         f"{content_rule(nsfw)}\n"
         f"Reply in {response_language(language)}."
     )
@@ -1383,6 +1388,7 @@ def chat_reply_prompts(
         "recent conversation. Do not pretend to know things you do not know; keep the "
         "everyday feel of a resident.\n"
         f"{gender_address_rules(language)}\n"
+        f"{story_text.player_address_rule(state, language, direct=True)}\n"
         f"{content_rule(nsfw)}\n"
         f"Reply in {response_language(language)}."
     )
@@ -1646,7 +1652,8 @@ def transform_reaction_prompts(
         f"{subject}"
         f"Involved residents: {involved_text}.\n"
         f"{place_text(state, target.get('current_area'))}"
-        f"{story_text.dissonance_context_text(state)}\n"
+        f"{story_text.dissonance_context_text(state)}"
+        f"{story_text.acknowledged_player_rule(state, language)}\n"
         f"{extra}"
         f"World rules:\n{active_rules_text(state, language)}"
         f"{memo_section(state)}"
@@ -1670,6 +1677,7 @@ def confrontation_prompts(
         "Narration must not contain dialogue in quotation marks. Speakers and "
         "participants must be written exactly as the names given.\n"
         f"{gender_address_rules(language)}\n"
+        f"{story_text.player_address_rule(state, language)}\n"
         f"{NO_MALE_ROMANCE_RULE}\n"
         f"{content_rule(nsfw)}\n"
         "Output only one JSON object in this format, with no preface or code fence:\n"
@@ -1726,6 +1734,64 @@ def scene_tags_prompts(
     user_prompt = (
         f"Title: {event.get('title', '')}\n"
         f"Place: {area_label}\n"
+        f"Narration: {event.get('narration', '')}\n"
+        f"Lines:\n{lines or '(none)'}"
+    )
+    return system_prompt, user_prompt
+
+
+def event_look_prompts(
+    event: dict[str, Any],
+    names: dict[str, str],
+    looks: dict[str, str],
+    language: str,
+) -> tuple[str, str]:
+    """出来事の結果として姿が変わった参加者と、変化後の姿の全タグを決めさせる。
+
+    names は住民 id ごとの名前、looks は住民 id ごとの出来事の前の姿のタグ。
+    服の交換では相手の「出来事の前」のタグが要るので、参加者全員ぶんを1回で決めさせる。
+    """
+    system_prompt = (
+        "You design tags for image generation. You are given an event from a "
+        "miniature-world story and the English Danbooru-style tags of each "
+        "character's look before the event. Decide whose look is different once "
+        "the event is over: clothing, accessories, items they keep on, hair, "
+        "visible additions such as animal ears, or a body change, as long as the "
+        "event clearly depicts it and it lasts after the scene. Exchanging clothes "
+        "with another character counts: each of them then wears the clothing tags "
+        "the other one had before the event. Momentary states do not count: being "
+        "undressed only for a bath or for sex, getting wet, a pose, an expression, "
+        "or something merely imagined or talked about.\n"
+        "For each character whose look changed, output the complete tag list of "
+        "the look after the event. Keep that character's own identity tags from "
+        "their tags before the event (hair style, hair color, eye color, age, body "
+        "features, and the gender token such as 1girl / 1boy) unless the event "
+        "explicitly changes them; replace clothing and items as the event "
+        "describes and drop the replaced ones. Keep the tags the event leaves "
+        "untouched; do not shorten the list. Write all tags in English, "
+        "comma-separated, on a single line.\n"
+        f"description: one short phrase in {response_language(language)} that says "
+        "how the character looks now (for example, wearing the other character's "
+        "jacket and leggings).\n"
+        "Leave out every character whose look did not change. If nobody's look "
+        "changed, output an empty list.\n"
+        "Output only one JSON object in this format, with no preface or code fence:\n"
+        '{"changes": [{"name": "character name exactly as given", '
+        '"tags": "tag, tag, ...", "description": "short phrase"}]}'
+    )
+    cast = "\n".join(
+        f"- {names.get(str(resident_id), '?')}: {looks.get(str(resident_id), '')}"
+        for resident_id in event.get("participants") or []
+    )
+    lines = "\n".join(
+        f"{names.get(str(line.get('speaker')), '?')}: {line.get('text', '')}"
+        for line in event.get("lines") or []
+    )
+    order = str(event.get("instruction") or "").strip()
+    user_prompt = (
+        f"Characters and their looks before the event:\n{cast}\n\n"
+        + (f"What the player ordered for this scene: {order}\n" if order else "")
+        + f"Title: {event.get('title', '')}\n"
         f"Narration: {event.get('narration', '')}\n"
         f"Lines:\n{lines or '(none)'}"
     )

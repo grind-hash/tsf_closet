@@ -24,6 +24,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_CONVERT_TAGS_MAX_ATTEMPTS,
     HAKONIWA_EVENT_LINE_TEXT_MAX,
     HAKONIWA_EVENT_LINES_MAX,
+    HAKONIWA_EVENT_LOOK_DESC_MAX,
     HAKONIWA_EVENT_NARRATION_MAX,
     HAKONIWA_EVENT_TITLE_MAX,
     HAKONIWA_GREETING_MAX,
@@ -69,6 +70,7 @@ from .hakoniwa_prompts import (
     chat_reply_prompts,
     confrontation_prompts,
     current_appearance_summary,
+    event_look_prompts,
     event_system_prompt,
     event_user_prompt,
     greeting_prompts,
@@ -866,6 +868,94 @@ async def convert_scene_to_tags(
         and str(value).strip() in HAKONIWA_SCENE_ATTIRES
     }
     return SceneTags(", ".join(tags.split(", ")[:SCENE_TAGS_MAX_COUNT]), attire)
+
+
+class _EventLookChange(BaseModel):
+    name: str
+    tags: str = ""
+    description: str = ""
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tags(cls, value: Any) -> str:
+        if isinstance(value, list):
+            return ", ".join(str(item) for item in value)
+        return value if isinstance(value, str) else ""
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _description(cls, value: Any) -> str:
+        return value if isinstance(value, str) else ""
+
+
+class _EventLooksOutput(BaseModel):
+    changes: list[_EventLookChange] = Field(default_factory=list)
+
+
+def _same_tags(left: str, right: str) -> bool:
+    def normalized(tags: str) -> set[str]:
+        return {tag.strip().lower() for tag in tags.split(",") if tag.strip()}
+
+    return normalized(left) == normalized(right)
+
+
+async def plan_event_looks(
+    event: dict[str, Any],
+    names: dict[str, str],
+    looks: dict[str, str],
+    language: str,
+    *,
+    novelai_model: str | None,
+) -> list[dict[str, str]]:
+    """出来事の結果として姿が変わった参加者ごとの {resident_id, tags, description}。
+
+    looks は住民 id ごとの出来事の前の姿のタグ。誰の姿も変わらなければ空のリスト。
+    タグにできなかった参加者・前と同じタグの参加者は載せない。生成に失敗したら HakoniwaError。
+    """
+    system_prompt, user_prompt = event_look_prompts(event, names, looks, language)
+
+    async def generate(system: str, user: str) -> str:
+        return await _generate_text(
+            system, user, novelai_model=novelai_model, max_tokens=900
+        )
+
+    try:
+        output = await generate_validated(
+            _EventLooksOutput,
+            generate=generate,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa event look plan failed: %s: %s", type(error).__name__, error
+        )
+        raise HakoniwaError(
+            "event_look_failed",
+            "出来事で姿が変わったかを確かめられませんでした。もう一度お試しください",
+        ) from error
+    id_by_name = {
+        _norm_name(names.get(str(resident_id), "")): str(resident_id)
+        for resident_id in event.get("participants") or []
+    }
+    fallback = str(event.get("instruction") or event.get("title") or "")
+    plan: dict[str, dict[str, str]] = {}
+    for change in output.changes:
+        resident_id = id_by_name.get(_norm_name(change.name))
+        tags = clean_tags(change.tags)
+        if resident_id is None or resident_id in plan or not tags:
+            continue
+        if _same_tags(tags, looks.get(resident_id, "")):
+            continue
+        description = " ".join(change.description.split()) or fallback
+        plan[resident_id] = {
+            "resident_id": resident_id,
+            "tags": tags,
+            "description": normalize_output(description, language)[
+                :HAKONIWA_EVENT_LOOK_DESC_MAX
+            ],
+        }
+    return list(plan.values())
 
 
 # --- タッチ ---

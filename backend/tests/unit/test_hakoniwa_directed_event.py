@@ -157,7 +157,7 @@ def _prompt(state, ids, *, nsfw: bool, instruction: str = INSTRUCTION) -> str:
 def test_directed_prompt_puts_the_instruction_first_and_keeps_current_looks():
     prompt = _prompt(_state(), ["aoi", "tamako"], nsfw=False)
 
-    assert "[Most important: the scene the writer has ordered]" in prompt
+    assert "[Most important: the scene the player has ordered]" in prompt
     assert f'"{INSTRUCTION}"' in prompt
     assert "never revert anyone to their original look" in prompt
     # 指示に従うのは本人たちの意思で、押し切る・強いる場面にはしない
@@ -289,7 +289,7 @@ def test_regular_event_prompt_is_unchanged_without_instruction():
 
     prompt = event_user_prompt(state, group, "ja", nsfw=False)
 
-    assert "the scene the writer has ordered" not in prompt
+    assert "the scene the player has ordered" not in prompt
     assert "Avoid topics and developments similar" in prompt
 
 
@@ -467,3 +467,121 @@ async def test_continued_event_stays_unless_the_scene_moves(
 
     assert event["area"] == "living"
     assert event["location"] == expected
+
+
+# --- 出来事で変わった姿 ---
+
+
+def _look_event():
+    return {
+        "id": "ev1",
+        "title": "とりかえっこ",
+        "narration": "二人は笑いながら、着ているものをそっくり取り替えた。",
+        "lines": [
+            {"speaker": "aoi", "text": "珠子さんのブラウス、意外と着やすいね"},
+            {"speaker": "tamako", "text": "そのジャケット、私にも似合うかしら"},
+        ],
+        "participants": ["aoi", "tamako"],
+        "instruction": "葵と珠子が服を交換する",
+    }
+
+
+NAMES = {"aoi": "高瀬 葵", "tamako": "大島 珠子"}
+LOOKS = {
+    "aoi": "1girl, brown hair, ponytail, denim jacket, leggings",
+    "tamako": "1girl, silver hair, white blouse, pencil skirt",
+}
+
+
+@pytest.mark.asyncio
+async def test_event_look_plan_gets_every_look_before_the_event(monkeypatch):
+    output = json.dumps(
+        {
+            "changes": [
+                {
+                    "name": "高瀬葵",
+                    "tags": ["1girl", "brown hair", "white blouse", "pencil skirt"],
+                    "description": " 珠子のブラウスと\nスカートを着ている ",
+                },
+                # 前と同じ姿・知らない名前・タグにならない出力・2回目の同じ住民は載せない
+                {"name": "大島 珠子", "tags": LOOKS["tamako"], "description": "同じ"},
+                {"name": "だれか", "tags": "1girl, dress", "description": "x"},
+                {"name": "大島 珠子", "tags": "ドレス姿", "description": "x"},
+                {"name": "高瀬 葵", "tags": "1girl, dress", "description": "x"},
+            ]
+        },
+        ensure_ascii=False,
+    )
+    calls = _stub(monkeypatch, [output])
+
+    plan = await gen.plan_event_looks(
+        _look_event(), NAMES, LOOKS, "ja", novelai_model=None
+    )
+
+    assert plan == [
+        {
+            "resident_id": "aoi",
+            "tags": "1girl, brown hair, white blouse, pencil skirt",
+            "description": "珠子のブラウスと スカートを着ている",
+        }
+    ]
+    system, user = calls[0]
+    # 服の交換は相手の出来事の前の姿が要るので、全員ぶんの姿と指示を1回で渡す
+    assert f"- 高瀬 葵: {LOOKS['aoi']}" in user
+    assert f"- 大島 珠子: {LOOKS['tamako']}" in user
+    assert "葵と珠子が服を交換する" in user
+    assert "高瀬 葵: 珠子さんのブラウス、意外と着やすいね" in user
+    assert "「" not in user
+    assert "the other one had before the event" in system
+
+
+@pytest.mark.asyncio
+async def test_event_look_plan_without_description_and_failure(monkeypatch):
+    _stub(
+        monkeypatch,
+        [json.dumps({"changes": [{"name": "高瀬 葵", "tags": "1girl, yukata"}]})],
+    )
+    plan = await gen.plan_event_looks(
+        _look_event(), NAMES, LOOKS, "ja", novelai_model=None
+    )
+    # 説明が無ければ、出来事の指示を説明にする
+    assert plan[0]["description"] == "葵と珠子が服を交換する"
+
+    _stub(monkeypatch, ["not json", "still not json"])
+    with pytest.raises(HakoniwaError) as caught:
+        await gen.plan_event_looks(
+            _look_event(), NAMES, LOOKS, "ja", novelai_model=None
+        )
+    assert caught.value.code == "event_look_failed"
+
+
+def test_event_look_plan_is_kept_on_the_event():
+    state = logic.apply_event(
+        _state(),
+        {
+            "title": "とりかえっこ",
+            "narration": "二人は服を取り替えた。",
+            "lines": [],
+            "participants": ["aoi", "tamako"],
+            "mood_delta": {},
+            "affinity_delta": 0,
+            "source": "player",
+        },
+        random.Random(0),
+    )
+    event_id = state["events"][-1]["id"]
+    plan = [{"resident_id": "aoi", "tags": "1girl, yukata", "description": "浴衣姿"}]
+
+    planned = logic.set_event_look_plan(state, event_id, plan)
+
+    assert logic.event_look_entry(planned, event_id, "aoi") == plan[0]
+    # 保存した状態を読み込み直しても残る
+    reloaded = logic.normalize_state(planned)
+    assert logic.event_look_entry(reloaded, event_id, "aoi") == plan[0]
+    assert "look_plan" not in state["events"][-1]
+    with pytest.raises(HakoniwaError) as caught:
+        logic.event_look_entry(planned, event_id, "tamako")
+    assert caught.value.code == "event_look_not_planned"
+    with pytest.raises(HakoniwaError) as caught:
+        logic.set_event_look_plan(state, "nope", plan)
+    assert caught.value.code == "event_not_found"

@@ -246,11 +246,48 @@ WORLD_ADAPTATION_STAGE_GUIDANCE = (
     ),
 )
 
+# 住民がプレイヤーをどう呼ぶか。名前があればその名前で、無ければ肩書きを作らずに話す。
+# {name} はプレイヤーの名前、{you} / {indirect} / {title} は出力言語ごとの言い方
+PLAYER_ADDRESS_NAMED = (
+    'How to call the player: the residents know the player as "{name}". When a '
+    "resident speaks to the player or mentions them, they call the player by that "
+    "name, with an honorific that fits the speaker's own speech style{honorific}. "
+    "Never call the player {title}, and never use a housemate's name for the player."
+)
+PLAYER_ADDRESS_UNNAMED = (
+    "How to call the player: the player has no name in this world. A resident who "
+    "speaks to the player says {you} at most and uses no name or title to call "
+    "them; when the residents talk about the player, they refer to them indirectly "
+    "({indirect}). Never coin a title for the player such as {title}, and never use "
+    "a housemate's name for the player."
+)
+PLAYER_ADDRESS_WORDS = {
+    "ja": {
+        "honorific": " (in Japanese, for example 「{name}さん」)",
+        "you": "「あなた」",
+        "indirect": "for example 「あの人」「見ている誰か」",
+        "title": "「書き手」 or 「書き手さん」",
+    },
+    "en": {
+        "honorific": "",
+        "you": '"you"',
+        "indirect": 'for example "that someone" or "whoever is watching"',
+        "title": '"the Writer" or "Mr. Writer"',
+    },
+}
+# 一言・タッチ・会話: いま話している相手はプレイヤーで、同居人ではない
+PLAYER_DIRECT_TALK = (
+    "The one you are talking to right now is the player, not a housemate. Say the "
+    "line to the player: do not greet or call out to a housemate in it. The 'Calls "
+    "housemates' list only tells you what to call a housemate when you mention one."
+)
+
 DISSONANCE_CONTEXT = {
     "acknowledged": (
         "Premise: the residents openly know that the rules and looks of this world are "
-        "rewritten by an unseen being they call the writer. Everyday talk may naturally "
-        "include signs of the writer, expectations of the next rewrite, or complaints."
+        "rewritten by an unseen being who watches over them (the player). Everyday "
+        "talk may naturally include signs of that being, expectations of the next "
+        "rewrite, or complaints."
     ),
     "stirring": (
         "Premise: lately the residents have faintly noticed unnatural changes in the "
@@ -297,9 +334,9 @@ ARC_CLIMAX_INSTRUCTION = (
 CONFRONTATION_SYSTEM = (
     "You are the narrator of this miniature world. The residents have noticed that "
     "the world's rules and their looks keep being rewritten by someone, and they "
-    "finally resolve to call out to that being (the writer). Create exactly one "
-    "special event that marks this turning point. The lines are the two main "
-    "characters' words, and they must include calling out to or questioning the "
-    "writer. Make it not anger but a call mixed with bewilderment, curiosity and a "
-    "little expectation."
+    "finally resolve to call out to that being (the player, whom they cannot see). "
+    "Create exactly one special event that marks this turning point. The lines are "
+    "the two main characters' words, and they must include calling out to or "
+    "questioning that being. Make it not anger but a call mixed with bewilderment, "
+    "curiosity and a little expectation."
 )

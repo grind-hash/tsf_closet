@@ -958,6 +958,20 @@ def test_world_memo_and_intervention_flow(client: TestClient):
         f"/api/hakoniwa/worlds/{wid}/settings", json={"world_memo": "全員が敬語"}
     ).json()
     assert memo["world_memo"] == "全員が敬語"
+    assert memo["player_name"] == ""
+    named = client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings", json={"player_name": " ユウ "}
+    ).json()
+    assert named["player_name"] == "ユウ"
+    assert named["world_memo"] == "全員が敬語"
+    too_long = client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings", json={"player_name": "あ" * 21}
+    )
+    assert too_long.status_code == 422
+    cleared = client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings", json={"player_name": ""}
+    ).json()
+    assert cleared["player_name"] == ""
     bad = client.put(
         f"/api/hakoniwa/worlds/{wid}/intervention", json={"choice": "arc_boost"}
     )
@@ -1533,3 +1547,120 @@ def test_continue_event_failure_leaves_the_world_unchanged(
     after = client.get(f"/api/hakoniwa/worlds/{wid}").json()
     assert [e["id"] for e in after["events"]] == [first["id"]]
     assert after["dissonance"]["value"] == 10
+
+
+# --- 出来事で立ち絵も変える ---
+
+SWAP_INSTRUCTION = "葵と珠子が服を交換する"
+AOI_AFTER = "1girl, brown hair, ponytail, white blouse, pencil skirt"
+TAMAKO_AFTER = "1girl, silver hair, wavy hair, denim jacket, leggings"
+
+
+def _resident(world: dict, resident_id: str) -> dict:
+    return next(r for r in world["residents"] if r["id"] == resident_id)
+
+
+def _swap_event(client: TestClient, wid: str, llm_outputs: list) -> dict:
+    llm_outputs.append(_directed_event_json(["高瀬 葵", "大島 珠子"]))
+    response = client.post(
+        f"/api/hakoniwa/worlds/{wid}/residents/aoi/event",
+        json={
+            "instruction": SWAP_INSTRUCTION,
+            "scope": "selected",
+            "partner_ids": ["tamako"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["new_events"][0]
+
+
+def test_event_looks_are_planned_once_then_drawn_one_by_one(
+    client: TestClient, llm_outputs: list, monkeypatch
+):
+    drawn: list[str] = []
+
+    async def fake_avatar(tags, *, image_model, nsfw_mode):
+        drawn.append(tags)
+        return _png()
+
+    monkeypatch.setattr(service_module, "generate_avatar_bytes", fake_avatar)
+    wid = _create(client, ["aoi", "tamako", "ren"])["id"]
+    event = _swap_event(client, wid, llm_outputs)
+    llm_outputs.append(
+        json.dumps(
+            {
+                "changes": [
+                    {
+                        "name": "高瀬 葵",
+                        "tags": AOI_AFTER,
+                        "description": "珠子のブラウスとスカートを着ている",
+                    },
+                    {
+                        "name": "大島 珠子",
+                        "tags": TAMAKO_AFTER,
+                        "description": "葵のデニムジャケットを着ている",
+                    },
+                    # 出来事に出ていない住民は計画に入れない
+                    {"name": "苑田 蓮", "tags": "1boy, suit", "description": "x"},
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+    base = f"/api/hakoniwa/worlds/{wid}/events/{event['id']}/looks"
+
+    plan = client.post(f"{base}/plan", json={"language": "ja"})
+
+    assert plan.status_code == 200, plan.text
+    body = plan.json()
+    assert body["changes"] == [
+        {"resident_id": "aoi", "description": "珠子のブラウスとスカートを着ている"},
+        {"resident_id": "tamako", "description": "葵のデニムジャケットを着ている"},
+    ]
+    # 計画では画像を作らず、姿も変えない
+    assert drawn == []
+    assert _resident(body["world"], "aoi")["transformation"] is None
+
+    first = client.post(f"{base}/aoi", json={})
+    assert first.status_code == 200, first.text
+    aoi = _resident(first.json()["world"], "aoi")
+    assert aoi["transformation"]["tags"] == AOI_AFTER
+    assert aoi["transformation"]["description"] == "珠子のブラウスとスカートを着ている"
+    assert aoi["display_kind"] == "transform"
+    assert aoi["adaptation"]["kind"] == "transform"
+    assert len(aoi["transformation_history"]) == 1
+    assert _resident(first.json()["world"], "tamako")["transformation"] is None
+
+    second = client.post(f"{base}/tamako", json={})
+    assert second.status_code == 200, second.text
+    # 2人目も、1人目を変える前に決めた計画のタグで描く
+    assert drawn == [AOI_AFTER, TAMAKO_AFTER]
+    world = second.json()["world"]
+    assert _resident(world, "tamako")["transformation"]["tags"] == TAMAKO_AFTER
+    # 反応の出来事は足さず、違和感も出来事ぶんのまま
+    assert [e["id"] for e in world["events"]] == [event["id"]]
+    assert world["dissonance"]["value"] == 10
+
+    outsider = client.post(f"{base}/ren", json={})
+    assert outsider.status_code == 400
+    assert outsider.json()["detail"]["error"] == "event_look_not_planned"
+
+
+def test_event_look_plan_can_be_empty_or_fail(client: TestClient, llm_outputs: list):
+    wid = _create(client, ["aoi", "tamako"])["id"]
+    event = _swap_event(client, wid, llm_outputs)
+    base = f"/api/hakoniwa/worlds/{wid}/events/{event['id']}/looks"
+
+    failed = client.post(f"{base}/plan", json={})
+    assert failed.status_code == 502
+    assert failed.json()["detail"]["error"] == "event_look_failed"
+    unplanned = client.post(f"{base}/aoi", json={})
+    assert unplanned.json()["detail"]["error"] == "event_look_not_planned"
+
+    llm_outputs.append('{"changes": []}')
+    empty = client.post(f"{base}/plan", json={})
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["changes"] == []
+
+    missing = client.post(f"/api/hakoniwa/worlds/{wid}/events/nope/looks/plan", json={})
+    assert missing.status_code == 404

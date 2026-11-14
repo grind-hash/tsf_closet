@@ -499,6 +499,8 @@ export interface HakoniwaWorld {
   memo_look_planned?: boolean;
   /** 世界のメモ(全生成に最優先の指示として載せる) */
   world_memo: string;
+  /** 住民がプレイヤーを呼ぶときの名前(空なら名前で呼ばない) */
+  player_name?: string;
   /** この応答で新しく達成した観察記録(実績)。通知に使う */
   new_achievements?: HakoniwaAchievementUnlocked[];
   /** 実験テーマ(テーマ無しは null) */
@@ -714,6 +716,8 @@ export function updateHakoniwaSettings(
     world_memo?: string;
     /** 両方空でテーマ無し */
     experiment_theme?: HakoniwaTheme;
+    /** 空なら名前で呼ばない */
+    player_name?: string;
   },
   language: string,
 ): Promise<HakoniwaWorld> {
@@ -1062,6 +1066,38 @@ export function generateHakoniwaSceneImage(
 ): Promise<HakoniwaImageResult> {
   return requestJson<HakoniwaImageResult>(
     `${WORLDS}/${worldId}/events/${encodeURIComponent(eventId)}/scene-image`,
+    jsonInit("POST", { language }),
+  );
+}
+
+export interface HakoniwaEventLookPlan {
+  world: HakoniwaWorld;
+  /** 出来事の結果として姿が変わる住民(誰も変わらなければ空) */
+  changes: { resident_id: string; description: string }[];
+  cost_usd: number | null;
+}
+
+/** 出来事の結果として姿が変わった住民と、変化後の姿を決める(画像は作らない) */
+export function planHakoniwaEventLooks(
+  worldId: string,
+  eventId: string,
+  language: string,
+): Promise<HakoniwaEventLookPlan> {
+  return requestJson<HakoniwaEventLookPlan>(
+    `${WORLDS}/${worldId}/events/${encodeURIComponent(eventId)}/looks/plan`,
+    jsonInit("POST", { language }),
+  );
+}
+
+/** 出来事で決めた変化後の姿を、1人ぶん生成して変身として付ける */
+export function applyHakoniwaEventLook(
+  worldId: string,
+  eventId: string,
+  residentId: string,
+  language: string,
+): Promise<HakoniwaImageResult> {
+  return requestJson<HakoniwaImageResult>(
+    `${WORLDS}/${worldId}/events/${encodeURIComponent(eventId)}/looks/${encodeURIComponent(residentId)}`,
     jsonInit("POST", { language }),
   );
 }

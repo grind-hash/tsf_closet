@@ -91,6 +91,7 @@ from .hakoniwa_generation import (
     generate_touch_reaction,
     generate_transform_reaction,
     needs_tag_expansion,
+    plan_event_looks,
     plan_memo_look,
     recent_titles,
     template_event,
@@ -113,7 +114,7 @@ from .hakoniwa_prompts import rule_look_instruction
 from .hakoniwa_random import template_residents
 from .hakoniwa_random import validate_count as random_resident_count
 from .hakoniwa_reactions import rule_reactions
-from .hakoniwa_scene import scene_request, scene_suggestion
+from .hakoniwa_scene import look_tags, scene_request, scene_suggestion
 from .preset_sessions import PresetSessionError, load_preset_play_source
 from .session import DEFAULT_USER_ID, session_store
 
@@ -458,6 +459,7 @@ def _world_view(
         "memo_look": _memo_look_view(state),
         "memo_look_planned": logic.memo_look_planned(state),
         "world_memo": play.world_memo(state),
+        "player_name": play.player_name(state),
         "experiment_theme": play.experiment_theme(state),
         "intervention": {
             "selected": state.get("intervention") or "watch",
@@ -794,13 +796,17 @@ class HakoniwaService:
         dissonance_enabled: bool | None = None,
         world_memo: str | None = None,
         experiment_theme: dict[str, Any] | None = None,
+        player_name: str | None = None,
         language: str | None = None,
     ) -> dict[str, Any]:
-        """世界の設定(画像モデル・世界の違和感・世界のメモ・実験テーマ)。None の項目は変えない。
+        """世界の設定(画像モデル・世界の違和感・世界のメモ・実験テーマ・プレイヤーの名前)。
 
-        実験テーマは {preset_id, text}。どちらも空ならテーマ無しにする。
+        None の項目は変えない。実験テーマは {preset_id, text}。どちらも空ならテーマ無しにする。
         """
         memo = play.validate_world_memo(world_memo) if world_memo is not None else None
+        name = (
+            play.validate_player_name(player_name) if player_name is not None else None
+        )
         theme = (
             play.validate_theme(
                 experiment_theme.get("preset_id"), experiment_theme.get("text")
@@ -827,6 +833,8 @@ class HakoniwaService:
                 updated["world_memo"] = memo
             if experiment_theme is not None:
                 updated["experiment_theme"] = theme
+            if name is not None:
+                updated["player_name"] = name
             return updated
 
         return await self._mutate(world_id, language, change)
@@ -1759,6 +1767,31 @@ class HakoniwaService:
                 "tag_conversion_failed",
                 "変身の指定を画像のタグにできませんでした。文を変えてお試しください",
             )
+        return await self._apply_look_tags(
+            world_id,
+            state,
+            resident_id,
+            tags,
+            user_settings,
+            transformation=transformation,
+        )
+
+    async def _apply_look_tags(
+        self,
+        world_id: str,
+        state: dict[str, Any],
+        resident_id: str,
+        tags: str,
+        user_settings: dict[str, Any],
+        *,
+        transformation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """姿のタグから画像を作り、変身(いまの姿)として付けた状態を返す。
+
+        変身は体に付く(入れ替わり中は、本人がいま入っている相手の体)。性別のタグは体に合わせる。
+        """
+        resident = logic.find_resident(state, resident_id)
+        body = logic.body_of(state, resident)
         tags = logic.ensure_gender_token(tags, logic.resident_gender(body))
         data = await self._generate_image(state, user_settings, tags)
         filename = save_image(world_id, f"tf_{body['id']}", data)
@@ -2001,6 +2034,76 @@ class HakoniwaService:
             "new_events": [_event_view(world_id, event, lang) for event in new_events],
             "cost_usd": tracker.total_usd or None,
         }
+
+    async def plan_event_looks(
+        self, world_id: str, event_id: str, language: str | None = None
+    ) -> dict[str, Any]:
+        """出来事の結果として姿が変わった参加者と、変化後の姿を決めて出来事に保存する。
+
+        服の交換のように相手の出来事の前の姿が要る変化があるので、画像を作る前に、
+        いまの姿から参加者全員ぶんを1回で決める。画像は apply_event_look で1人ずつ作る。
+        """
+        lang, user_settings = await self._context(language)
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                state = _load_state(await self._load(db, world_id))
+            event = next(
+                (item for item in state["events"] if item["id"] == event_id), None
+            )
+            if event is None:
+                raise HakoniwaError("event_not_found", "出来事が見つかりません")
+            by_id = {resident["id"]: resident for resident in state["residents"]}
+            cast = [pid for pid in event.get("participants") or [] if pid in by_id]
+            if not cast:
+                raise HakoniwaError("no_participants", "この出来事の住民がもういません")
+            tracker = begin_cost_tracking()
+            plan = await plan_event_looks(
+                {**event, "participants": cast},
+                {pid: logic.resident_name(by_id[pid], lang) for pid in cast},
+                {pid: look_tags(state, by_id[pid]) for pid in cast},
+                lang,
+                novelai_model=user_settings.get("novelai_text_model"),
+            )
+            state = logic.set_event_look_plan(state, event_id, plan)
+            view = await self._store_view(world_id, state, lang, user_settings)
+        return {
+            "world": view,
+            "changes": [
+                {"resident_id": item["resident_id"], "description": item["description"]}
+                for item in plan
+            ],
+            "cost_usd": tracker.total_usd or None,
+        }
+
+    async def apply_event_look(
+        self,
+        world_id: str,
+        event_id: str,
+        resident_id: str,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """出来事で決めた変化後の姿を、その住民の1人ぶん生成して変身として付ける。
+
+        変身と同じ扱い(履歴に残り、元に戻せて、慣れの段階が始まる)。出来事そのものが
+        場面なので、反応の出来事は足さず、違和感も出来事ぶんより増やさない。
+        """
+        lang, user_settings = await self._context(language)
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                state = _load_state(await self._load(db, world_id))
+            logic.find_resident(state, resident_id)
+            entry = logic.event_look_entry(state, event_id, resident_id)
+            tracker = begin_cost_tracking()
+            state = await self._apply_look_tags(
+                world_id,
+                state,
+                resident_id,
+                entry["tags"],
+                user_settings,
+                transformation={"description": entry["description"]},
+            )
+            view = await self._store_view(world_id, state, lang, user_settings)
+        return {"world": view, "cost_usd": tracker.total_usd or None}
 
     # ------------------------------------------------------------------
     # 箱庭の中での会話・タッチ・介入

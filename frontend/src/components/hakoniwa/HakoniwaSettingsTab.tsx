@@ -14,12 +14,14 @@ import ConfirmDialog from "../ui/ConfirmDialog";
 import {
   LookControls,
   type LookRequest,
-  lookRequest,
+  lookConfirmBodyKey,
 } from "./HakoniwaRulesTab";
 import HakoniwaThemePicker, { normalizeTheme } from "./HakoniwaThemePicker";
 
 const DEFAULT_MODEL = "default";
 const MEMO_MAX = 1000;
+/** バックエンドの HAKONIWA_PLAYER_NAME_MAX */
+const PLAYER_NAME_MAX = 20;
 
 function modelLabel(model: string): string {
   return (
@@ -28,7 +30,7 @@ function modelLabel(model: string): string {
   );
 }
 
-/** 設定タブ: 姿を生成する画像モデル(透過のしかたの説明つき)、世界の違和感、世界の削除 */
+/** 設定タブ: 姿を生成する画像モデル(透過のしかたの説明つき)、あなたの名前、世界のメモ、世界の違和感、世界の削除 */
 export default function HakoniwaSettingsTab() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -39,6 +41,7 @@ export default function HakoniwaSettingsTab() {
     setImageModel,
     setDissonanceEnabled,
     setWorldMemo,
+    setPlayerName,
     setExperimentTheme,
     deleteWorld,
     lookTarget,
@@ -53,8 +56,11 @@ export default function HakoniwaSettingsTab() {
   const modelId = useId();
   const dissonanceId = useId();
   const memoId = useId();
+  const playerNameId = useId();
   const savedMemo = world?.world_memo ?? "";
   const [memo, setMemo] = useState(savedMemo);
+  const savedPlayerName = world?.player_name ?? "";
+  const [playerName, setPlayerNameDraft] = useState(savedPlayerName);
 
   const savedTheme = world?.experiment_theme ?? null;
   const savedThemeKey = JSON.stringify(savedTheme);
@@ -66,6 +72,9 @@ export default function HakoniwaSettingsTab() {
   useEffect(() => {
     setMemo(savedMemo);
   }, [savedMemo]);
+  useEffect(() => {
+    setPlayerNameDraft(savedPlayerName);
+  }, [savedPlayerName]);
   useEffect(() => {
     setThemeDraft(JSON.parse(savedThemeKey) as HakoniwaTheme | null);
   }, [savedThemeKey]);
@@ -109,6 +118,36 @@ export default function HakoniwaSettingsTab() {
             : t("hakoniwa.settings.transparencyRemoval")}
         </p>
         <p className="hakoniwa-note">{t("hakoniwa.settings.providerNote")}</p>
+      </section>
+
+      <section className="hakoniwa-settings__section">
+        <label className="hakoniwa-field" htmlFor={playerNameId}>
+          <span>{t("hakoniwa.settings.playerNameHeading")}</span>
+          <input
+            id={playerNameId}
+            type="text"
+            value={playerName}
+            maxLength={PLAYER_NAME_MAX}
+            placeholder={t("hakoniwa.settings.playerNamePlaceholder")}
+            onChange={(event) => setPlayerNameDraft(event.target.value)}
+          />
+        </label>
+        <div className="hakoniwa-settings__memo-actions">
+          <span className="hakoniwa-note">
+            {savedPlayerName
+              ? t("hakoniwa.settings.playerNameSet", { name: savedPlayerName })
+              : t("hakoniwa.settings.playerNameUnset")}
+          </span>
+          <button
+            type="button"
+            className="hakoniwa-button"
+            disabled={busy !== null || playerName.trim() === savedPlayerName}
+            onClick={() => void setPlayerName(playerName.trim())}
+          >
+            {t("hakoniwa.settings.playerNameSave")}
+          </button>
+        </div>
+        <p className="hakoniwa-note">{t("hakoniwa.settings.playerNameNote")}</p>
       </section>
 
       <section className="hakoniwa-settings__section">
@@ -219,21 +258,20 @@ export default function HakoniwaSettingsTab() {
         onCancel={() => setConfirmMemoLook(null)}
         onConfirm={() => {
           if (confirmMemoLook) {
-            generateLook(confirmMemoLook.target, confirmMemoLook.regenerate);
+            generateLook(
+              confirmMemoLook.target,
+              confirmMemoLook.regenerate,
+              confirmMemoLook.residentIds,
+            );
           }
           setConfirmMemoLook(null);
         }}
       >
         <p>
-          {t(
-            confirmMemoLook?.regenerate
-              ? "hakoniwa.rules.lookConfirmRedraw"
-              : "hakoniwa.rules.lookConfirmBody",
-            {
-              label: confirmMemoLook?.label ?? "",
-              count: confirmMemoLook?.count ?? 0,
-            },
-          )}
+          {t(lookConfirmBodyKey(confirmMemoLook), {
+            label: confirmMemoLook?.label ?? "",
+            count: confirmMemoLook?.count ?? 0,
+          })}
         </p>
       </ConfirmDialog>
       <ConfirmDialog
@@ -284,7 +322,6 @@ function MemoLookStatus({
     );
   }
   if (memoLook) {
-    const label = t("hakoniwa.settings.memoLookLabel");
     return (
       <div className="hakoniwa-settings__memo-look">
         <strong>{t("hakoniwa.settings.memoLookHeading")}</strong>
@@ -300,8 +337,9 @@ function MemoLookStatus({
         <LookControls
           status={memoLook}
           target="memo"
+          label={t("hakoniwa.settings.memoLookLabel")}
           disabled={locked}
-          onRequest={() => onRequest(lookRequest("memo", label, memoLook))}
+          onRequest={onRequest}
         />
       </div>
     );

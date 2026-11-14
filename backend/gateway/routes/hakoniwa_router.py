@@ -25,6 +25,7 @@ from ..schemas.hakoniwa import (
     HakoniwaCustomRuleRequest,
     HakoniwaDayResponse,
     HakoniwaDirectedEventRequest,
+    HakoniwaEventLookPlanResponse,
     HakoniwaFavoriteRequest,
     HakoniwaFurnitureRequest,
     HakoniwaGreetingResponse,
@@ -72,6 +73,7 @@ _UPSTREAM_CODES = {
     "tag_conversion_failed",
     "tags_failed",
     "event_generation_failed",
+    "event_look_failed",
 }
 _ERROR_RESPONSES = {
     400: {"model": ErrorResponse},
@@ -191,7 +193,7 @@ async def delete_world(world_id: str) -> None:
 @router.patch(
     "/worlds/{world_id}/settings",
     response_model=HakoniwaWorldResponse,
-    summary="世界の設定(アバター生成の画像モデル・世界の違和感)",
+    summary="世界の設定(画像モデル・世界の違和感・世界のメモ・実験テーマ・プレイヤーの名前)",
     responses=_ERROR_RESPONSES,
 )
 async def update_settings(
@@ -208,6 +210,7 @@ async def update_settings(
                 if request.experiment_theme is not None
                 else None
             ),
+            player_name=request.player_name,
             language=request.language,
         )
     )
@@ -811,6 +814,45 @@ async def generate_scene_image(
 ) -> HakoniwaImageResponse:
     result = await _call(
         hakoniwa_service.generate_scene_image(world_id, event_id, request.language)
+    )
+    return HakoniwaImageResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/events/{event_id}/looks/plan",
+    response_model=HakoniwaEventLookPlanResponse,
+    summary="出来事で姿が変わった住民を確かめる",
+    description=(
+        "出来事の結果として姿が変わった参加者と変化後の姿を LLM が決め、出来事に保存する。"
+        "画像は作らない(/looks/{resident_id} で1人ずつ作る)"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def plan_event_looks(
+    world_id: str, event_id: str, request: HakoniwaLanguageRequest
+) -> HakoniwaEventLookPlanResponse:
+    result = await _call(
+        hakoniwa_service.plan_event_looks(world_id, event_id, request.language)
+    )
+    return HakoniwaEventLookPlanResponse(**result)
+
+
+@router.post(
+    "/worlds/{world_id}/events/{event_id}/looks/{resident_id}",
+    response_model=HakoniwaImageResponse,
+    summary="出来事で変わった姿を1人ぶん生成",
+    description=(
+        "/looks/plan で決めた変化後の姿を、その住民の1人ぶん生成して変身として付ける"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def apply_event_look(
+    world_id: str, event_id: str, resident_id: str, request: HakoniwaLanguageRequest
+) -> HakoniwaImageResponse:
+    result = await _call(
+        hakoniwa_service.apply_event_look(
+            world_id, event_id, resident_id, request.language
+        )
     )
     return HakoniwaImageResponse(**result)
 

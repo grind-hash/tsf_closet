@@ -75,6 +75,24 @@ export const hakoniwa = {
     settings: "設定",
     unread: "新しい出来事 {{count}} 件",
   },
+  activity: {
+    day: "1日を進めています…",
+    eventWriting: "出来事を書いています…",
+    eventPlanning: "出来事で姿が変わったか確かめています…",
+    eventPortraits: "立ち絵を生成しています（{{done}} / {{total}}人）…",
+    eventScene: "場面の絵を生成しています…",
+    transform: "変身した姿を生成しています…",
+    reality: "改変を世界に反映しています…",
+    avatar: "立ち絵を生成しています…",
+    avatarBatch: "立ち絵を生成しています（{{done}} / {{total}}人）…",
+    look: "{{label}}を生成しています（{{done}} / {{total}}人）…",
+    lookCombo: "複合の姿",
+    lookMemo: "メモの姿",
+    lookRule: "掟「{{name}}」の姿",
+    lookOther: "姿",
+    memoPlanning: "メモが住民の見た目に関わるか確かめています…",
+    scene: "場面の絵を生成しています…",
+  },
   stage: {
     loading: "部屋を準備しています…",
     greeting: "{{name}}が考えています…",
@@ -292,6 +310,15 @@ export const hakoniwa = {
       "例: 二人で一緒にお風呂に入る／いまの姿のまま商店街へ買い物に出かける",
     eventNote:
       "書き手の指示として、住民たちのいまの姿（変身・入れ替わり・掟の姿）のまま場面を1つ生成し、ADVで開きます。姿は変わりません。年代記に残り、気分・関係・記憶と世界の違和感にも響きます。場所がおまかせなら指示に合う場所を選び、リビング・庭・書斎なら住民はそこへ移ります（ほかの場所は場面の絵の背景になります）。",
+    eventNoteWithLook:
+      "書き手の指示として、住民たちのいまの姿のまま場面を1つ生成します。そのうえで、出来事の結果として姿が変わった住民（服を交換した・着替えた など）の立ち絵を1人ずつ生成し、全部できてから ADV で開きます。変わった姿は変身と同じ扱いで、履歴に残り「元の姿に戻す」で戻せます。年代記に残り、気分・関係・記憶と世界の違和感にも響きます。",
+    eventChangeLook: "立ち絵も変える",
+    eventChangeLookHint:
+      "オンなら、出来事で姿が変わった住民の立ち絵も生成します（画像生成を使います）",
+    eventLookNone: "この出来事では、住民の姿は変わりませんでした。",
+    eventLookFailed: "立ち絵を変えられませんでした",
+    eventLookPartial:
+      "{{count}}人分の立ち絵を生成できませんでした。出来事はそのまま残っています。",
     eventScopeLabel: "巻き込み方",
     scopeSolo: "本人だけ",
     scopeSelected: "選んだ住民と",
@@ -407,6 +434,12 @@ export const hakoniwa = {
       "{{label}}を、まだの住民{{count}}人分、1人ずつ生成します（画像{{count}}枚）。少し時間がかかります。",
     lookConfirmRedraw:
       "{{label}}を、住民{{count}}人分すべて描き直します（画像{{count}}枚）。少し時間がかかります。",
+    lookConfirmPicked:
+      "{{label}}を、選んだ住民{{count}}人分だけ描き直します（画像{{count}}枚）。ほかの住民の姿はそのままです。",
+    lookPick: "住民を選んで描き直す",
+    lookPickLabel: "{{label}}を描き直す住民",
+    lookPickRedraw: "選んだ{{count}}人を描き直す",
+    lookPickEmpty: "描き直す住民を選んでください",
     lookPartial:
       "{{count}}人分の姿を生成できませんでした。もう一度押すと、まだの住民の分だけ生成します。",
     comboHeading: "複合の姿",
@@ -424,6 +457,13 @@ export const hakoniwa = {
     providerNote:
       "画像モデルの選択は、画像生成に NovelAI を使っているときだけ効きます。",
     usageHeading: "V5 の利用状況",
+    playerNameHeading: "あなたの名前",
+    playerNamePlaceholder: "例: ユウ",
+    playerNameSave: "名前を保存",
+    playerNameSet: "住民はあなたを「{{name}}」と呼びます。",
+    playerNameUnset: "いまは名前で呼ばれません。",
+    playerNameNote:
+      "ひとこと・チャット・タッチで、住民があなたを呼ぶときの名前です（住民があなたの存在を知ったあとは、出来事の中でも使います）。空のままなら、住民は名前や肩書きを使わず「あなた」と話しかけます。",
     memoHeading: "世界のメモ",
     memoPlaceholder:
       "例: 住民はみんな同じ学園の生徒で、毎日制服で過ごしている／季節は冬で、毎晩雪が降っている",
@@ -672,6 +712,9 @@ export const hakoniwa = {
     event_not_today: "続きを指示できるのは今日の出来事だけです。",
     event_cast_gone:
       "この出来事に出た住民がもういないため、続きを指示できません。",
+    event_look_failed:
+      "出来事で姿が変わったかを確かめられませんでした。出来事はそのまま残っています。",
+    event_look_not_planned: "この出来事では、この住民の姿は変わりません。",
     world_not_found: "世界が見つかりません。",
     resident_not_found: "住民が見つかりません。",
     invalid_reality_text: "改変の内容を300文字以内で書いてください。",
@@ -709,6 +752,7 @@ export const hakoniwa = {
       "複合の姿には、見た目に関わる掟（自作の掟とドレスの掟）を2つ以上有効にしてください。",
     invalid_rule_appearance: "見た目の説明は300文字以内で入力してください。",
     invalid_world_memo: "世界のメモは1000文字以内で入力してください。",
+    invalid_player_name: "あなたの名前は20文字以内で入力してください。",
     invalid_intervention: "いまは選べない介入です。",
     invalid_touch_part: "触れた部位が正しくありません。",
     empty_message: "メッセージを入力してください。",

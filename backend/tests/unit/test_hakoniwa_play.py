@@ -11,7 +11,14 @@ from gateway.services import hakoniwa_play as play
 from gateway.services import hakoniwa_story as story
 from gateway.services.hakoniwa_errors import HakoniwaError
 from gateway.services.hakoniwa_generation import touch_tone
-from gateway.services.hakoniwa_prompts import active_rules_text, event_user_prompt
+from gateway.services.hakoniwa_prompts import (
+    active_rules_text,
+    chat_reply_prompts,
+    confrontation_prompts,
+    event_user_prompt,
+    greeting_prompts,
+    touch_prompts,
+)
 
 
 def _world(ids=("aoi", "ren")):
@@ -28,6 +35,68 @@ def test_world_memo_is_added_only_when_written():
     assert text.endswith("全員が敬語で話す")
     with pytest.raises(HakoniwaError):
         play.validate_world_memo("あ" * 1001)
+
+
+def test_player_name_is_one_line_and_limited():
+    assert play.validate_player_name("  ユウ \n 太郎 ") == "ユウ 太郎"
+    assert play.validate_player_name("") == ""
+    with pytest.raises(HakoniwaError) as caught:
+        play.validate_player_name("あ" * 21)
+    assert caught.value.code == "invalid_player_name"
+
+    state = logic.normalize_state({**_world(), "player_name": " ユウ\n" + "あ" * 40})
+    assert len(state["player_name"]) == 20
+    assert state["player_name"].startswith("ユウ あ")
+    assert play.player_name(logic.normalize_state(_world())) == ""
+
+
+def _direct_prompts(state):
+    resident = state["residents"][0]
+    return [
+        greeting_prompts(state, resident, "ja", nsfw=False)[0],
+        touch_prompts(state, resident, "head", "ja", nsfw=False)[0],
+        chat_reply_prompts(state, resident, [], "こんにちは", "ja", nsfw=False)[0],
+    ]
+
+
+def test_direct_talk_addresses_the_player_not_a_housemate():
+    # 一言・タッチ・会話: 相手はプレイヤーで、同居人へ挨拶しない。名前が無ければ「あなた」
+    for prompt in _direct_prompts(_world()):
+        assert "is the player, not a housemate" in prompt
+        assert "do not greet or call out to a housemate" in prompt
+        assert "the player has no name in this world" in prompt
+        assert "「あなた」" in prompt
+        assert "「書き手」 or 「書き手さん」" in prompt
+
+    named = {**_world(), "player_name": "ユウ"}
+    for prompt in _direct_prompts(named):
+        assert 'the residents know the player as "ユウ"' in prompt
+        assert "「ユウさん」" in prompt
+        assert "has no name in this world" not in prompt
+
+
+def test_player_address_in_events_only_after_acknowledgement():
+    # 出来事: 住民がプレイヤーの存在を知ったあと(公認)だけ、呼び方を添える
+    state = {**_world(), "player_name": "ユウ"}
+    group = tuple(state["residents"])
+    assert "How to call the player" not in event_user_prompt(
+        state, group, "ja", nsfw=False
+    )
+
+    acknowledged = {**state, "dissonance_acknowledged": True}
+    text = event_user_prompt(acknowledged, group, "ja", nsfw=False)
+    assert 'the residents know the player as "ユウ"' in text
+    assert "is the player, not a housemate" not in text
+
+    off = {**acknowledged, "dissonance_enabled": False}
+    assert "How to call the player" not in event_user_prompt(
+        off, group, "ja", nsfw=False
+    )
+
+    # 対面の出来事は、公認の前でもプレイヤーへ呼びかけるので必ず添える
+    system, _ = confrontation_prompts(state, (group[0], group[1]), "ja", nsfw=False)
+    assert 'the residents know the player as "ユウ"' in system
+    assert "the writer" not in system
 
 
 def test_synergy_text_and_card_view():

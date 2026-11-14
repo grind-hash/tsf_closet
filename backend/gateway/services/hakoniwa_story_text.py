@@ -18,10 +18,15 @@ from ..consts.hakoniwa_story import (
     DISSONANCE_CONTEXT,
     INVESTIGATION_FOCUS,
     MEMORY_TEXTS,
+    PLAYER_ADDRESS_NAMED,
+    PLAYER_ADDRESS_UNNAMED,
+    PLAYER_ADDRESS_WORDS,
+    PLAYER_DIRECT_TALK,
     REMNANT_TEXTS,
     WORLD_ADAPTATION_STAGE_GUIDANCE,
     WORLD_ADAPTATION_STAGE_NAMES,
 )
+from . import hakoniwa_play as play
 from . import hakoniwa_story as story
 from .hakoniwa_logic import is_male_in_feminine_form, resident_name
 
@@ -306,6 +311,38 @@ def arc_focus_text(
         f"\n\n[Important: write this as part of the story “{arc_title(state, arc, language)}”]\n"
         f"Carried by: {names}. {synopsis}\n{instruction}"
     )
+
+
+def player_address_rule(
+    state: dict[str, Any], language: str, *, direct: bool = False
+) -> str:
+    """住民がプレイヤーをどう呼ぶか。
+
+    名前(世界の設定)があればその名前で、無ければ肩書きを作らずに話させる。
+    direct は一言・タッチ・会話のように住民がプレイヤーへ直接話す場面で、
+    話している相手が同居人ではないことも添える(同居人の呼び方一覧に引きずられて、
+    同居人へ挨拶してしまうのを防ぐ)。
+    """
+    words = PLAYER_ADDRESS_WORDS[_lang(language)]
+    name = play.player_name(state)
+    if name:
+        rule = PLAYER_ADDRESS_NAMED.format(
+            name=name,
+            honorific=words["honorific"].format(name=name),
+            title=words["title"],
+        )
+    else:
+        rule = PLAYER_ADDRESS_UNNAMED.format(
+            you=words["you"], indirect=words["indirect"], title=words["title"]
+        )
+    return f"{PLAYER_DIRECT_TALK} {rule}" if direct else rule
+
+
+def acknowledged_player_rule(state: dict[str, Any], language: str) -> str:
+    """公認のあと(住民がプレイヤーの存在を知っている)の出来事に添える、プレイヤーの呼び方。"""
+    if not story.dissonance_enabled(state) or not state.get("dissonance_acknowledged"):
+        return ""
+    return " " + player_address_rule(state, language)
 
 
 def dissonance_context_text(state: dict[str, Any]) -> str:

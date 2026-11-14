@@ -17,6 +17,8 @@
   --hk-ink: #3d3630;
   --hk-warning: #f1c27d;
   --hk-danger: #e88a7d;
+  /* 進行中の表示(警告やエラーと取り違えない、落ち着いた青系) */
+  --hk-info: #7fc4d6;
   color: var(--hk-text);
   background:
     radial-gradient(
@@ -533,11 +535,66 @@
 }
 
 .hakoniwa-world__bar {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 14px;
   padding-bottom: 10px;
+}
+
+/* いま進めている処理: どのタブからも見えるバーの中に、スピナーと文言を出す */
+.hakoniwa-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px;
+  border: 1px solid var(--hk-info);
+  border-radius: 999px;
+  background: rgb(127 196 214 / 0.1);
+  color: var(--hk-info);
+  font-size: 0.8rem;
+}
+
+/* バーの下端に重ねる動く線(絶対配置にして、出たり消えたりしても画面を動かさない) */
+.hakoniwa-activity__bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: rgb(127 196 214 / 0.2);
+  pointer-events: none;
+}
+
+.hakoniwa-activity__bar::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  background: var(--hk-info);
+  content: "";
+  animation: hakoniwa-activity-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes hakoniwa-activity-slide {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(334%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hakoniwa-activity__bar::after {
+    width: 100%;
+    opacity: 0.6;
+    animation: none;
+  }
 }
 
 .hakoniwa-world__name {
@@ -1911,12 +1968,38 @@
   color: var(--hk-muted);
 }
 
-.hakoniwa-rule__look .hakoniwa-button {
+.hakoniwa-rule__look .hakoniwa-button,
+.hakoniwa-rule__look-pick .hakoniwa-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
   font-size: 0.8rem;
+}
+
+/* 住民を選んで描き直す: 開くボタンは右寄せ、開いた中に住民のチップと実行ボタン */
+.hakoniwa-rule__look-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+}
+
+.hakoniwa-rule__look-pick-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--hk-border);
+  border-radius: 8px;
+  background: var(--hk-surface);
+}
+
+.hakoniwa-rule__look-pick-body .hakoniwa-directive__chips {
+  width: 100%;
 }
 
 .hakoniwa-rules__combo {

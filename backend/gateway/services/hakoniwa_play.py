@@ -5,6 +5,7 @@
 
 状態に足す項目:
     world_memo: str
+    player_name: str(住民がプレイヤーを呼ぶときの名前。空なら名前で呼ばない)
     intervention: 次の「1日進める」で効かせる介入(watch は何もしない)
     chat_histories: {住民 id: [{role: player | resident | system, text, kind?}]}
     experiment_theme: {preset_id: プリセット id | None, text: 自由文} | None
@@ -32,6 +33,7 @@ from ..consts.hakoniwa_play import (
     HAKONIWA_CHAT_HISTORY_MAX,
     HAKONIWA_CHAT_MESSAGE_MAX,
     HAKONIWA_INTERVENTIONS,
+    HAKONIWA_PLAYER_NAME_MAX,
     HAKONIWA_RULE_SYNERGIES,
     HAKONIWA_THEME_DRESS_TARGET_DAYS,
     HAKONIWA_THEME_PRESETS,
@@ -53,6 +55,9 @@ def normalize_play(source: dict[str, Any], normalized: dict[str, Any]) -> None:
     """読み込んだ状態の関わり方の項目を、正規化中の状態 normalized へ写す。"""
     normalized["world_memo"] = str(source.get("world_memo") or "")[
         :HAKONIWA_WORLD_MEMO_MAX
+    ]
+    normalized["player_name"] = _one_line(source.get("player_name"))[
+        :HAKONIWA_PLAYER_NAME_MAX
     ]
     choice = source.get("intervention")
     normalized["intervention"] = choice if choice in HAKONIWA_INTERVENTIONS else "watch"
@@ -87,6 +92,7 @@ def normalize_play(source: dict[str, Any], normalized: dict[str, Any]) -> None:
 def initial_play_state() -> dict[str, Any]:
     return {
         "world_memo": "",
+        "player_name": "",
         "intervention": "watch",
         "chat_histories": {},
         "experiment_theme": None,
@@ -116,6 +122,28 @@ def validate_world_memo(memo: Any) -> str:
 
 def world_memo(state: dict[str, Any]) -> str:
     return str(state.get("world_memo") or "").strip()
+
+
+# --- プレイヤーの名前 ---
+
+
+def _one_line(value: Any) -> str:
+    """改行や連続した空白を1つの空白にまとめる(名前はプロンプトの1文の中に入れる)。"""
+    return " ".join(str(value or "").split())
+
+
+def validate_player_name(name: Any) -> str:
+    text = _one_line(name)
+    if len(text) > HAKONIWA_PLAYER_NAME_MAX:
+        raise HakoniwaError(
+            "invalid_player_name",
+            f"あなたの名前は{HAKONIWA_PLAYER_NAME_MAX}文字までです",
+        )
+    return text
+
+
+def player_name(state: dict[str, Any]) -> str:
+    return _one_line(state.get("player_name"))
 
 
 # --- 掟の相性 ---

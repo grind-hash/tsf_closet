@@ -95,7 +95,7 @@ export default function HakoniwaChat() {
 
   const speakerOf = (role: string) =>
     role === "player"
-      ? t("hakoniwa.chat.you")
+      ? world.player_name || t("hakoniwa.chat.you")
       : role === "system"
         ? t("hakoniwa.chat.system")
         : resident.name;

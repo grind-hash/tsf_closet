@@ -23,6 +23,7 @@ import {
   addHakoniwaResident,
   advanceHakoniwaDay,
   alterHakoniwaReality,
+  applyHakoniwaEventLook,
   chatHakoniwaResident,
   clearHakoniwaTransform,
   continueHakoniwaEvent,
@@ -61,6 +62,7 @@ import {
   makeHakoniwaResidentTags,
   makeHakoniwaRuleLookTags,
   placeHakoniwaFurniture,
+  planHakoniwaEventLooks,
   planHakoniwaMemoLook,
   reapplyHakoniwaTransform,
   removeHakoniwaReality,
@@ -136,6 +138,16 @@ export interface HakoniwaLookProgress {
   total: number;
 }
 
+/**
+ * 出来事を起こしている間の段階。文章(writing) → 姿が変わったかの確認(planning) →
+ * 立ち絵(portraits。done / total は終わった人数と変わる人数) → 場面の絵(scene)
+ */
+export interface HakoniwaEventProgress {
+  phase: "writing" | "planning" | "portraits" | "scene";
+  done: number;
+  total: number;
+}
+
 /** 右パネルのタブ */
 export type HakoniwaPanelTab =
   | "chronicle"
@@ -171,6 +183,7 @@ export const HAKONIWA_ERROR_CODES = [
   "no_combo",
   "invalid_rule_appearance",
   "invalid_world_memo",
+  "invalid_player_name",
   "invalid_intervention",
   "invalid_touch_part",
   "empty_message",
@@ -189,6 +202,8 @@ export const HAKONIWA_ERROR_CODES = [
   "invalid_location",
   "event_not_today",
   "event_cast_gone",
+  "event_look_failed",
+  "event_look_not_planned",
   "invalid_reality_text",
   "too_many_realities",
   "reality_not_found",
@@ -259,8 +274,15 @@ interface HakoniwaContextValue {
     rule: HakoniwaCustomRuleInput,
     ruleId?: string,
   ) => Promise<boolean>;
-  /** 掟の姿(ruleId)・複合の姿("combo")・メモの姿("memo")を住民の人数分、1人ずつ生成する */
-  generateLook: (target: string, regenerate: boolean) => void;
+  /**
+   * 掟の姿(ruleId)・複合の姿("combo")・メモの姿("memo")を住民の人数分、1人ずつ生成する。
+   * residentIds を渡すと、その住民の姿だけを描き直す
+   */
+  generateLook: (
+    target: string,
+    regenerate: boolean,
+    residentIds?: string[],
+  ) => void;
   /** 世界のメモが姿に関わるかを確かめ直し、関わるならまだの住民の姿を生成する */
   applyMemoLook: (worldId: string) => Promise<void>;
   /** 生成中の掟の姿("combo" は複合の姿) */
@@ -292,11 +314,18 @@ interface HakoniwaContextValue {
     changeLook: boolean,
   ) => void;
   removeReality: (residentId: string, realityId: string) => Promise<void>;
-  /** 書き手の指示で出来事を起こし、できた場面を ADV で開く */
+  /**
+   * 書き手の指示で出来事を起こし、できた場面を ADV で開く。
+   * changeLook なら、出来事の結果として姿が変わった住民の立ち絵も生成し、
+   * 全部できてから開く(立ち絵の生成に失敗しても場面は開き、エラーを出す)
+   */
   directEvent: (
     residentId: string,
     input: HakoniwaDirectedEventInput,
-  ) => Promise<void>;
+    changeLook: boolean,
+  ) => void;
+  /** 出来事を起こしている間の段階(上端の進み具合の表示に使う) */
+  eventProgress: HakoniwaEventProgress | null;
   /**
    * 今日の出来事の続きを指示して起こし、できた場面を ADV で開く
    * (参加者と場所は元の場面のまま)。
@@ -317,6 +346,8 @@ interface HakoniwaContextValue {
   setDissonanceEnabled: (enabled: boolean) => Promise<void>;
   /** 世界のメモ(全生成に最優先の指示として載せる) */
   setWorldMemo: (memo: string) => Promise<boolean>;
+  /** 住民がプレイヤーを呼ぶときの名前(空なら名前で呼ばない) */
+  setPlayerName: (name: string) => Promise<boolean>;
   /** 次の「1日進める」で効かせる介入 */
   setIntervention: (choice: HakoniwaInterventionChoice) => Promise<void>;
   /** 立ち絵に触れたときの住民の一言(拡大表示に出す) */
@@ -362,7 +393,7 @@ const HakoniwaContext = createContext<HakoniwaContextValue | null>(null);
 export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const { state: settingsState, addTotalCost, setAnlasBalance } = useSettings();
-  const { showAchievementNotification } = useNotification();
+  const { showAchievementNotification, showNotification } = useNotification();
 
   /** 応答で新しく達成した観察記録(実績)を知らせる */
   const announceAchievements = useCallback(
@@ -391,6 +422,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const [lookProgress, setLookProgress] = useState<HakoniwaLookProgress | null>(
     null,
   );
+  const [eventProgress, setEventProgress] =
+    useState<HakoniwaEventProgress | null>(null);
   const [touchReaction, setTouchReaction] =
     useState<HakoniwaTouchReaction | null>(null);
   const [chatResidentId, setChatResidentId] = useState<string | null>(null);
@@ -974,22 +1007,135 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     [applyWorld, language, run, worldId],
   );
 
-  const directEvent = useCallback(
-    async (residentId: string, input: HakoniwaDirectedEventInput) => {
-      if (!worldId) return;
-      const result = await run("event", () =>
-        createHakoniwaDirectedEvent(worldId, residentId, input, language),
-      );
-      if (!result) return;
-      applyWorld(result.world);
-      recordCost(result.cost_usd);
-      setGreeting(null);
-      const [scene, ...followUps] = result.new_events;
-      if (!scene) return;
-      setAdvFollowUps((current) => [...current, ...followUps]);
-      setAdvEventId(scene.id);
+  /**
+   * 出来事の結果として姿が変わった住民の立ち絵を、1人ずつ生成する。
+   * 先に全員ぶんの変化を決めてから描く(服の交換は、相手の出来事の前の姿が要る)。
+   * 失敗しても出来事の文章はできているので、知らせて戻る。このあと開く ADV は
+   * 開いた時点で画面のエラーの帯を消すため、結果は通知で出す
+   */
+  const changeEventLooks = useCallback(
+    async (startWorldId: string, eventId: string) => {
+      try {
+        setEventProgress({ phase: "planning", done: 0, total: 0 });
+        const plan = await planHakoniwaEventLooks(
+          startWorldId,
+          eventId,
+          language,
+        );
+        applyWorld(plan.world);
+        recordCost(plan.cost_usd);
+        const total = plan.changes.length;
+        if (total === 0) {
+          showNotification("info", t("hakoniwa.panel.eventLookNone"));
+          return;
+        }
+        let failed = 0;
+        for (const [index, change] of plan.changes.entries()) {
+          if (currentWorldIdRef.current !== startWorldId) return;
+          setEventProgress({ phase: "portraits", done: index, total });
+          try {
+            const drawn = await applyHakoniwaEventLook(
+              startWorldId,
+              eventId,
+              change.resident_id,
+              language,
+            );
+            if (currentWorldIdRef.current !== startWorldId) return;
+            applyWorld(drawn.world);
+            recordCost(drawn.cost_usd);
+          } catch (caught) {
+            failed += 1;
+            // 画像の失敗以外(出来事や住民が消えたなど)は、次の住民でも同じになるので止める
+            const code = caught instanceof ApiError ? caught.code : null;
+            if (code !== "image_generation_failed") {
+              showNotification(
+                "warning",
+                t("hakoniwa.panel.eventLookFailed"),
+                errorText(caught),
+              );
+              return;
+            }
+          }
+        }
+        if (failed > 0) {
+          showNotification(
+            "warning",
+            t("hakoniwa.panel.eventLookFailed"),
+            t("hakoniwa.panel.eventLookPartial", { count: failed }),
+          );
+        }
+      } catch (caught) {
+        showNotification(
+          "warning",
+          t("hakoniwa.panel.eventLookFailed"),
+          errorText(caught),
+        );
+      } finally {
+        refreshUsage();
+      }
     },
-    [applyWorld, language, recordCost, run, worldId],
+    [
+      applyWorld,
+      errorText,
+      language,
+      recordCost,
+      refreshUsage,
+      showNotification,
+      t,
+    ],
+  );
+
+  const directEvent = useCallback(
+    (
+      residentId: string,
+      input: HakoniwaDirectedEventInput,
+      changeLook: boolean,
+    ) => {
+      if (!worldId) return;
+      const task = () => {
+        void (async () => {
+          // 文章と立ち絵を1つの操作として busy を保ち、全部できてから場面を開く
+          const result = await run("event", async () => {
+            setEventProgress({ phase: "writing", done: 0, total: 0 });
+            try {
+              const created = await createHakoniwaDirectedEvent(
+                worldId,
+                residentId,
+                input,
+                language,
+              );
+              applyWorld(created.world);
+              recordCost(created.cost_usd);
+              const scene = created.new_events[0];
+              if (changeLook && scene) {
+                await changeEventLooks(worldId, scene.id);
+              }
+              return created;
+            } finally {
+              setEventProgress(null);
+            }
+          });
+          if (!result) return;
+          setGreeting(null);
+          const [scene, ...followUps] = result.new_events;
+          if (!scene) return;
+          setAdvFollowUps((current) => [...current, ...followUps]);
+          setAdvEventId(scene.id);
+        })();
+      };
+      // 立ち絵を作らないときは画像を作らないので、利用上限の確認は要らない
+      if (changeLook) guardImageGeneration(task);
+      else task();
+    },
+    [
+      applyWorld,
+      changeEventLooks,
+      guardImageGeneration,
+      language,
+      recordCost,
+      run,
+      worldId,
+    ],
   );
 
   const continueEvent = useCallback(
@@ -999,30 +1145,36 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
         void (async () => {
           // 文章と絵を1つの操作として busy を保ち、絵ができるまで前の場面を見せておく
           const result = await run("event", async () => {
-            const continued = await continueHakoniwaEvent(
-              worldId,
-              eventId,
-              instruction,
-              language,
-            );
-            applyWorld(continued.world);
-            recordCost(continued.cost_usd);
-            const scene = continued.new_events[0];
-            if (!withSceneImage || !scene) return continued;
+            setEventProgress({ phase: "writing", done: 0, total: 0 });
             try {
-              const drawn = await generateHakoniwaSceneImage(
+              const continued = await continueHakoniwaEvent(
                 worldId,
-                scene.id,
+                eventId,
+                instruction,
                 language,
               );
-              applyWorld(drawn.world);
-              recordCost(drawn.cost_usd);
-              refreshUsage();
-            } catch (caught) {
-              // 続きの文章はできているので、絵が無いまま場面を開いてエラーを出す
-              setError(errorText(caught));
+              applyWorld(continued.world);
+              recordCost(continued.cost_usd);
+              const scene = continued.new_events[0];
+              if (!withSceneImage || !scene) return continued;
+              setEventProgress({ phase: "scene", done: 0, total: 0 });
+              try {
+                const drawn = await generateHakoniwaSceneImage(
+                  worldId,
+                  scene.id,
+                  language,
+                );
+                applyWorld(drawn.world);
+                recordCost(drawn.cost_usd);
+                refreshUsage();
+              } catch (caught) {
+                // 続きの文章はできているので、絵が無いまま場面を開いてエラーを出す
+                setError(errorText(caught));
+              }
+              return continued;
+            } finally {
+              setEventProgress(null);
             }
-            return continued;
           });
           if (!result) return;
           const [scene, ...followUps] = result.new_events;
@@ -1242,9 +1394,17 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  /** 掟の姿・複合の姿・メモの姿を、source の世界の状態をもとに1人ずつ生成する */
+  /**
+   * 掟の姿・複合の姿・メモの姿を、source の世界の状態をもとに1人ずつ生成する。
+   * onlyResidentIds を渡すと、その住民の姿だけを描き直す
+   */
   const runLookGeneration = useCallback(
-    (source: HakoniwaWorld, target: string, regenerate: boolean) => {
+    (
+      source: HakoniwaWorld,
+      target: string,
+      requestedRegenerate: boolean,
+      onlyResidentIds?: string[],
+    ) => {
       const startWorldId = source.id;
       const status =
         target === "combo"
@@ -1252,10 +1412,16 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
           : target === "memo"
             ? source.memo_look
             : source.rule_cards.find((card) => card.id === target)?.look;
-      // 描き直しは全員、それ以外はまだ(または見た目を変える前)の住民だけ
-      const residentIds = regenerate
-        ? source.residents.map((resident) => resident.id)
-        : (status?.pending ?? []);
+      // 選んだ住民は生成済みでも描き直す
+      const regenerate = requestedRegenerate || onlyResidentIds !== undefined;
+      // 選んだ住民だけ、描き直しは全員、それ以外はまだ(または見た目を変える前)の住民だけ
+      const residentIds = onlyResidentIds
+        ? source.residents
+            .map((resident) => resident.id)
+            .filter((id) => onlyResidentIds.includes(id))
+        : regenerate
+          ? source.residents.map((resident) => resident.id)
+          : (status?.pending ?? []);
       if (residentIds.length === 0) return;
       guardImageGeneration(() => {
         void (async () => {
@@ -1336,8 +1502,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   );
 
   const generateLook = useCallback(
-    (target: string, regenerate: boolean) => {
-      if (world) runLookGeneration(world, target, regenerate);
+    (target: string, regenerate: boolean, residentIds?: string[]) => {
+      if (world) runLookGeneration(world, target, regenerate, residentIds);
     },
     [runLookGeneration, world],
   );
@@ -1374,6 +1540,19 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       return true;
     },
     [applyMemoLook, applyWorld, language, run, worldId],
+  );
+
+  const setPlayerName = useCallback(
+    async (name: string) => {
+      if (!worldId) return false;
+      const updated = await run("settings", () =>
+        updateHakoniwaSettings(worldId, { player_name: name }, language),
+      );
+      if (!updated) return false;
+      applyWorld(updated);
+      return true;
+    },
+    [applyWorld, language, run, worldId],
   );
 
   const generateSceneImage = useCallback(
@@ -1529,6 +1708,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       alterReality,
       removeReality,
       directEvent,
+      eventProgress,
       continueEvent,
       clearTransform,
       reapplyTransform,
@@ -1537,6 +1717,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       setImageModel,
       setDissonanceEnabled,
       setWorldMemo,
+      setPlayerName,
       setIntervention,
       touchReaction,
       touchResident,
@@ -1605,6 +1786,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       alterReality,
       removeReality,
       directEvent,
+      eventProgress,
       continueEvent,
       clearTransform,
       reapplyTransform,
@@ -1613,6 +1795,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       setImageModel,
       setDissonanceEnabled,
       setWorldMemo,
+      setPlayerName,
       setIntervention,
       touchReaction,
       touchResident,

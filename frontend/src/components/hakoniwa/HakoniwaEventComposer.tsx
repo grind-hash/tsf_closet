@@ -27,7 +27,10 @@ interface HakoniwaEventComposerProps {
   resident: HakoniwaResident;
 }
 
-/** 住民パネルの「出来事」: 指示と巻き込み方を選び、いまの姿のまま場面を1つ起こす */
+/**
+ * 住民パネルの「出来事」: 指示と巻き込み方を選び、いまの姿のまま場面を1つ起こす。
+ * 「立ち絵も変える」なら、出来事の結果として姿が変わった住民の立ち絵も生成する
+ */
 export default function HakoniwaEventComposer({
   resident,
 }: HakoniwaEventComposerProps) {
@@ -37,12 +40,15 @@ export default function HakoniwaEventComposer({
   const scopeLabelId = useId();
   const partnersLabelId = useId();
   const locationId = useId();
+  const lookId = useId();
   // 住民を切り替えても書きかけの指示と選んだ相手を残す
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [partnerIds, setPartnerIds] = useState<Record<string, string[]>>({});
   const [scope, setScope] = useState<HakoniwaEventScope>("solo");
   // 出来事の場所(null はおまかせ: 内容に合う場所を生成が選ぶ)
   const [location, setLocation] = useState<string | null>(null);
+  // 出来事の結果として姿が変わった住民の立ち絵も生成するか(画像生成を使うので既定は OFF)
+  const [changeLook, setChangeLook] = useState(false);
 
   if (!world) return null;
   const draft = drafts[resident.id] ?? "";
@@ -84,12 +90,16 @@ export default function HakoniwaEventComposer({
   const handleRun = () => {
     const instruction = draft.trim();
     if (!instruction || !castReady) return;
-    void directEvent(resident.id, {
-      instruction,
-      scope,
-      partnerIds: partners.map((item) => item.id),
-      location,
-    });
+    directEvent(
+      resident.id,
+      {
+        instruction,
+        scope,
+        partnerIds: partners.map((item) => item.id),
+        location,
+      },
+      changeLook,
+    );
   };
 
   return (
@@ -206,6 +216,22 @@ export default function HakoniwaEventComposer({
           {t("hakoniwa.panel.maleBodyNote", { pairs: pairsText })}
         </p>
       )}
+      <label className="hakoniwa-toggle" htmlFor={lookId}>
+        <span>
+          {t("hakoniwa.panel.eventChangeLook")}
+          <small className="hakoniwa-toggle__hint">
+            {t("hakoniwa.panel.eventChangeLookHint")}
+          </small>
+        </span>
+        <input
+          id={lookId}
+          type="checkbox"
+          className="hakoniwa-toggle__input"
+          checked={changeLook}
+          onChange={(event) => setChangeLook(event.target.checked)}
+        />
+        <span className="hakoniwa-toggle__switch" aria-hidden />
+      </label>
       <button
         type="button"
         className="hakoniwa-button hakoniwa-button--primary"
@@ -221,7 +247,13 @@ export default function HakoniwaEventComposer({
           t("hakoniwa.panel.runEvent")
         )}
       </button>
-      <p className="hakoniwa-note">{t("hakoniwa.panel.eventNote")}</p>
+      <p className="hakoniwa-note">
+        {t(
+          changeLook
+            ? "hakoniwa.panel.eventNoteWithLook"
+            : "hakoniwa.panel.eventNote",
+        )}
+      </p>
     </>
   );
 }

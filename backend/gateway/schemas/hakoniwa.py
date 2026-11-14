@@ -23,6 +23,7 @@ from ..consts.hakoniwa import (
 )
 from ..consts.hakoniwa_play import (
     HAKONIWA_CHAT_MESSAGE_MAX,
+    HAKONIWA_PLAYER_NAME_MAX,
     HAKONIWA_THEME_TEXT_MAX,
     HAKONIWA_WORLD_MEMO_MAX,
 )
@@ -139,6 +140,13 @@ class HakoniwaSettingsRequest(HakoniwaLanguageRequest):
     experiment_theme: HakoniwaThemeInput | None = Field(
         None,
         description="実験テーマ。未指定は変更しない(両方空で送るとテーマ無し)",
+    )
+    player_name: str | None = Field(
+        None,
+        max_length=HAKONIWA_PLAYER_NAME_MAX,
+        description=(
+            "住民がプレイヤーを呼ぶときの名前(空なら名前で呼ばない)。未指定は変更しない"
+        ),
     )
 
 
@@ -595,6 +603,9 @@ class HakoniwaWorldResponse(BaseModel):
         False, description="いまの世界のメモが姿に関わるかを、もう確かめたか"
     )
     world_memo: str = Field("", description="世界のメモ")
+    player_name: str = Field(
+        "", description="住民がプレイヤーを呼ぶときの名前(空なら名前で呼ばない)"
+    )
     experiment_theme: HakoniwaThemeInput | None = Field(
         None, description="実験テーマ(テーマ無しは null)"
     )
@@ -696,6 +707,19 @@ class HakoniwaImageResponse(BaseModel):
 class HakoniwaMemoLookPlanResponse(BaseModel):
     world: HakoniwaWorldResponse
     changes_look: bool = Field(..., description="世界のメモが住民全員の姿を変えるか")
+    cost_usd: float | None = None
+
+
+class HakoniwaEventLookChange(BaseModel):
+    resident_id: str
+    description: str = Field(..., description="出来事のあとの姿の短い説明")
+
+
+class HakoniwaEventLookPlanResponse(BaseModel):
+    world: HakoniwaWorldResponse
+    changes: list[HakoniwaEventLookChange] = Field(
+        ..., description="出来事の結果として姿が変わる住民(誰も変わらなければ空)"
+    )
     cost_usd: float | None = None
 
 

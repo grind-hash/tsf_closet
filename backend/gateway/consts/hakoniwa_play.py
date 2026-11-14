@@ -10,6 +10,9 @@ from typing import Any
 # --- 世界のメモ ---
 HAKONIWA_WORLD_MEMO_MAX = 1000
 
+# --- プレイヤーの名前(住民がプレイヤーを呼ぶときの名前。空なら名前で呼ばない) ---
+HAKONIWA_PLAYER_NAME_MAX = 20
+
 # --- 掟の相性(既定の掟の組み合わせ。両方が有効なとき生成に足す) ---
 HAKONIWA_RULE_SYNERGIES: list[dict[str, Any]] = [
     {

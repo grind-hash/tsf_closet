@@ -74,6 +74,24 @@ export const hakoniwa = {
     settings: "Settings",
     unread: "{{count}} new events",
   },
+  activity: {
+    day: "Advancing the day…",
+    eventWriting: "Writing the event…",
+    eventPlanning: "Checking whether looks changed in the event…",
+    eventPortraits: "Generating portraits ({{done}} / {{total}})…",
+    eventScene: "Generating the scene picture…",
+    transform: "Generating the transformed look…",
+    reality: "Applying the rewrite to the world…",
+    avatar: "Generating a portrait…",
+    avatarBatch: "Generating portraits ({{done}} / {{total}})…",
+    look: "Generating {{label}} ({{done}} / {{total}})…",
+    lookCombo: "the combined look",
+    lookMemo: "the memo look",
+    lookRule: "the look for “{{name}}”",
+    lookOther: "looks",
+    memoPlanning: "Checking whether the memo changes how residents look…",
+    scene: "Generating the scene picture…",
+  },
   stage: {
     loading: "Preparing the room…",
     greeting: "{{name}} is thinking…",
@@ -293,6 +311,15 @@ export const hakoniwa = {
       "e.g. The two take a bath together / Go shopping in town in the current look",
     eventNote:
       "As the writer's order, one scene is generated with the residents in their current looks (transformations, swapped bodies, rule looks) and opened as a scene. Looks do not change. It stays in the chronicle and affects mood, relationships, memories and world strangeness. With Auto, a place that fits the order is chosen; the living room, garden and study move the residents there (other places become the background of the scene picture).",
+    eventNoteWithLook:
+      "As the writer's order, one scene is generated with the residents in their current looks. Then a portrait is generated, one resident at a time, for everyone whose look changed as a result (swapped clothes, changed outfits and so on), and the scene opens once everything is ready. The new looks are treated like transformations: they stay in the history and can be undone with “Change back”. The event stays in the chronicle and affects mood, relationships, memories and world strangeness.",
+    eventChangeLook: "Change portraits too",
+    eventChangeLookHint:
+      "When on, portraits are also generated for residents whose look changed in the event (uses image generation)",
+    eventLookNone: "Nobody's look changed in this event.",
+    eventLookFailed: "The portraits could not be changed",
+    eventLookPartial:
+      "Portraits for {{count}} residents could not be generated. The event itself is kept.",
     eventScopeLabel: "Who takes part",
     scopeSolo: "Just them",
     scopeSelected: "Pick residents",
@@ -408,6 +435,12 @@ export const hakoniwa = {
       "Generate {{label}} for the {{count}} residents who don't have it yet, one at a time ({{count}} images). This takes a little while.",
     lookConfirmRedraw:
       "Redraw {{label}} for all {{count}} residents ({{count}} images). This takes a little while.",
+    lookConfirmPicked:
+      "Redraw {{label}} only for the {{count}} chosen residents ({{count}} images). The other residents keep their looks.",
+    lookPick: "Choose residents to redraw",
+    lookPickLabel: "Residents to redraw for {{label}}",
+    lookPickRedraw: "Redraw the {{count}} chosen",
+    lookPickEmpty: "Choose residents to redraw",
     lookPartial:
       "Looks for {{count}} residents could not be generated. Press the button again to generate only the missing ones.",
     comboHeading: "Combined look",
@@ -425,6 +458,13 @@ export const hakoniwa = {
     providerNote:
       "The image model choice applies only when NovelAI is your image provider.",
     usageHeading: "V5 usage",
+    playerNameHeading: "Your name",
+    playerNamePlaceholder: "e.g. Yuu",
+    playerNameSave: "Save name",
+    playerNameSet: "The residents call you “{{name}}”.",
+    playerNameUnset: "The residents do not call you by a name yet.",
+    playerNameNote:
+      "The name the residents use for you in one-liners, chat and touch (and in events too, once they know you exist). If left empty, they speak to you as “you”, without a name or a title.",
     memoHeading: "World memo",
     memoPlaceholder:
       "e.g. Every resident is a student at the same academy and wears its uniform every day / It is winter, and snow falls every night",
@@ -682,6 +722,10 @@ export const hakoniwa = {
     event_not_today: "Only events from today can be continued.",
     event_cast_gone:
       "The residents of this event are gone, so it cannot be continued.",
+    event_look_failed:
+      "Could not check whether looks changed in the event. The event itself is kept.",
+    event_look_not_planned:
+      "This resident's look does not change in this event.",
     world_not_found: "World not found.",
     resident_not_found: "Resident not found.",
     invalid_reality_text: "Write the rewrite in 300 characters or fewer.",
@@ -718,6 +762,7 @@ export const hakoniwa = {
       "A combined look needs at least two active rules that change looks (your rules and the Rule of Dresses).",
     invalid_rule_appearance: "Keep the look description within 300 characters.",
     invalid_world_memo: "Keep the world memo within 1000 characters.",
+    invalid_player_name: "Keep your name within 20 characters.",
     invalid_intervention: "That intervention cannot be chosen right now.",
     invalid_touch_part: "That part cannot be touched.",
     empty_message: "Enter a message.",

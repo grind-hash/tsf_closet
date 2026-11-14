@@ -198,10 +198,10 @@ HAKONIWA_BGM_SELECTION_RULES: str = (
     "a quiet night, an intimate private moment, drinks at a bar, a party). Use "
     "suspense when residents feel uneasy or are probing the strange changes in "
     "the world. important_event is reserved for a rare turning point: the climax "
-    "of a story arc, or the residents confronting the writer; a pleasant, funny "
-    "or even dramatic everyday scene is not one. When no key clearly fits, use "
-    "daily; when in doubt between important_event and another key, choose the "
-    "other key."
+    "of a story arc, or the residents confronting the one who rewrites their "
+    "world; a pleasant, funny or even dramatic everyday scene is not one. When no "
+    "key clearly fits, use daily; when in doubt between important_event and "
+    "another key, choose the other key."
 )
 
 __all__ = [

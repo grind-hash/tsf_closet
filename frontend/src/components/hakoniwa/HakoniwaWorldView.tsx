@@ -10,6 +10,7 @@ import { ROUTES } from "../../routes";
 import { readStorage, writeStorage } from "../../utils/storage";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import HakoniwaActivityIndicator from "./HakoniwaActivityIndicator";
 import HakoniwaAdv from "./HakoniwaAdv";
 import HakoniwaBgmControl from "./HakoniwaBgmControl";
 import HakoniwaChat from "./HakoniwaChat";
@@ -189,6 +190,7 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
               })}
             </span>
           )}
+          <HakoniwaActivityIndicator />
           <HakoniwaBgmControl bgm={bgm} />
         </header>
 

@@ -144,6 +144,7 @@ export const guide = {
           "Press a portrait to enlarge it and touch the head, chest or below the waist (the mood shifts a little and nothing goes into the chronicle).",
           'Residents remember transformations, swaps and events that moved a relationship a lot ("Remembers" under "Profile"), and may bring them up later.',
           'When editing a resident, choose how they call the other residents (given name, family name, with or without an honorific); event and chat lines use it. Random residents get a style that fits their personality, and much older housemates get an honorific. "Relationships" under "Profile" shows what each resident calls the others.',
+          'Enter a name under "Your name" on the Settings tab and the residents call you by it in one-liners, chat and touch (and in events too, once they know you exist). If it is left empty, they speak to you as "you", without a name or a title.',
         ],
       },
       {
@@ -165,6 +166,8 @@ export const guide = {
           "The resident and the others get used to a transformation or swap day by day (bewildered → trial and error → getting used to it → accepted). After changing back, a remnant lingers for a few days.",
           'Images of residents (usual and dress looks) and your own rules use the tags in the form as they are. "Make tags from the description" fills the field with tags made from the description (saved only when you save). You can edit the tags by hand (up to 2000 characters); changing the description does not change them. A resident needs usual look tags. To redraw, generate the look again after saving.',
           "With NAI Diffusion V5, looks are generated with a transparent background; with other settings (V4.5 or other providers) they are generated on white and made transparent when shown.",
+          'Rule looks, the combined look and the memo look can be redrawn for chosen residents only with "Choose residents to redraw" (handy when just one portrait came out unlike a portrait, so you need not redraw everyone).',
+          "While an event, a transformation, looks or a scene picture is being generated, the bar at the top shows the progress (visible whichever tab is open).",
         ],
       },
       {
@@ -174,6 +177,7 @@ export const guide = {
           'Choose who takes part: only them, chosen residents (up to 2) or roommates. It stays in the chronicle as an "Ordered event" and affects mood, relationships, memories and world strangeness.',
           "Besides Auto, the place can be the bathroom, bedroom, kitchen, shopping street, cafe, park, beach or hotel, which becomes the background of the scene and of the scene picture (daily events also happen there when they fit).",
           "No romantic or sexual scene is written between two residents who both have male bodies right now.",
+          'Turn on "Change portraits too" to also generate a portrait, one resident at a time, for everyone whose look changed in the event (swapped clothes, a new outfit and so on); the scene opens once everything is ready (uses image generation). The new looks are treated like transformations: they stay in the history and can be undone with "Change back". Nothing is generated when no look changes.',
         ],
       },
       {

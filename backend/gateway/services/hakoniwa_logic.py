@@ -1676,6 +1676,53 @@ def set_event_scene_image(
     return new_state
 
 
+def set_event_look_plan(
+    state: dict[str, Any], event_id: str, plan: list[dict[str, str]]
+) -> dict[str, Any]:
+    """出来事の結果として姿が変わる参加者ごとの変化後の姿を、出来事に保存した状態を返す。
+
+    plan は [{resident_id, tags, description}]。画像は1人ずつ、この計画のタグから作る
+    (服の交換のように、相手の出来事の前の姿が要る変化を、後から作っても崩さないため)。
+    """
+    new_state = deepcopy(state)
+    target = next(
+        (event for event in new_state["events"] if event["id"] == event_id), None
+    )
+    if target is None:
+        raise HakoniwaError("event_not_found", "出来事が見つかりません")
+    target["look_plan"] = [
+        {
+            "resident_id": str(item["resident_id"]),
+            "tags": str(item["tags"]),
+            "description": str(item.get("description") or ""),
+        }
+        for item in plan
+    ]
+    return new_state
+
+
+def event_look_entry(
+    state: dict[str, Any], event_id: str, resident_id: str
+) -> dict[str, str]:
+    """出来事に保存した、その住民の変化後の姿({resident_id, tags, description})。"""
+    event = next((item for item in state["events"] if item["id"] == event_id), None)
+    if event is None:
+        raise HakoniwaError("event_not_found", "出来事が見つかりません")
+    entry = next(
+        (
+            item
+            for item in event.get("look_plan") or []
+            if item.get("resident_id") == resident_id
+        ),
+        None,
+    )
+    if entry is None:
+        raise HakoniwaError(
+            "event_look_not_planned", "この出来事では、この住民の姿は変わりません"
+        )
+    return entry
+
+
 def toggle_favorite(
     state: dict[str, Any], event_id: str, favorite: bool
 ) -> dict[str, Any]:
