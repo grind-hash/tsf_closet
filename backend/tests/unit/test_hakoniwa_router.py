@@ -48,6 +48,7 @@ def llm_outputs(monkeypatch) -> list:
 
 @pytest.fixture
 def client(isolated_db, monkeypatch, tmp_path, llm_outputs) -> TestClient:
+    monkeypatch.setattr(settings, "tavily_api_key", "")
     with isolated_db.sync_factory() as db:
         db.add(User(id=DEFAULT_USER_ID))
         db.commit()
@@ -1018,6 +1019,7 @@ def test_chat_reply_transform_confirmation_and_clear(client: TestClient, llm_out
         "text": "おはよう。今日も配達、がんばるね",
         "kind": None,
         "source": "llm",
+        "web_search": None,
     }
     assert [entry["role"] for entry in talked["history"]] == ["player", "resident"]
 
@@ -1053,6 +1055,115 @@ def test_chat_reply_transform_confirmation_and_clear(client: TestClient, llm_out
     assert aoi["transformation"] is None
     history = client.get(path).json()["history"]
     assert len(history) == 7
+
+
+def test_chat_web_search_is_saved_and_returned_after_reload(
+    client, monkeypatch, llm_outputs
+):
+    from gateway.services import real_world_lookup as real
+
+    world = _create(client, ["aoi", "ren"])
+    client.patch(
+        f"/api/hakoniwa/worlds/{world['id']}/settings",
+        json={"web_search_enabled": True},
+    )
+    monkeypatch.setattr(settings, "tavily_api_key", "test-key")
+    calls = []
+
+    async def search(query, *, language):
+        calls.append((query, language))
+        return real.SearchInfo(
+            query,
+            "宇宙のニュース",
+            [
+                real.SearchSource(
+                    "科学の記事", "https://example.com/news", "新しい望遠鏡"
+                )
+            ],
+        )
+
+    monkeypatch.setattr(real, "tavily_search", search)
+    llm_outputs.extend(['{"query":"科学 最新"}', "新しい望遠鏡の写真、見てみたいな。"])
+    path = f"/api/hakoniwa/worlds/{world['id']}/residents/aoi/chat"
+    response = client.post(
+        path, json={"message": "科学のニュースを教えて", "language": "ja"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metadata = body["reply"]["web_search"]
+    assert metadata["status"] == "used"
+    assert metadata["sources"] == [
+        {"title": "科学の記事", "url": "https://example.com/news"}
+    ]
+    assert client.get(path).json()["history"][-1]["web_search"] == metadata
+    assert calls == [("科学 最新", "ja")]
+
+
+def test_daily_news_is_assigned_once_and_saved(client, monkeypatch):
+    world = _create(client, ["aoi", "ren"])
+    client.patch(
+        f"/api/hakoniwa/worlds/{world['id']}/settings",
+        json={"web_search_enabled": True},
+    )
+    monkeypatch.setattr(settings, "tavily_api_key", "test-key")
+    assignments = []
+    metadata = {
+        "query": "科学 最新",
+        "retrieved_at": "2026-11-14T03:00:00+00:00",
+        "status": "used",
+        "sources": [{"title": "科学の記事", "url": "https://example.com/news"}],
+    }
+
+    async def event(state, group, language, rng, **options):
+        assignments.append(options["use_web_search"])
+        result = gen_module.template_event(state, group, language, rng)
+        result["source"] = "llm"
+        if options["use_web_search"]:
+            result["web_search"] = metadata
+        return result
+
+    monkeypatch.setattr(service_module, "generate_event", event)
+    path = f"/api/hakoniwa/worlds/{world['id']}"
+    response = client.post(f"{path}/day", json={"language": "ja"})
+    assert response.status_code == 200, response.text
+    assert len(assignments) == 3
+    assert sum(assignments) == 1
+    news = [item for item in response.json()["new_events"] if item["web_search"]]
+    assert len(news) == 1
+    assert news[0]["web_search"] == metadata
+    saved = client.get(path).json()
+    assert (
+        next(item for item in saved["events"] if item["id"] == news[0]["id"])[
+            "web_search"
+        ]
+        == metadata
+    )
+
+
+def test_web_search_setting_defaults_off_and_is_saved_per_world(client, monkeypatch):
+    world = _create(client, ["aoi", "ren"])
+    other = _create(client, ["aoi", "ren"])
+    path = f"/api/hakoniwa/worlds/{world['id']}"
+    assert world["web_search_enabled"] is False
+    assert world["web_search_configured"] is False
+    monkeypatch.setattr(settings, "tavily_api_key", "test-key")
+    assert client.get(path).json()["web_search_configured"] is True
+    enabled = client.patch(f"{path}/settings", json={"web_search_enabled": True})
+    assert enabled.status_code == 200
+    assert enabled.json()["web_search_enabled"] is True
+    assert client.get(path).json()["web_search_enabled"] is True
+    assert (
+        client.get(f"/api/hakoniwa/worlds/{other['id']}").json()["web_search_enabled"]
+        is False
+    )
+    unchanged = client.patch(f"{path}/settings", json={"player_name": "テスト"})
+    assert unchanged.json()["web_search_enabled"] is True
+    client.patch(f"{path}/settings", json={"web_search_enabled": False})
+    assert client.get(path).json()["web_search_enabled"] is False
+    monkeypatch.setattr(settings, "tavily_api_key", "")
+    no_key = client.patch(f"{path}/settings", json={"web_search_enabled": True}).json()
+    assert no_key["web_search_enabled"] is True
+    assert no_key["web_search_configured"] is False
 
 
 def test_random_residents_fall_back_to_templates(client: TestClient) -> None:

@@ -126,6 +126,9 @@ class HakoniwaCreateRequest(HakoniwaLanguageRequest):
 
 
 class HakoniwaSettingsRequest(HakoniwaLanguageRequest):
+    web_search_enabled: bool | None = Field(
+        None, description="Web検索を使うか。未指定は変更しない"
+    )
     image_model: str | None = Field(
         None, description="アバター生成の画像モデル。default はユーザー設定に従う"
     )
@@ -309,6 +312,18 @@ class HakoniwaSceneSuggestion(BaseModel):
     reason: str
 
 
+class HakoniwaWebSource(BaseModel):
+    title: str
+    url: str
+
+
+class HakoniwaWebSearch(BaseModel):
+    query: str
+    retrieved_at: str
+    status: Literal["used", "unused", "no_results", "failed", "blocked"]
+    sources: list[HakoniwaWebSource] = Field(default_factory=list)
+
+
 class HakoniwaEvent(BaseModel):
     id: str
     day: int
@@ -319,6 +334,7 @@ class HakoniwaEvent(BaseModel):
     mood_delta: dict[str, int]
     affinity_delta: int
     source: str = Field(..., description="llm / template / player")
+    web_search: HakoniwaWebSearch | None = None
     kind: str | None = Field(
         None,
         description="transform(変身の出来事)・reality(住民の改変)・directed(指示した出来事)など",
@@ -557,6 +573,10 @@ class HakoniwaAchievementUnlocked(BaseModel):
 
 
 class HakoniwaWorldResponse(BaseModel):
+    web_search_enabled: bool = Field(False, description="この世界でWeb検索を使うか")
+    web_search_configured: bool = Field(
+        False, description="TavilyのAPIキーが設定済みか"
+    )
     new_achievements: list[HakoniwaAchievementUnlocked] = Field(
         default_factory=list,
         description="この応答で新しく達成した観察記録(実績)。通知に使う",
@@ -764,6 +784,7 @@ class HakoniwaChatEntry(BaseModel):
     text: str
     kind: str | None = Field(None, description="alteration / alteration_reaction")
     source: str | None = None
+    web_search: HakoniwaWebSearch | None = None
 
 
 class HakoniwaChatAlteration(BaseModel):

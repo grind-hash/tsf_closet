@@ -12,6 +12,7 @@ import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { useTransparentImages } from "../../hooks/useTransparentImages";
 import HakoniwaDigest from "./HakoniwaDigest";
+import HakoniwaMessageFooter from "./HakoniwaMessageFooter";
 import {
   anchorRatio,
   depthScale,
@@ -329,6 +330,7 @@ export default function HakoniwaStage() {
               <p className="hakoniwa-caption__narration">
                 {playback.event.narration}
               </p>
+              <HakoniwaMessageFooter search={playback.event.web_search} />
               <div className="hakoniwa-caption__actions">
                 <button
                   type="button"

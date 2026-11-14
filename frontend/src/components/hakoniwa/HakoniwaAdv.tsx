@@ -15,6 +15,7 @@ import { advLogScenes, advScript } from "./advLog";
 import { canContinueEvent, EVENT_TEXT_MAX, maleBodyPairs } from "./eventCast";
 import HakoniwaBgmControl from "./HakoniwaBgmControl";
 import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
+import HakoniwaMessageFooter from "./HakoniwaMessageFooter";
 
 // 背景の色は四隅から読み取る(生成画像の背景は白とは限らない)
 const ALPHA_OPTIONS = { targetColor: null, threshold: 12, featherRadius: 1.8 };
@@ -411,6 +412,7 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
                   ? t("hakoniwa.chronicle.line", { text: current.text })
                   : current.text}
               </p>
+              <HakoniwaMessageFooter search={event.web_search} />
               <div className="hakoniwa-adv__controls">
                 <button
                   type="button"
@@ -494,6 +496,7 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
                     </li>
                   ))}
                 </ol>
+                <HakoniwaMessageFooter search={scene.event.web_search} />
               </li>
             ))}
           </ol>

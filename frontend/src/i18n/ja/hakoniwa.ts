@@ -1,4 +1,15 @@
 export const hakoniwa = {
+  webSearch: {
+    aiNotice:
+      "キャラクターの発言は、設定されたプロンプトに基づくAIの生成内容です。TSF Closetおよび作者の見解ではありません。誤りやバイアスが含まれる場合があります。",
+    references: "参照した情報",
+    query: "検索語: {{query}}",
+    retrievedAt: "取得日時: {{date}}",
+    failed: "Web検索の情報を取得できませんでした。",
+    no_results: "関連する検索結果が見つかりませんでした。",
+    blocked: "この内容は検索サービスの利用条件により検索しませんでした。",
+    unused: "この発言では検索結果を使用していません。",
+  },
   eyebrow: "HAKONIWA",
   title: "AI箱庭",
   lead: "小さな下宿「星屑荘」で、住民たちが勝手に暮らしています。掟を差し込み、1日を進めて、何が起きるかを眺めましょう。住民をクリックすると一言しゃべり、その場で変身させることもできます。",
@@ -448,6 +459,11 @@ export const hakoniwa = {
     deleteConfirm: "削除する",
   },
   settings: {
+    webSearchToggle: "Web検索を利用する",
+    webSearchNote:
+      "既定はOFFです。ONにすると、チャットでは必要に応じて、住民同士の会話では1日1件を目安にWeb検索を利用します。設定はこの世界に保存されます。",
+    webSearchUnavailable:
+      "TavilyのAPIキーが未設定のため、ONにしてもWeb検索は行いません。",
     imageModelHeading: "姿を生成する画像モデル",
     imageModelDefault: "ユーザー設定に従う（{{model}}）",
     transparencyNative:

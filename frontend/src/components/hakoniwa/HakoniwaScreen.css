@@ -2330,6 +2330,33 @@
   font-size: 0.74rem;
 }
 
+.hakoniwa-message-footer {
+  margin: 8px 0;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.hakoniwa-message-footer p {
+  margin: 4px 0;
+}
+
+.hakoniwa-message-footer summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.hakoniwa-message-footer a {
+  color: var(--hk-accent-strong);
+  text-decoration: underline;
+}
+
+.hakoniwa-message-footer ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
 .hakoniwa-chat__log {
   position: absolute;
   top: 16px;

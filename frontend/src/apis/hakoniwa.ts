@@ -26,6 +26,13 @@ export interface HakoniwaLine {
   text: string;
 }
 
+export interface HakoniwaWebSearch {
+  query: string;
+  retrieved_at: string;
+  status: "used" | "unused" | "no_results" | "failed" | "blocked";
+  sources: { title: string; url: string }[];
+}
+
 export interface HakoniwaEvent {
   id: string;
   day: number;
@@ -37,6 +44,7 @@ export interface HakoniwaEvent {
   affinity_delta: number;
   /** llm / template / player */
   source: string;
+  web_search?: HakoniwaWebSearch | null;
   /** transform(変身の出来事)・directed(指示した出来事)など */
   kind?: string | null;
   change_text?: string | null;
@@ -407,6 +415,7 @@ export interface HakoniwaChatEntry {
   text: string;
   kind?: string | null;
   source?: string | null;
+  web_search?: HakoniwaWebSearch | null;
 }
 
 export interface HakoniwaChatResult {
@@ -465,6 +474,10 @@ export interface HakoniwaCustomRuleInput {
 }
 
 export interface HakoniwaWorld {
+  /** この世界でWeb検索を使うか。未設定はOFF */
+  web_search_enabled?: boolean;
+  /** サーバー側のTavilyのAPIキー設定状況 */
+  web_search_configured?: boolean;
   id: string;
   name: string;
   day: number;
@@ -711,6 +724,7 @@ export async function deleteHakoniwaWorld(worldId: string): Promise<void> {
 export function updateHakoniwaSettings(
   worldId: string,
   changes: {
+    web_search_enabled?: boolean;
     image_model?: string;
     dissonance_enabled?: boolean;
     world_memo?: string;

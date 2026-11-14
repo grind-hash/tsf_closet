@@ -129,6 +129,7 @@ export const GUIDE_FEATURES: readonly GuideFeature[] = [
   },
   {
     key: "hakoniwa",
+    // 世界ごとのWeb検索設定(既定OFF)とAI発言の注記・出典も、detailsからセレナへ渡す
     section: "features",
     icon: "🏠",
     menuIds: ["hakoniwa"],

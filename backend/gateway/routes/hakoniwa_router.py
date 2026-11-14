@@ -193,7 +193,7 @@ async def delete_world(world_id: str) -> None:
 @router.patch(
     "/worlds/{world_id}/settings",
     response_model=HakoniwaWorldResponse,
-    summary="世界の設定(画像モデル・世界の違和感・世界のメモ・実験テーマ・プレイヤーの名前)",
+    summary="世界の設定(画像モデル・Web検索・世界の違和感・世界のメモ・実験テーマ・プレイヤーの名前)",
     responses=_ERROR_RESPONSES,
 )
 async def update_settings(
@@ -203,6 +203,7 @@ async def update_settings(
         hakoniwa_service.update_settings(
             world_id,
             image_model=request.image_model,
+            web_search_enabled=request.web_search_enabled,
             dissonance_enabled=request.dissonance_enabled,
             world_memo=request.world_memo,
             experiment_theme=(

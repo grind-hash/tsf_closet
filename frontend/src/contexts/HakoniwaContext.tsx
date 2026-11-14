@@ -344,6 +344,8 @@ interface HakoniwaContextValue {
   setImageModel: (imageModel: string) => Promise<void>;
   /** 世界の違和感(住民が書き換えに気づいていく)を使うか */
   setDissonanceEnabled: (enabled: boolean) => Promise<void>;
+  /** この世界のチャットと日次の出来事でWeb検索を使うか */
+  setWebSearchEnabled: (enabled: boolean) => Promise<void>;
   /** 世界のメモ(全生成に最優先の指示として載せる) */
   setWorldMemo: (memo: string) => Promise<boolean>;
   /** 住民がプレイヤーを呼ぶときの名前(空なら名前で呼ばない) */
@@ -1628,6 +1630,21 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     [applyWorld, language, run, worldId],
   );
 
+  const setWebSearchEnabled = useCallback(
+    async (enabled: boolean) => {
+      if (!worldId) return;
+      const updated = await run("settings", () =>
+        updateHakoniwaSettings(
+          worldId,
+          { web_search_enabled: enabled },
+          language,
+        ),
+      );
+      if (updated) applyWorld(updated);
+    },
+    [applyWorld, language, run, worldId],
+  );
+
   const setDissonanceEnabled = useCallback(
     async (enabled: boolean) => {
       if (!worldId) return;
@@ -1716,6 +1733,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       setFavorite,
       setImageModel,
       setDissonanceEnabled,
+      setWebSearchEnabled,
       setWorldMemo,
       setPlayerName,
       setIntervention,
@@ -1794,6 +1812,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       setFavorite,
       setImageModel,
       setDissonanceEnabled,
+      setWebSearchEnabled,
       setWorldMemo,
       setPlayerName,
       setIntervention,

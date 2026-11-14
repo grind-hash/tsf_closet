@@ -33,6 +33,8 @@ function resident(id: string, name: string): HakoniwaResident {
     job: "住民",
     personality: "穏やか",
     pronoun: id === "ren" ? "俺" : "私",
+    address_style: "given_san",
+    addresses: {},
     appearance_text: "",
     base_tags: "",
     dress_text: "",
@@ -64,6 +66,8 @@ async function mockHakoniwa(
     reactions?: boolean;
     /** ドレスの掟を有効にした応答で観察記録の達成を返す */
     achievements?: boolean;
+    webSearch?: boolean;
+    webSearchConfigured?: boolean;
     /** 送られた本文を記録する(世界の作成・設定) */
     recorded?: { create?: Record<string, unknown>; settings: unknown[] };
   } = {},
@@ -89,6 +93,8 @@ async function mockHakoniwa(
     base_tags: "1girl, solo, long hair",
   });
   const world: HakoniwaWorld = {
+    web_search_enabled: options.webSearch ?? false,
+    web_search_configured: options.webSearchConfigured ?? true,
     id: "test-world",
     name: "検証用の星屑荘",
     day: 1,
@@ -120,6 +126,23 @@ async function mockHakoniwa(
     ],
     residents: [resident("aoi", "高瀬 葵"), resident("ren", "苑田 蓮")],
     events: [],
+    locations: [
+      {
+        id: "living",
+        name: "リビング",
+        background_url: "/hakoniwa-assets/room.png",
+      },
+      {
+        id: "garden",
+        name: "庭",
+        background_url: "/hakoniwa-assets/area_garden.png",
+      },
+      {
+        id: "study",
+        name: "書斎",
+        background_url: "/hakoniwa-assets/area_study.png",
+      },
+    ],
     areas: [
       area("living", "リビング", "room.png"),
       area("garden", "庭", "area_garden.png"),
@@ -152,6 +175,12 @@ async function mockHakoniwa(
     intervention: { selected: "watch", choices: ["watch", "nudge", "rewrite"] },
   };
   const chats: Record<string, HakoniwaChatEntry[]> = {};
+  const webSearch = {
+    query: "科学 最新",
+    retrieved_at: "2026-11-14T03:00:00+00:00",
+    status: "used" as const,
+    sources: [{ title: "科学の記事", url: "https://example.com/news" }],
+  };
   await page.addInitScript((flag) => {
     localStorage.setItem("novelai_api_key_consent", "true");
     localStorage.setItem(
@@ -277,6 +306,10 @@ async function mockHakoniwa(
         id: `event-${index}`,
         day: 1,
         title: `出来事${index + 1}`,
+        web_search:
+          world.web_search_enabled && world.web_search_configured && index === 0
+            ? webSearch
+            : null,
         narration: "リビングで住民たちが朝の挨拶を交わした。",
         lines: [
           { speaker: "aoi", text: "今日はいい天気だね。" },
@@ -428,7 +461,14 @@ async function mockHakoniwa(
         });
         reply = { role: "resident", text: "ど、どうかな……似合ってる？" };
       } else {
-        reply = { role: "resident", text: "おはよう。今日も配達、がんばるね" };
+        reply = {
+          role: "resident",
+          text: "おはよう。今日も配達、がんばるね",
+          web_search:
+            world.web_search_enabled && world.web_search_configured
+              ? webSearch
+              : null,
+        };
       }
       history.push(reply);
       chats[residentId] = history;
@@ -449,8 +489,18 @@ async function mockHakoniwa(
       });
       return;
     }
+    if (path.endsWith("/memo-look/plan")) {
+      world.memo_look_planned = true;
+      await route.fulfill({
+        json: { world, changes_look: false, cost_usd: null },
+      });
+      return;
+    }
     if (path.endsWith("/settings")) {
       const body = route.request().postDataJSON();
+      if (typeof body.web_search_enabled === "boolean") {
+        world.web_search_enabled = body.web_search_enabled;
+      }
       options.recorded?.settings.push(body);
       if (body.experiment_theme) {
         const theme = body.experiment_theme;
@@ -610,6 +660,50 @@ test.afterEach(() => {
   expect(pageErrors).toEqual([]);
 });
 
+for (const configured of [true, false]) {
+  test(`Web検索の利用設定を保存する（APIキー${configured ? "設定済み" : "未設定"}）`, async ({
+    page,
+  }) => {
+    const recorded = { settings: [] as unknown[] };
+    await mockHakoniwa(page, true, 0, {
+      recorded,
+      webSearchConfigured: configured,
+    });
+    await page.goto("/hakoniwa");
+    await page
+      .getByRole("button", { name: "この顔ぶれで世界をつくる" })
+      .click();
+    await page.getByRole("tab", { name: "設定", exact: true }).click();
+    const toggle = page.getByRole("checkbox", { name: "Web検索を利用する" });
+    await expect(toggle).not.toBeChecked();
+    await expect(toggle).toBeEnabled();
+    if (!configured) {
+      await expect(
+        page.getByText(
+          "TavilyのAPIキーが未設定のため、ONにしてもWeb検索は行いません。",
+        ),
+      ).toBeVisible();
+    }
+    await toggle.click();
+    await expect(toggle).toBeChecked();
+    await expect(toggle).toBeEnabled();
+    expect(recorded.settings.at(-1)).toMatchObject({
+      web_search_enabled: true,
+    });
+    await page.reload();
+    await page.getByRole("tab", { name: "設定", exact: true }).click();
+    await expect(toggle).toBeChecked();
+    await toggle.click();
+    await expect(toggle).not.toBeChecked();
+    expect(recorded.settings.at(-1)).toMatchObject({
+      web_search_enabled: false,
+    });
+    await page.screenshot({
+      path: `/tmp/tsf-hakoniwa-web-search-setting-${configured}.png`,
+    });
+  });
+}
+
 test("機能OFFでは通常プレイへ戻る", async ({ page }) => {
   await mockHakoniwa(page, false);
   await page.goto("/hakoniwa");
@@ -667,7 +761,7 @@ test("世界作成・台詞送り・年代記・掟・住民の一言", async ({
     /avatar_ren_dress\.png/,
   );
   await aoi.click();
-  await page.getByRole("button", { name: "話しかける", exact: true }).click();
+  await page.getByRole("button", { name: "ひとこと聞く", exact: true }).click();
   await expect(page.locator(".hakoniwa-bubble__text")).toHaveText(
     "今日もよろしく。",
   );
@@ -678,6 +772,65 @@ test("世界作成・台詞送り・年代記・掟・住民の一言", async ({
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+});
+
+test("会話のAI注記と出典を表示し、出典操作で幕を送らない", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 640 });
+  await mockHakoniwa(page, true, 0, { webSearch: true });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await page.getByRole("button", { name: "1日進める", exact: true }).click();
+  const caption = page.locator(".hakoniwa-caption");
+  await expect(caption).toContainText(
+    "TSF Closetおよび作者の見解ではありません",
+  );
+  await caption.getByText("参照した情報", { exact: true }).click();
+  await expect(caption.getByRole("link", { name: "科学の記事" })).toBeVisible();
+  await caption.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".hakoniwa-bubble__text")).toHaveCount(0);
+  await expect(caption.locator(".hakoniwa-caption__progress")).toHaveText(
+    "1 / 3 件目",
+  );
+  await caption.getByRole("button", { name: "スキップ", exact: true }).click();
+  await page
+    .getByRole("button", { name: "まとめを閉じる", exact: true })
+    .click();
+  await page.getByRole("tab", { name: /^年代記/ }).click();
+  await page
+    .getByRole("button", { name: /ADVで見る/ })
+    .last()
+    .click();
+  const adv = page.locator(".hakoniwa-adv[role=dialog]");
+  await adv.getByText("参照した情報", { exact: true }).click();
+  await expect(adv.getByRole("link", { name: "科学の記事" })).toBeVisible();
+  await expect(adv.locator(".hakoniwa-adv__text")).toHaveText(
+    "リビングで住民たちが朝の挨拶を交わした。",
+  );
+  await adv.getByRole("button", { name: "次へ", exact: false }).click();
+  await adv.getByRole("button", { name: "ログ", exact: true }).click();
+  await expect(adv.locator(".hakoniwa-chat__log")).toContainText(
+    "TSF Closetおよび作者の見解ではありません",
+  );
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(adv).toHaveCount(0);
+  await page.getByRole("tab", { name: "住民", exact: true }).click();
+  await page.getByRole("button", { name: /高瀬 葵/ }).click();
+  await page.getByRole("button", { name: "チャットする" }).click();
+  const chat = page.getByTestId("hakoniwa-chat");
+  await expect(chat).toContainText("誤りやバイアスが含まれる場合があります");
+  await chat.getByLabel("高瀬 葵への言葉").fill("最近の科学のニュースは？");
+  await chat.getByRole("button", { name: "送る" }).click();
+  await chat.getByText("参照した情報", { exact: true }).click();
+  await expect(chat.getByRole("link", { name: "科学の記事" })).toBeVisible();
+  await expect(chat.getByRole("button", { name: "送る" })).toBeInViewport();
+  await page.screenshot({ path: "/tmp/tsf-hakoniwa-web-search-chat.png" });
+  await chat.getByRole("button", { name: "ログ", exact: true }).click();
+  await expect(chat.locator(".hakoniwa-chat__log")).toContainText(
+    "参照した情報",
+  );
 });
 
 test("ダイアログの上のクリックで住民が反応せず、広い画面でも1日進めるが見える", async ({
@@ -992,7 +1145,7 @@ test("明日の介入・世界のメモ・立ち絵に触れる・箱庭の中�
   await page.keyboard.press("Escape");
   await expect(touch).toHaveCount(0);
 
-  await page.getByRole("button", { name: "会話を始める" }).click();
+  await page.getByRole("button", { name: "チャットする" }).click();
   const chat = page.getByTestId("hakoniwa-chat");
   await expect(chat).toContainText("高瀬 葵に話しかけてみましょう。");
   await chat.getByLabel("高瀬 葵への言葉").fill("おはよう");

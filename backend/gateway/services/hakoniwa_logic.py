@@ -86,6 +86,7 @@ __all__ = ["HakoniwaError"]
 STATE_VERSION = 1
 # 出来事に付いていれば年代記へそのまま写す項目
 EVENT_EXTRA_KEYS = (
+    "web_search",
     "kind",
     "change_text",
     "instruction",
@@ -964,6 +965,7 @@ def new_world_state(
         "version": STATE_VERSION,
         "day": 1,
         "image_model": HAKONIWA_IMAGE_MODEL_DEFAULT,
+        "web_search_enabled": False,
         "active_rules": [],
         "swap_pair": None,
         "last_pair": None,
@@ -1002,6 +1004,7 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         "version": STATE_VERSION,
         "day": max(1, int(state.get("day") or 1)),
         "image_model": str(state.get("image_model") or HAKONIWA_IMAGE_MODEL_DEFAULT),
+        "web_search_enabled": state.get("web_search_enabled") is True,
         "active_rules": list(state.get("active_rules") or []),
         "swap_pair": list(state["swap_pair"]) if state.get("swap_pair") else None,
         "last_pair": list(state["last_pair"]) if state.get("last_pair") else None,

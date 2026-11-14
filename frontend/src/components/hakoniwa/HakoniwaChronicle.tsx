@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { HakoniwaEvent } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import HakoniwaDigest from "./HakoniwaDigest";
+import HakoniwaMessageFooter from "./HakoniwaMessageFooter";
 import { arcTitle } from "./hakoniwaLabels";
 
 /** 年代記: 出来事を新しい順に並べる。お気に入りと、部屋での再生ができる */
@@ -163,6 +164,7 @@ export default function HakoniwaChronicle() {
                   ))}
                 </ul>
               )}
+              <HakoniwaMessageFooter search={event.web_search} />
               <div className="hakoniwa-event__actions">
                 <button
                   type="button"

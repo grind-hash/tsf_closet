@@ -12,6 +12,7 @@ import { hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import { useTransparentImages } from "../../hooks/useTransparentImages";
 import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
+import HakoniwaMessageFooter from "./HakoniwaMessageFooter";
 
 // 背景の色は四隅から読み取る(生成画像の背景は白とは限らない)
 const ALPHA_OPTIONS = { targetColor: null, threshold: 12, featherRadius: 1.8 };
@@ -176,6 +177,7 @@ export default function HakoniwaChat() {
               t("hakoniwa.chat.empty", { name: resident.name })
             )}
           </p>
+          <HakoniwaMessageFooter search={sending ? null : latest?.web_search} />
           <form className="hakoniwa-chat__form" onSubmit={submit}>
             <label className="hakoniwa-chat__label" htmlFor={inputId}>
               {t("hakoniwa.chat.inputLabel", { name: resident.name })}
@@ -243,6 +245,9 @@ export default function HakoniwaChat() {
                     {speakerOf(entry.role)}
                   </span>
                   <span>{entry.text}</span>
+                  {entry.role === "resident" && (
+                    <HakoniwaMessageFooter search={entry.web_search} />
+                  )}
                 </li>
               ))}
             </ol>

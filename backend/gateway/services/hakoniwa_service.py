@@ -62,6 +62,7 @@ from . import hakoniwa_logic as logic
 from . import hakoniwa_play as play
 from . import hakoniwa_story as story
 from . import hakoniwa_story_text as story_text
+from . import hakoniwa_web_search as web_search
 from .achievement_service import achievement_service
 from .achievements import (
     ACHIEVEMENTS,
@@ -116,6 +117,7 @@ from .hakoniwa_random import validate_count as random_resident_count
 from .hakoniwa_reactions import rule_reactions
 from .hakoniwa_scene import look_tags, scene_request, scene_suggestion
 from .preset_sessions import PresetSessionError, load_preset_play_source
+from .real_world_lookup import web_search_configured
 from .session import DEFAULT_USER_ID, session_store
 
 logger = logging.getLogger(__name__)
@@ -431,6 +433,8 @@ def _world_view(
         "updated_at": world.updated_at.isoformat() if world.updated_at else None,
         "background_url": HAKONIWA_ROOM_BACKGROUND_URL,
         "image_model": state.get("image_model") or HAKONIWA_IMAGE_MODEL_DEFAULT,
+        "web_search_enabled": state.get("web_search_enabled") is True,
+        "web_search_configured": web_search_configured(),
         "image_model_effective": effective_model,
         "image_model_default": resolve_user_image_model(user_settings, nsfw_mode),
         "image_model_options": list(image_model_options(nsfw_mode)),
@@ -794,12 +798,13 @@ class HakoniwaService:
         *,
         image_model: str | None = None,
         dissonance_enabled: bool | None = None,
+        web_search_enabled: bool | None = None,
         world_memo: str | None = None,
         experiment_theme: dict[str, Any] | None = None,
         player_name: str | None = None,
         language: str | None = None,
     ) -> dict[str, Any]:
-        """世界の設定(画像モデル・世界の違和感・世界のメモ・実験テーマ・プレイヤーの名前)。
+        """世界の設定(画像モデル・Web検索・世界の違和感・メモ・実験テーマ・プレイヤーの名前)。
 
         None の項目は変えない。実験テーマは {preset_id, text}。どちらも空ならテーマ無しにする。
         """
@@ -829,6 +834,8 @@ class HakoniwaService:
                 updated["image_model"] = image_model
             if dissonance_enabled is not None:
                 updated["dissonance_enabled"] = bool(dissonance_enabled)
+            if web_search_enabled is not None:
+                updated["web_search_enabled"] = web_search_enabled
             if memo is not None:
                 updated["world_memo"] = memo
             if experiment_theme is not None:
@@ -916,6 +923,9 @@ class HakoniwaService:
                 if play.theme_text(state) and groups
                 else None
             )
+            news_index = web_search.choose_news_index(
+                state, groups, focus, arc_focus, theme_index, rng
+            )
             events = await asyncio.gather(
                 *(
                     generate_event(
@@ -935,6 +945,7 @@ class HakoniwaService:
                         arc_climax=bool((arc_focus.get(index) or {}).get("climax")),
                         intervention=intervention,
                         include_theme=index == theme_index,
+                        use_web_search=index == news_index,
                     )
                     for index, group in enumerate(groups)
                 )
@@ -945,10 +956,13 @@ class HakoniwaService:
             ):
                 if event.get("source") == "template" and event["title"] in used_titles:
                     # 並列に選んだ定型が同じ日に重ならないよう選び直す
+                    search_metadata = event.get("web_search")
                     event = template_event(
                         state, group, lang, rng, recent_titles=used_titles
                     )
                     event["area"] = area_id
+                    if search_metadata:
+                        event["web_search"] = search_metadata
                 used_titles.add(event["title"])
                 assignment = arc_focus.get(index)
                 if assignment:
@@ -2229,6 +2243,7 @@ class HakoniwaService:
                     "role": "resident",
                     "text": generated["text"],
                     "source": generated["source"],
+                    "web_search": generated.get("web_search"),
                 }
                 entries.append(reply)
             state = play.append_chat(state, resident_id, entries)

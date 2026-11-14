@@ -140,6 +140,8 @@ export const guide = {
         items: [
           'Click a resident in the room, or press "Hear a word" on the Residents tab, to hear a word that fits their mood.',
           '"Chat" lets you type messages and talk for as long as you like. Asking "Put on ..." or "Change back" transforms them or undoes it on the spot.',
+          'Enable "Use web search" in the world settings (off by default) with a Tavily API key configured to let chat search when current information is needed. About one daily event uses topics matching the residents’ interests when it does not conflict with a dedicated story scene.',
+          'Dialogue is AI-generated, may contain errors or bias, and does not represent the app or its author. Open "Referenced information" to check sources. Conversations continue even if search is unavailable.',
           'When you pick a resident on the Residents tab, the tabs under their name switch between "Transform / Event / Rewrite", "Profile" (personality, relationships and memories) and "Looks & edit".',
           "Press a portrait to enlarge it and touch the head, chest or below the waist (the mood shifts a little and nothing goes into the chronicle).",
           'Residents remember transformations, swaps and events that moved a relationship a lot ("Remembers" under "Profile"), and may bring them up later.',

@@ -30,7 +30,7 @@ function modelLabel(model: string): string {
   );
 }
 
-/** 設定タブ: 姿を生成する画像モデル(透過のしかたの説明つき)、あなたの名前、世界のメモ、世界の違和感、世界の削除 */
+/** 設定タブ: 画像モデル、Web検索、あなたの名前、世界のメモ、世界の違和感、世界の削除 */
 export default function HakoniwaSettingsTab() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -40,6 +40,7 @@ export default function HakoniwaSettingsTab() {
     busy,
     setImageModel,
     setDissonanceEnabled,
+    setWebSearchEnabled,
     setWorldMemo,
     setPlayerName,
     setExperimentTheme,
@@ -55,6 +56,7 @@ export default function HakoniwaSettingsTab() {
   );
   const modelId = useId();
   const dissonanceId = useId();
+  const webSearchId = useId();
   const memoId = useId();
   const playerNameId = useId();
   const savedMemo = world?.world_memo ?? "";
@@ -118,6 +120,27 @@ export default function HakoniwaSettingsTab() {
             : t("hakoniwa.settings.transparencyRemoval")}
         </p>
         <p className="hakoniwa-note">{t("hakoniwa.settings.providerNote")}</p>
+      </section>
+
+      <section className="hakoniwa-settings__section">
+        <label className="hakoniwa-toggle" htmlFor={webSearchId}>
+          <span>{t("hakoniwa.settings.webSearchToggle")}</span>
+          <input
+            id={webSearchId}
+            type="checkbox"
+            className="hakoniwa-toggle__input"
+            checked={world.web_search_enabled ?? false}
+            disabled={busy !== null}
+            onChange={(event) => void setWebSearchEnabled(event.target.checked)}
+          />
+          <span className="hakoniwa-toggle__switch" aria-hidden />
+        </label>
+        <p className="hakoniwa-note">{t("hakoniwa.settings.webSearchNote")}</p>
+        {!world.web_search_configured && (
+          <p className="hakoniwa-note">
+            {t("hakoniwa.settings.webSearchUnavailable")}
+          </p>
+        )}
       </section>
 
       <section className="hakoniwa-settings__section">

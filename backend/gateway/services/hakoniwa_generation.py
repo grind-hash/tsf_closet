@@ -50,6 +50,7 @@ from ..consts.hakoniwa_random import (
 )
 from . import hakoniwa_play as play
 from . import hakoniwa_story as story
+from . import hakoniwa_web_search as web_search
 from .cost_tracker import record_cost
 from .hakoniwa_errors import HakoniwaError
 from .hakoniwa_logic import (
@@ -339,6 +340,7 @@ async def generate_event(
     arc_climax: bool = False,
     intervention: str | None = None,
     include_theme: bool = True,
+    use_web_search: bool = False,
 ) -> dict[str, Any]:
     """出来事を1件生成する。失敗したら定型の出来事にする(例外は投げない)。
 
@@ -363,6 +365,20 @@ async def generate_event(
     async def generate(system: str, user: str) -> str:
         return await _generate_text(system, user, novelai_model=novelai_model)
 
+    async def plan_search(system: str, user: str) -> str:
+        return await _generate_text(
+            system, user, novelai_model=novelai_model, max_tokens=250
+        )
+
+    search = (
+        await web_search.lookup(state, group, language, plan_search)
+        if use_web_search
+        else None
+    )
+    if search:
+        system_prompt += web_search.REFERENCE_RULE
+        user_prompt += search.prompt(daily=True)
+
     attempts = 2 if rule_focus_rule_id else 1
     for attempt in range(attempts):
         prompt = user_prompt if attempt == 0 else user_prompt + RULE_FOCUS_RETRY_NOTE
@@ -375,6 +391,8 @@ async def generate_event(
                 context={"names": names},
             )
             event = _event_from_output(output, group, language)
+            if search:
+                event["web_search"] = search.for_output(generated=True)
             return settle_event_location(event, area_id, output.location)
         except Exception as error:
             logger.warning(
@@ -382,6 +400,8 @@ async def generate_event(
             )
     event = template_event(state, group, language, rng, recent_titles=recent_titles)
     event["area"] = area_id
+    if search:
+        event["web_search"] = search.for_output(generated=False)
     return event
 
 
@@ -1050,23 +1070,43 @@ async def generate_chat_reply(
     *,
     novelai_model: str | None,
     nsfw: bool,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """住民本人としての会話の返事。失敗したら定型の相槌。"""
+
+    async def plan_search(system: str, user: str) -> str:
+        return await _generate_text(
+            system, user, novelai_model=novelai_model, max_tokens=250
+        )
+
+    search = await web_search.lookup(
+        state, (resident,), language, plan_search, message=message, history=history
+    )
     system_prompt, user_prompt = chat_reply_prompts(
         state, resident, history, message, language, nsfw=nsfw
     )
+    if search:
+        system_prompt += web_search.REFERENCE_RULE
+        user_prompt += search.prompt()
     try:
         raw = await _generate_text(
             system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=600
         )
         cleaned = _clean_chat_reply(raw)
         if cleaned:
-            return {"text": normalize_output(cleaned, language), "source": "llm"}
+            return {
+                "text": normalize_output(cleaned, language),
+                "source": "llm",
+                "web_search": search.for_output(generated=True) if search else None,
+            }
     except Exception as error:
         logger.warning(
             "Hakoniwa chat reply failed: %s: %s", type(error).__name__, error
         )
-    return {"text": chat_fallback(resident, language, rng), "source": "template"}
+    return {
+        "text": chat_fallback(resident, language, rng),
+        "source": "template",
+        "web_search": search.for_output(generated=False) if search else None,
+    }
 
 
 def _parse_alteration(raw: str, message: str) -> dict[str, str] | None:
