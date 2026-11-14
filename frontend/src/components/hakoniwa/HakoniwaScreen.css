@@ -1,32 +1,35 @@
-/* AI箱庭: 夜の下宿をイメージした、木の色と灯りの琥珀色の配色 */
+/*
+ * AI箱庭。配色は通常プレイ・キャラチャットと同じ共通テーマ
+ * (MainLayout.css の :root)に揃える。本文は --hk-* を参照し、ここで共通トークンへ
+ * 対応づける。共通側に無い役割(進行中・エラー・立ち絵の背景など)だけ箱庭側で持つ。
+ */
 
 .hakoniwa-page,
 .hakoniwa-world,
 .hakoniwa-adv {
-  --hk-bg: #1d1916;
-  --hk-surface: #27211d;
-  --hk-surface-2: #312923;
-  --hk-border: #4a3f36;
-  --hk-border-strong: #6b5a4b;
-  --hk-text: #f1e8da;
-  --hk-muted: #b9aa96;
-  --hk-accent: #e3a95f;
-  --hk-accent-strong: #f0bd76;
-  --hk-on-accent: #2b1f12;
+  --hk-bg: var(--bg-color, #1a1a2e);
+  /* 全画面の重ね表示(ADV・会話)の地。通常プレイの最も暗い地の色 */
+  --hk-bg-deep: #0f0f1a;
+  --hk-surface: var(--side-menu-bg, #16213e);
+  --hk-surface-2: var(--hover-bg, #1f2f50);
+  --hk-border: var(--border-color, #333);
+  --hk-border-strong: #444;
+  --hk-text: var(--text-color, #eee);
+  --hk-muted: var(--text-muted, #888);
+  --hk-accent: var(--accent-color, #e94560);
+  --hk-accent-strong: var(--accent-hover, #ff6b6b);
+  --hk-on-accent: #fff;
+  /* 吹き出し・ひとことの紙の色(部屋の絵の上に載せる) */
   --hk-paper: #fffaf1;
   --hk-ink: #3d3630;
-  --hk-warning: #f1c27d;
-  --hk-danger: #e88a7d;
-  /* 進行中の表示(警告やエラーと取り違えない、落ち着いた青系) */
-  --hk-info: #7fc4d6;
+  --hk-warning: var(--warning-color, #fbbf24);
+  --hk-danger: #f87171;
+  /* 進行中の表示(警告やエラーと取り違えない青系) */
+  --hk-info: #60a5fa;
+  /* 立ち絵・顔の背景。キャラクター画面のサムネイルと同じ */
+  --hk-portrait-bg: radial-gradient(circle at 50% 30%, #2a2f5a, #0f1330);
   color: var(--hk-text);
-  background:
-    radial-gradient(
-      120% 70% at 50% -10%,
-      rgb(227 169 95 / 0.12),
-      transparent 60%
-    ),
-    var(--hk-bg);
+  background: var(--hk-bg);
 }
 
 .hakoniwa-page {
@@ -57,7 +60,7 @@
   margin: 0;
   letter-spacing: 0.24em;
   font-size: 0.75rem;
-  color: var(--hk-accent);
+  color: var(--hk-accent-strong);
 }
 
 .hakoniwa-card {
@@ -103,7 +106,7 @@
   border: 1px solid var(--hk-danger);
   border-radius: 10px;
   color: var(--hk-danger);
-  background: rgb(232 138 125 / 0.08);
+  background: color-mix(in srgb, var(--hk-danger) 8%, transparent);
 }
 
 .hakoniwa-error > button {
@@ -126,7 +129,7 @@
   margin: 0;
   transform: translateX(-50%);
   cursor: default;
-  background: var(--hk-surface, #27211d);
+  background: var(--hk-surface, var(--side-menu-bg, #16213e));
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
 }
 
@@ -245,8 +248,8 @@
 }
 
 .hakoniwa-segments button.is-active {
-  background: var(--hk-accent, #e3a95f);
-  color: var(--hk-on-accent, #2b1f12);
+  background: var(--hk-accent, var(--accent-color, #e94560));
+  color: var(--hk-on-accent, #fff);
 }
 
 /*
@@ -484,7 +487,7 @@
   border-radius: 50%;
   object-fit: cover;
   object-position: top;
-  background: var(--hk-paper);
+  background: var(--hk-portrait-bg);
 }
 
 .hakoniwa-chip__meta {
@@ -551,7 +554,7 @@
   padding: 2px 10px;
   border: 1px solid var(--hk-info);
   border-radius: 999px;
-  background: rgb(127 196 214 / 0.1);
+  background: color-mix(in srgb, var(--hk-info) 10%, transparent);
   color: var(--hk-info);
   font-size: 0.8rem;
 }
@@ -564,7 +567,7 @@
   left: 0;
   height: 2px;
   overflow: hidden;
-  background: rgb(127 196 214 / 0.2);
+  background: color-mix(in srgb, var(--hk-info) 20%, transparent);
   pointer-events: none;
 }
 
@@ -891,7 +894,7 @@
   gap: 8px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: rgb(29 25 22 / 0.78);
+  background: color-mix(in srgb, var(--hk-bg) 78%, transparent);
   color: var(--hk-text);
   font-size: 0.85rem;
 }
@@ -972,7 +975,7 @@
   overflow-y: auto;
   border: 1px solid var(--hk-border-strong);
   border-radius: 12px;
-  background: rgb(29 25 22 / 0.88);
+  background: color-mix(in srgb, var(--hk-bg) 88%, transparent);
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
 }
 
@@ -1200,7 +1203,7 @@
   overflow-y: auto;
   border: 1px solid var(--hk-accent);
   border-radius: 12px;
-  background: rgb(29 25 22 / 0.92);
+  background: color-mix(in srgb, var(--hk-bg) 92%, transparent);
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
 }
 
@@ -1279,7 +1282,7 @@
   inset: 0;
   z-index: 1000;
   overflow: hidden;
-  background: #120f0d;
+  background: var(--hk-bg-deep);
   color: var(--hk-text);
   cursor: pointer;
   outline: none;
@@ -1349,7 +1352,7 @@
   overflow-y: auto;
   border: 1px solid var(--hk-border-strong);
   border-radius: 14px;
-  background: rgb(29 25 22 / 0.9);
+  background: color-mix(in srgb, var(--hk-bg) 90%, transparent);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
   cursor: default;
 }
@@ -1408,7 +1411,7 @@
 }
 
 .hakoniwa-adv__text.is-narration {
-  color: #e6dccb;
+  color: color-mix(in srgb, var(--hk-text) 82%, var(--hk-muted));
 }
 
 .hakoniwa-adv__controls {
@@ -1446,7 +1449,7 @@
   position: absolute;
   right: 20px;
   bottom: 20px;
-  background: rgb(29 25 22 / 0.85);
+  background: color-mix(in srgb, var(--hk-bg) 85%, transparent);
 }
 
 /* 縦長の画面では立ち絵を窓の上に立たせる(窓の裏に隠れないように) */
@@ -1545,7 +1548,7 @@
   width: 110px;
   height: 160px;
   border-radius: 10px;
-  background: linear-gradient(#f6eddc, #e9dcc3);
+  background: var(--hk-portrait-bg);
   object-fit: contain;
   object-position: bottom;
 }
@@ -1555,7 +1558,7 @@
   place-items: center;
   padding: 8px;
   box-sizing: border-box;
-  color: var(--hk-ink);
+  color: var(--hk-muted);
   font-size: 0.8rem;
   text-align: center;
 }
@@ -1783,7 +1786,7 @@
   border-radius: 50%;
   object-fit: cover;
   object-position: top;
-  background: var(--hk-paper);
+  background: var(--hk-portrait-bg);
 }
 
 .hakoniwa-resident__current {
@@ -1859,7 +1862,7 @@
   width: 34px;
   height: 46px;
   border-radius: 6px;
-  background: #f6eddc;
+  background: var(--hk-portrait-bg);
   object-fit: contain;
 }
 
@@ -2246,7 +2249,7 @@
   padding: 0;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(#f6eddc, #e9dcc3);
+  background: var(--hk-portrait-bg);
   line-height: 0;
   cursor: pointer;
 }
@@ -2371,7 +2374,7 @@
   padding: 12px 14px;
   border: 1px solid var(--hk-border-strong);
   border-radius: 14px;
-  background: rgb(29 25 22 / 0.96);
+  background: color-mix(in srgb, var(--hk-bg) 96%, transparent);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
 }
 
