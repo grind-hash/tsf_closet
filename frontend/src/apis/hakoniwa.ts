@@ -331,6 +331,8 @@ export interface HakoniwaResident {
   dress_tags: string;
   mood: number;
   affinities: Record<string, number>;
+  /** プレイヤーへの好感度(-50..50)。会話の中身で動く */
+  player_affinity?: number;
   transformation: HakoniwaTransformation | null;
   transformation_history: HakoniwaTransformation[];
   /** 住民の改変(古い順) */
@@ -416,6 +418,8 @@ export interface HakoniwaChatEntry {
   kind?: string | null;
   source?: string | null;
   web_search?: HakoniwaWebSearch | null;
+  /** この返事で動いたプレイヤーへの好感度(動かなければ無し) */
+  affinity_delta?: number | null;
 }
 
 export interface HakoniwaChatResult {

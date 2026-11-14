@@ -223,3 +223,111 @@ def test_swap_note_names_the_pronoun_to_keep():
     state = logic.set_rule(_world(), "swap", True, random.Random(0))
     text = residents_text(state, "ja")
     assert "Still says their own first person '私', never 苑田 蓮's '俺'." in text
+
+
+# --- プレイヤーへの好感度 ---
+
+
+def test_player_affinity_defaults_clamps_and_tiers():
+    state = _world()
+    assert all(resident["player_affinity"] == 0 for resident in state["residents"])
+
+    raw = {**state, "residents": [dict(r) for r in state["residents"]]}
+    raw["residents"][0]["player_affinity"] = 99
+    raw["residents"][1]["player_affinity"] = "x"
+    normalized = logic.normalize_state(raw)
+    assert [r["player_affinity"] for r in normalized["residents"]] == [50, 0]
+    old = {**state, "residents": [dict(r) for r in state["residents"]]}
+    del old["residents"][0]["player_affinity"]
+    assert logic.normalize_state(old)["residents"][0]["player_affinity"] == 0
+
+    moved = play.adjust_player_affinity(state, "aoi", -80)
+    assert logic.find_resident(moved, "aoi")["player_affinity"] == -50
+    assert logic.find_resident(state, "aoi")["player_affinity"] == 0
+
+    tiers = {
+        -25: "hostile",
+        -24: "wary",
+        -6: "wary",
+        -5: "neutral",
+        10: "neutral",
+        11: "friendly",
+        29: "friendly",
+        30: "close",
+    }
+    for value, tier in tiers.items():
+        assert play.player_affinity_tier({"player_affinity": value}) == tier
+    assert play.clamp_talk_affinity_delta(7) == 3
+    assert play.clamp_talk_affinity_delta("-9") == -3
+    assert play.clamp_talk_affinity_delta(None) == 0
+
+
+def test_touch_follows_player_affinity():
+    state = _world()
+    aoi = {**logic.find_resident(state, "aoi"), "mood": 50}
+    fond = {**aoi, "player_affinity": 30}
+    averse = {**aoi, "player_affinity": -30}
+
+    assert touch_tone(state, fond, "chest") == "fond"
+    assert touch_tone(state, fond, "head") == "fond"
+    assert touch_tone(state, averse, "lower") == "averse"
+    assert touch_tone(state, averse, "head") == "averse"
+    assert touch_tone(state, aoi, "chest") == "standard"
+    # 好きな相手なら気分がふつうでも受け入れ側、嫌いなら頭でも上がらない
+    assert play.touch_mood_delta(fond, "chest") == 1
+    assert play.touch_mood_delta(fond, "lower") == 0
+    assert play.touch_mood_delta(averse, "head") == 0
+    assert play.touch_mood_delta(averse, "chest") == -2
+
+    close_state = {
+        **state,
+        "residents": [fond if r["id"] == "aoi" else r for r in state["residents"]],
+    }
+    _, user = touch_prompts(close_state, fond, "chest", "ja", nsfw=False)
+    assert "Do not show disgust" in user
+    assert "Your feelings toward the player: you are very fond of them" in user
+    _, user = touch_prompts(state, averse, "chest", "ja", nsfw=False)
+    assert "open disgust" in user
+
+    # 元男性の戸惑いは好感度より先(この姿で触られる戸惑いを残す)
+    dressed = logic.set_rule(state, "dress", True, random.Random(0))
+    ren = {**logic.find_resident(dressed, "ren"), "player_affinity": 40}
+    assert touch_tone(dressed, ren, "chest") == "confused"
+
+
+def test_chat_reply_is_longer_and_cut_at_a_sentence_end():
+    from gateway.consts.hakoniwa_play import HAKONIWA_CHAT_REPLY_MAX
+    from gateway.services.hakoniwa_generation import _clean_chat_reply
+
+    state = _world()
+    aoi = logic.find_resident(state, "aoi")
+    system, _ = chat_reply_prompts(state, aoi, [], "やあ", "ja", nsfw=False)
+    assert "usually three to six sentences" in system
+    assert f"at most {HAKONIWA_CHAT_REPLY_MAX // 2} characters" in system
+
+    sentence = "今日はいい天気だね。"
+    long_reply = sentence * (HAKONIWA_CHAT_REPLY_MAX // len(sentence) + 5)
+    cut = _clean_chat_reply(long_reply)
+    assert cut is not None
+    assert len(cut) <= HAKONIWA_CHAT_REPLY_MAX
+    assert cut.endswith("。")
+    assert _clean_chat_reply("「" + "あ" * 700 + "」") == "あ" * HAKONIWA_CHAT_REPLY_MAX
+    assert _clean_chat_reply('{"reply": "x"}') is None
+
+
+def test_player_impression_is_read_and_clamped():
+    from gateway.services.hakoniwa_generation import _parse_impression
+    from gateway.services.hakoniwa_prompts import player_impression_prompts
+
+    assert _parse_impression('{"delta": 2}') == 2
+    assert _parse_impression('考えた結果 {"delta": -8}') == -3
+    assert _parse_impression("great") == 0
+    assert _parse_impression('{"delta": "a lot"}') == 0
+
+    state = _world()
+    aoi = logic.find_resident(state, "aoi")
+    history = [{"role": "resident", "text": "おはよう"}]
+    system, user = player_impression_prompts(state, aoi, history, "かわいいね", "ja")
+    assert '{"delta": an integer from -3 to 3}' in system
+    assert "The player's latest message: かわいいね" in user
+    assert "高瀬 葵: おはよう" in user

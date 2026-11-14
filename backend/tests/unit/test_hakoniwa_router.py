@@ -1007,6 +1007,40 @@ def test_touch_changes_mood_without_chronicle(client: TestClient):
     assert body["world"]["events"] == []
 
 
+def test_chat_moves_player_affinity_and_marks_the_reply(
+    client: TestClient, monkeypatch
+):
+    world = _create(client, ["aoi", "ren"])
+    path = f"/api/hakoniwa/worlds/{world['id']}/residents/aoi/chat"
+    deltas = ['{"delta": 3}', '{"delta": 0}', "not json"]
+
+    async def fake(system, user, *, novelai_model, max_tokens=1400):
+        if system.startswith("You judge how a message"):
+            return deltas.pop(0)
+        return "ありがとう。そう言ってもらえると、すごくうれしいな。"
+
+    monkeypatch.setattr(gen_module, "_generate_text", fake)
+
+    kind = client.post(path, json={"message": "いつもありがとう", "language": "ja"})
+    body = kind.json()
+    assert body["reply"]["affinity_delta"] == 3
+    aoi = next(r for r in body["world"]["residents"] if r["id"] == "aoi")
+    assert aoi["player_affinity"] == 3
+    ren = next(r for r in body["world"]["residents"] if r["id"] == "ren")
+    assert ren["player_affinity"] == 0
+    assert body["history"][-1]["affinity_delta"] == 3
+
+    for message in ("今日は晴れだね", "ふーん"):
+        later = client.post(path, json={"message": message, "language": "ja"}).json()
+        assert later["reply"]["affinity_delta"] is None
+        aoi = next(r for r in later["world"]["residents"] if r["id"] == "aoi")
+        assert aoi["player_affinity"] == 3
+    history = client.get(path).json()["history"]
+    assert [
+        entry.get("affinity_delta") for entry in history if entry["role"] == "resident"
+    ] == [3, None, None]
+
+
 def test_chat_reply_transform_confirmation_and_clear(client: TestClient, llm_outputs):
     world = _create(client, ["aoi", "ren"])
     wid = world["id"]
@@ -1020,6 +1054,7 @@ def test_chat_reply_transform_confirmation_and_clear(client: TestClient, llm_out
         "kind": None,
         "source": "llm",
         "web_search": None,
+        "affinity_delta": None,
     }
     assert [entry["role"] for entry in talked["history"]] == ["player", "resident"]
 

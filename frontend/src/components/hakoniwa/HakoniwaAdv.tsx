@@ -64,6 +64,7 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
   const showRef = useRef<HTMLButtonElement | null>(null);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);
   const logRef = useRef<HTMLOListElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const event = world?.events.find((item) => item.id === advEventId) ?? null;
   // ログ: 読み終えた幕まで。続きを指示した場面は、元の場面までさかのぼって並べる
   const logScenes = useMemo(
@@ -92,6 +93,12 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
     else if (composing) draftRef.current?.focus();
     else nextRef.current?.focus();
   }, [advEventId, windowHidden, composing]);
+
+  // 窓の高さは固定で、長い幕は窓の中でスクロールする。幕が進んだら先頭から読ませる
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (body && advEventId && step >= 0) body.scrollTop = 0;
+  }, [advEventId, step]);
 
   // ログを開いたとき・幕が進んだときは、いちばん新しい幕が見える位置へ送る
   useEffect(() => {
@@ -267,7 +274,9 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
           {t("common.messageWindow.show")}
         </button>
       ) : (
-        <div className="hakoniwa-adv__window">
+        <div
+          className={`hakoniwa-adv__window${composing ? " is-composing" : ""}`}
+        >
           <div className="hakoniwa-adv__meta">
             <span className="hakoniwa-adv__speaker">
               {composing
@@ -396,22 +405,24 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
             </div>
           ) : (
             <>
-              {suggestion && (
-                <div
-                  className={`hakoniwa-adv__suggest${
-                    suggestion.level === "strong" ? " is-strong" : ""
-                  }`}
+              <div className="hakoniwa-adv__body" ref={bodyRef}>
+                {suggestion && (
+                  <div
+                    className={`hakoniwa-adv__suggest${
+                      suggestion.level === "strong" ? " is-strong" : ""
+                    }`}
+                  >
+                    {t("hakoniwa.adv.suggest", { reason: suggestion.reason })}
+                  </div>
+                )}
+                <p
+                  className={`hakoniwa-adv__text${current.speaker ? "" : " is-narration"}`}
                 >
-                  {t("hakoniwa.adv.suggest", { reason: suggestion.reason })}
-                </div>
-              )}
-              <p
-                className={`hakoniwa-adv__text${current.speaker ? "" : " is-narration"}`}
-              >
-                {current.speaker
-                  ? t("hakoniwa.chronicle.line", { text: current.text })
-                  : current.text}
-              </p>
+                  {current.speaker
+                    ? t("hakoniwa.chronicle.line", { text: current.text })
+                    : current.text}
+                </p>
+              </div>
               <HakoniwaMessageFooter search={event.web_search} />
               <div className="hakoniwa-adv__controls">
                 <button

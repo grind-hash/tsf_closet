@@ -122,6 +122,7 @@ export default function HakoniwaResidentPanel({
   const relations = Object.entries(resident.affinities)
     .filter(([id]) => names[id])
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  const playerAffinity = resident.player_affinity ?? 0;
 
   const handleTransform = () => {
     const instruction = draft.trim();
@@ -178,6 +179,16 @@ export default function HakoniwaResidentPanel({
             {t("hakoniwa.residents.mood")}:{" "}
             {t(`hakoniwa.residents.moodLabels.${moodLevel(resident.mood)}`)}（
             {resident.mood}）
+          </p>
+          <p className="hakoniwa-resident__meta">
+            {t("hakoniwa.residents.playerAffinity", {
+              name: world.player_name || t("hakoniwa.chat.you"),
+            })}
+            :{" "}
+            {t(
+              `hakoniwa.residents.affinityLabels.${affinityLevel(playerAffinity)}`,
+            )}
+            （{playerAffinity}）
           </p>
           <ul className="hakoniwa-resident__states">
             {swappedName && (

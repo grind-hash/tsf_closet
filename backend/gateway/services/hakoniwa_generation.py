@@ -11,7 +11,7 @@ import json
 import logging
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
@@ -63,6 +63,7 @@ from .hakoniwa_logic import (
     tags_gender,
 )
 from .hakoniwa_prompts import (
+    CHAT_REFERENCE_DEPTH,
     DIRECTED_EVENT_RETRY_NOTE,
     RULE_FOCUS_RETRY_NOTE,
     alteration_prompts,
@@ -76,6 +77,7 @@ from .hakoniwa_prompts import (
     event_user_prompt,
     greeting_prompts,
     memo_look_prompts,
+    player_impression_prompts,
     random_residents_prompts,
     rule_look_tags_prompts,
     scene_tags_prompts,
@@ -84,6 +86,7 @@ from .hakoniwa_prompts import (
     transform_tags_prompts,
 )
 from .hakoniwa_random import name_key
+from .hakoniwa_scene import SceneAction
 from .hakoniwa_text import SIMPLIFIED_ONLY_CHARS, normalize_output
 from .llm_json import generate_validated
 from .llm_service import llm_service
@@ -828,11 +831,16 @@ async def generate_confrontation_event(
 
 # 場面のタグの個数の上限
 SCENE_TAGS_MAX_COUNT = 12
+# 場面の絵で着せる服(outfits)のタグの上限
+SCENE_OUTFIT_TAGS_MAX_COUNT = 8
 
 
 class _SceneTagsOutput(BaseModel):
     tags: str = Field(min_length=1)
     attire: dict[str, Any] = Field(default_factory=dict)
+    # 任意項目。形が崩れていても tags・attire は生かす(使えない値は捨てる)
+    outfits: Any = None
+    action: Any = None
 
 
 @dataclass(frozen=True)
@@ -841,6 +849,9 @@ class SceneTags:
 
     tags: str
     attire: dict[str, str]
+    # いつもの服でも服装の一覧でもない、その場面で着ている服のタグ(住民 id ごと)
+    outfits: dict[str, str] = field(default_factory=dict)
+    action: SceneAction | None = None
 
 
 async def convert_scene_to_tags(
@@ -887,7 +898,38 @@ async def convert_scene_to_tags(
         if _norm_name(name) in id_by_name
         and str(value).strip() in HAKONIWA_SCENE_ATTIRES
     }
-    return SceneTags(", ".join(tags.split(", ")[:SCENE_TAGS_MAX_COUNT]), attire)
+    outfits: dict[str, str] = {}
+    raw_outfits = output.outfits if isinstance(output.outfits, dict) else {}
+    for name, value in raw_outfits.items():
+        resident_id = id_by_name.get(_norm_name(name))
+        cleaned = clean_tags(str(value or "")) if resident_id else None
+        if resident_id and cleaned:
+            outfits[resident_id] = ", ".join(
+                cleaned.split(", ")[:SCENE_OUTFIT_TAGS_MAX_COUNT]
+            )
+    return SceneTags(
+        ", ".join(tags.split(", ")[:SCENE_TAGS_MAX_COUNT]),
+        attire,
+        outfits,
+        _scene_action(output.action, id_by_name),
+    )
+
+
+def _scene_action(raw: Any, id_by_name: dict[str, str]) -> SceneAction | None:
+    """LLM の action を住民 id にする。名前が分からない・同じ人・タグが無ければ None。"""
+    if not isinstance(raw, dict):
+        return None
+    tag = clean_tags(str(raw.get("tag") or ""))
+    source_id = id_by_name.get(_norm_name(str(raw.get("by") or "")))
+    target_id = id_by_name.get(_norm_name(str(raw.get("to") or "")))
+    if not tag or not source_id or not target_id or source_id == target_id:
+        return None
+    return SceneAction(
+        tag=tag.split(", ")[0],
+        source_id=source_id,
+        target_id=target_id,
+        mutual=raw.get("mutual") is True,
+    )
 
 
 class _EventLookChange(BaseModel):
@@ -982,15 +1024,30 @@ async def plan_event_looks(
 
 
 def touch_tone(state: dict[str, Any], resident: dict[str, Any], part: str) -> str:
-    """定型の反応の調子。胸・腰は 男性の戸惑い → 際どい姿 → 機嫌が良い → 通常 の順。"""
+    """定型の反応の調子。
+
+    胸・腰は 男性の戸惑い → プレイヤーを嫌う → 好き → 際どい姿 → 機嫌が良い → 通常、
+    頭は プレイヤーを嫌う → 好き → 男性の戸惑い → 通常 の順。
+    """
+    tier = play.player_affinity_tier(resident)
+    averse = tier in ("hostile", "wary")
+    fond = tier in ("friendly", "close")
     if part != "head":
         if is_male_in_feminine_form(state, resident):
             return "confused"
+        if averse:
+            return "averse"
+        if fond:
+            return "fond"
         if appearance_is_risque(state, resident):
             return "risque"
         if int(resident.get("mood") or 50) >= TOUCH_TOLERANT_MOOD:
             return "tolerant"
         return "standard"
+    if averse:
+        return "averse"
+    if fond:
+        return "fond"
     return "confused" if is_male_in_feminine_form(state, resident) else "standard"
 
 
@@ -1043,15 +1100,27 @@ async def generate_touch_reaction(
 # --- 会話 ---
 
 
+_SENTENCE_END = re.compile(r"[。！？!?…」』）)]|\.(?=\s|$)")
+
+
+def _cut_at_sentence(text: str, limit: int) -> str:
+    """limit 字を超える返事を、上限内の最後の文末で切る。文末が無ければ上限で切る。"""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    ends = [match.end() for match in _SENTENCE_END.finditer(head)]
+    return (head[: ends[-1]] if ends else head).rstrip()
+
+
 def _clean_chat_reply(raw: str) -> str | None:
     text = re.sub(r"^```\w*\s*|\s*```$", "", str(raw or "").strip()).strip()
     if not text or text.startswith(("{", "[")):
         return None
     if text[0] in '「“"' and text[-1] in '」”"':
         text = text[1:-1].strip()
-    if not text or len(text) > HAKONIWA_CHAT_REPLY_MAX:
+    if not text:
         return None
-    return text
+    return _cut_at_sentence(text, HAKONIWA_CHAT_REPLY_MAX) or None
 
 
 def chat_fallback(resident: dict[str, Any], language: str, rng: random.Random) -> str:
@@ -1086,10 +1155,12 @@ async def generate_chat_reply(
     )
     if search:
         system_prompt += web_search.REFERENCE_RULE
+        if search.metadata.get("status") == "used":
+            system_prompt += CHAT_REFERENCE_DEPTH
         user_prompt += search.prompt()
     try:
         raw = await _generate_text(
-            system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=600
+            system_prompt, user_prompt, novelai_model=novelai_model
         )
         cleaned = _clean_chat_reply(raw)
         if cleaned:
@@ -1107,6 +1178,44 @@ async def generate_chat_reply(
         "source": "template",
         "web_search": search.for_output(generated=False) if search else None,
     }
+
+
+def _parse_impression(raw: str) -> int:
+    match = re.search(r"\{.*\}", str(raw or ""), flags=re.DOTALL)
+    if not match:
+        return 0
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    return play.clamp_talk_affinity_delta(data.get("delta"))
+
+
+async def judge_player_impression(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    history: list[dict[str, Any]],
+    message: str,
+    language: str,
+    *,
+    novelai_model: str | None,
+) -> int:
+    """プレイヤーの発言で動く、住民のプレイヤーへの好感度(±3)。失敗したら 0。"""
+    system_prompt, user_prompt = player_impression_prompts(
+        state, resident, history, message, language
+    )
+    try:
+        raw = await _generate_text(
+            system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=200
+        )
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa player impression failed: %s: %s", type(error).__name__, error
+        )
+        return 0
+    return _parse_impression(raw)
 
 
 def _parse_alteration(raw: str, message: str) -> dict[str, str] | None:

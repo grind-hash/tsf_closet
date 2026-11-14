@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { hakoniwaMediaUrl } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import { useTransparentImages } from "../../hooks/useTransparentImages";
+import { latestExchange } from "./chatExchange";
 import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 import HakoniwaMessageFooter from "./HakoniwaMessageFooter";
 
@@ -40,6 +41,7 @@ export default function HakoniwaChat() {
   const [logOpen, setLogOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const showRef = useRef<HTMLButtonElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const resident =
     world?.residents.find((item) => item.id === chatResidentId) ?? null;
   const urls = useMemo(
@@ -57,15 +59,24 @@ export default function HakoniwaChat() {
     (windowHidden ? showRef : inputRef).current?.focus();
   }, [chatResidentId, windowHidden]);
 
+  // 新しい返事が届いたら、窓の本文を先頭から読めるように戻す(窓の高さは固定)
+  useEffect(() => {
+    if (busy !== "chat" && chatHistory.length > 0 && bodyRef.current) {
+      bodyRef.current.scrollTop = 0;
+    }
+  }, [busy, chatHistory]);
+
   if (!world || !resident) return null;
 
   const area = world.areas.find((item) => item.id === resident.current_area);
   const backgroundUrl = hakoniwaMediaUrl(area?.background_url);
   const portrait = urls[0] ? (transparent[urls[0]] ?? urls[0]) : null;
-  const latest = [...chatHistory]
-    .reverse()
-    .find((entry) => entry.role !== "player");
+  const { latest, lastPlayerLine } = latestExchange(chatHistory);
   const sending = busy === "chat";
+  // 直近の自分の言葉(送信中は送っている言葉)。全文はログで読める
+  const userLine = sending ? draft.trim() : lastPlayerLine;
+  const affinityDelta =
+    !sending && latest?.role === "resident" ? latest.affinity_delta : null;
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -138,45 +149,64 @@ export default function HakoniwaChat() {
             <span className="hakoniwa-adv__speaker">
               {latest ? speakerOf(latest.role) : resident.name}
             </span>
-            <div className="hakoniwa-adv__actions">
-              <button
-                type="button"
-                className="hakoniwa-button hakoniwa-button--ghost"
-                aria-expanded={logOpen}
-                onClick={() => setLogOpen((open) => !open)}
-              >
-                {t("hakoniwa.chat.log")}
-              </button>
-              <button
-                type="button"
-                className="hakoniwa-icon-button"
-                aria-label={t("common.messageWindow.hide")}
-                title={t("common.messageWindow.hide")}
-                onClick={() => setWindowHidden(true)}
-              >
-                ×
-              </button>
+            {affinityDelta ? (
+              <span className="hakoniwa-adv__progress">
+                {t("hakoniwa.chat.affinityChange", {
+                  delta:
+                    affinityDelta > 0
+                      ? `+${affinityDelta}`
+                      : String(affinityDelta),
+                })}
+              </span>
+            ) : null}
+            <div className="hakoniwa-chat__meta-end">
+              {userLine && (
+                <span className="hakoniwa-chat__user-line" title={userLine}>
+                  {speakerOf("player")}「{userLine}」
+                </span>
+              )}
+              <div className="hakoniwa-adv__actions">
+                <button
+                  type="button"
+                  className="hakoniwa-button hakoniwa-button--ghost"
+                  aria-expanded={logOpen}
+                  onClick={() => setLogOpen((open) => !open)}
+                >
+                  {t("hakoniwa.chat.log")}
+                </button>
+                <button
+                  type="button"
+                  className="hakoniwa-icon-button"
+                  aria-label={t("common.messageWindow.hide")}
+                  title={t("common.messageWindow.hide")}
+                  onClick={() => setWindowHidden(true)}
+                >
+                  ×
+                </button>
+              </div>
             </div>
           </div>
-          <p
-            className={`hakoniwa-adv__text${latest?.role === "system" ? " is-narration" : ""}`}
-            aria-live="polite"
-          >
-            {sending ? (
-              <span className="hakoniwa-chat__thinking" role="status">
-                <span className="hakoniwa-spinner" aria-hidden />
-                {t("hakoniwa.chat.thinking", { name: resident.name })}
-              </span>
-            ) : latest ? (
-              latest.role === "resident" ? (
-                t("hakoniwa.chronicle.line", { text: latest.text })
+          <div className="hakoniwa-adv__body" ref={bodyRef}>
+            <p
+              className={`hakoniwa-adv__text${latest?.role === "system" ? " is-narration" : ""}`}
+              aria-live="polite"
+            >
+              {sending ? (
+                <span className="hakoniwa-chat__thinking" role="status">
+                  <span className="hakoniwa-spinner" aria-hidden />
+                  {t("hakoniwa.chat.thinking", { name: resident.name })}
+                </span>
+              ) : latest ? (
+                latest.role === "resident" ? (
+                  t("hakoniwa.chronicle.line", { text: latest.text })
+                ) : (
+                  latest.text
+                )
               ) : (
-                latest.text
-              )
-            ) : (
-              t("hakoniwa.chat.empty", { name: resident.name })
-            )}
-          </p>
+                t("hakoniwa.chat.empty", { name: resident.name })
+              )}
+            </p>
+          </div>
           <HakoniwaMessageFooter search={sending ? null : latest?.web_search} />
           <form className="hakoniwa-chat__form" onSubmit={submit}>
             <label className="hakoniwa-chat__label" htmlFor={inputId}>

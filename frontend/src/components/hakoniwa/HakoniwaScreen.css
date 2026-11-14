@@ -1341,13 +1341,19 @@
   filter: brightness(0.55);
 }
 
+/* 窓の高さは文の長さで変えない(長い幕・返事は本文の行の中でスクロールする)。
+   行はメタ・本文・AI の注記と出典・ボタン。注記は本文をスクロールしても隠れない */
 .hakoniwa-adv__window {
+  --hk-adv-window-height: clamp(220px, 34vh, 340px);
   position: absolute;
   right: max(16px, calc((100% - 1100px) / 2));
   bottom: 20px;
   left: max(16px, calc((100% - 1100px) / 2));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   box-sizing: border-box;
-  max-height: 46%;
+  height: var(--hk-adv-window-height);
+  max-height: calc(100% - 40px);
   padding: 14px 20px;
   overflow-y: auto;
   border: 1px solid var(--hk-border-strong);
@@ -1389,6 +1395,12 @@
   white-space: nowrap;
 }
 
+.hakoniwa-adv__body {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
 .hakoniwa-adv__suggest {
   margin-top: 8px;
   padding: 6px 10px;
@@ -1420,7 +1432,14 @@
   gap: 8px;
 }
 
-/* 続きの指示: 窓の中身を入力欄に替える */
+/* 続きの指示を書いている間と、出典(参照した情報)を開いている間だけは、送るボタンや
+   本文が隠れないよう窓を中身に合わせて伸ばす(幕・返事の文の長さでは変えない) */
+.hakoniwa-adv__window.is-composing,
+.hakoniwa-adv__window:has(.hakoniwa-message-footer details[open]) {
+  height: auto;
+  min-height: var(--hk-adv-window-height);
+}
+
 .hakoniwa-adv__compose {
   margin-top: 10px;
 }
@@ -1466,7 +1485,7 @@
   }
 
   .hakoniwa-adv__window {
-    max-height: 58%;
+    --hk-adv-window-height: clamp(240px, 40vh, 360px);
   }
 }
 
@@ -2294,8 +2313,46 @@
   cursor: default;
 }
 
+/* 行はメタ・本文(返事)・AI の注記と出典・入力欄・ヒント。本文だけスクロールする */
 .hakoniwa-chat__window {
-  max-height: 58%;
+  --hk-adv-window-height: clamp(320px, 52vh, 480px);
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+}
+
+/* メタ行の右側: 直近の自分の言葉(1行で省略)と窓の操作 */
+.hakoniwa-chat__meta-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 60%;
+  margin-left: auto;
+}
+
+/* 窓の操作は折り返さない(自分の言葉のほうを省略して詰める) */
+.hakoniwa-chat__meta-end .hakoniwa-adv__actions {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+}
+
+.hakoniwa-chat__user-line {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--hk-muted);
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .hakoniwa-chat__window {
+    --hk-adv-window-height: clamp(340px, 60vh, 500px);
+  }
+
+  /* 狭い画面では自分の言葉を出さない(ログで読める) */
+  .hakoniwa-chat__user-line {
+    display: none;
+  }
 }
 
 .hakoniwa-chat__thinking {
@@ -2358,6 +2415,12 @@
 .hakoniwa-message-footer ul {
   margin: 4px 0;
   padding-left: 20px;
+}
+
+/* 高さを固定した窓の中では、出典の一覧だけをスクロールさせて本文の行を残す */
+.hakoniwa-adv__window .hakoniwa-message-footer ul {
+  max-height: 6.5em;
+  overflow-y: auto;
 }
 
 .hakoniwa-chat__log {

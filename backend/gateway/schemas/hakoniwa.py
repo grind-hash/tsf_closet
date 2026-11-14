@@ -446,6 +446,9 @@ class HakoniwaResident(BaseModel):
     dress_tags: str
     mood: int
     affinities: dict[str, int]
+    player_affinity: int = Field(
+        0, description="プレイヤーへの好感度(-50..50)。会話の中身で動く"
+    )
     transformation: HakoniwaTransformation | None
     transformation_history: list[HakoniwaTransformation]
     realities: list[HakoniwaReality] = Field(
@@ -785,6 +788,9 @@ class HakoniwaChatEntry(BaseModel):
     kind: str | None = Field(None, description="alteration / alteration_reaction")
     source: str | None = None
     web_search: HakoniwaWebSearch | None = None
+    affinity_delta: int | None = Field(
+        None, description="この返事で動いたプレイヤーへの好感度(動かなければ無し)"
+    )
 
 
 class HakoniwaChatAlteration(BaseModel):

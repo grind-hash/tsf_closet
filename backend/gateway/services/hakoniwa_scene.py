@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from ..consts.hakoniwa import (
@@ -191,6 +192,34 @@ def _count_tokens(genders: list[str]) -> str:
     return ", ".join(tokens)
 
 
+@dataclass(frozen=True)
+class SceneAction:
+    """場面の絵の、誰が誰にする動作か(NovelAI の source#/target#/mutual# にする)。"""
+
+    tag: str
+    source_id: str
+    target_id: str
+    mutual: bool = False
+
+
+def _action_prefix(action: SceneAction | None, resident_id: str) -> str | None:
+    """その住民のキャラクター枠に付ける動作のタグ。関わらなければ None。"""
+    if action is None:
+        return None
+    if action.mutual and resident_id in (action.source_id, action.target_id):
+        return f"mutual#{action.tag}"
+    if resident_id == action.source_id:
+        return f"source#{action.tag}"
+    if resident_id == action.target_id:
+        return f"target#{action.tag}"
+    return None
+
+
+def wear_outfit(tags: str, outfit: str) -> str:
+    """いまの姿のタグの服を、場面で着ている服(outfits)に差し替える。"""
+    return ", ".join(part for part in (strip_clothing_tags(tags), outfit) if part)
+
+
 def scene_request(
     state: dict[str, Any],
     event: dict[str, Any],
@@ -198,12 +227,16 @@ def scene_request(
     attire: dict[str, str] | None = None,
     *,
     nsfw: bool = False,
+    outfits: dict[str, str] | None = None,
+    action: SceneAction | None = None,
 ) -> dict[str, Any]:
     """場面絵の生成に渡す土台のプロンプトとキャラクター枠を組み立てる。
 
     戻り値 {prompt, characters, flat_prompt}。characters は NovelAI のキャラクター枠
     (左から順、2人以上は位置を固定)、flat_prompt は NovelAI 以外へ送る1行のプロンプト。
-    attire は住民 id ごとの場面の服装(浴室なら裸・タオルなど)。住民の姿そのものは変えない。
+    attire は住民 id ごとの場面の服装(浴室なら裸・タオルなど)、outfits は一覧に無い
+    その場面だけの服(誰かに着せられた衣装など。attire より優先)。住民の姿そのものは
+    変えない。action は誰が誰にする動作かで、する側・される側の枠にだけ付ける。
     """
     participants = [
         find_resident(state, resident_id)
@@ -216,11 +249,20 @@ def scene_request(
         tags_gender(item) or resident_gender(resident)
         for item, resident in zip(tags, participants, strict=True)
     ]
-    if attire:
-        tags = [
-            dress_for_scene(item, attire.get(resident["id"]), gender, nsfw=nsfw)
-            for item, resident, gender in zip(tags, participants, genders, strict=True)
-        ]
+    outfits = outfits or {}
+    tags = [
+        wear_outfit(item, outfits[resident["id"]])
+        if outfits.get(resident["id"])
+        else dress_for_scene(
+            item, (attire or {}).get(resident["id"]), gender, nsfw=nsfw
+        )
+        for item, resident, gender in zip(tags, participants, genders, strict=True)
+    ]
+    ids = {resident["id"] for resident in participants}
+    if action is not None and not (
+        len(participants) >= 2 and action.source_id in ids and action.target_id in ids
+    ):
+        action = None
     # 背景は出来事の場所(浴室・商店街など)。無ければ起きたエリア
     place = event_location(event)
     scene = scene_tags.strip() or SCENE_TAGS_FALLBACK
@@ -238,16 +280,27 @@ def scene_request(
     characters = []
     for index, own in enumerate(tags):
         others = [item for other, item in enumerate(tags) if other != index]
-        frame: dict[str, Any] = {"prompt": own, "position": positions[index]}
+        resident_id = participants[index]["id"]
+        acting = _action_prefix(action, resident_id)
+        frame: dict[str, Any] = {
+            "prompt": f"{own}, {acting}" if acting else own,
+            "position": positions[index],
+        }
+        # 着せた服は裸に寄らないよう、服を着たまま描かせる
+        covered = (
+            HAKONIWA_SCENE_COVERED_NEGATIVE[
+                "male" if genders[index] == "male" else "female"
+            ]
+            if outfits.get(resident_id)
+            else scene_attire_negative(
+                (attire or {}).get(resident_id), genders[index], nsfw=nsfw
+            )
+        )
         negative = ", ".join(
             part
             for part in (
                 cross_identity_negative(own, others) if others else "",
-                scene_attire_negative(
-                    (attire or {}).get(participants[index]["id"]),
-                    genders[index],
-                    nsfw=nsfw,
-                ),
+                covered,
             )
             if part
         )
@@ -256,5 +309,8 @@ def scene_request(
         if len(participants) >= 2:
             frame["fixed_position"] = True
         characters.append(frame)
-    flat_prompt = ", ".join([prompt, *tags])
+    # NovelAI 以外には「誰が誰に」の書き方が無いので、動作のタグだけ場面に足す
+    flat_prompt = ", ".join(
+        [prompt, *([action.tag] if action is not None else []), *tags]
+    )
     return {"prompt": prompt, "characters": characters, "flat_prompt": flat_prompt}

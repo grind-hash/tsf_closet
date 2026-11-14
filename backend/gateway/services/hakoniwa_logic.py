@@ -104,6 +104,13 @@ def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, int(value)))
 
 
+def _int_or_zero(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _lang(language: str) -> str:
     return "ja" if language == "ja" else "en"
 
@@ -729,6 +736,8 @@ def _base_resident(**fields: Any) -> dict[str, Any]:
         "dress_image": None,
         "mood": HAKONIWA_CUSTOM_RESIDENT_INITIAL_MOOD,
         "affinities": {},
+        # プレイヤーへの好感度(-50..50)。会話の中身で動き、一言・タッチ・会話の口調に効く
+        "player_affinity": 0,
         "transformation": None,
         "transformation_history": [],
         # 住民の改変: その住民についての世界の常識 [{id, text, day}]。本人も周りも昔からそうだと受け止める
@@ -1036,6 +1045,11 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
             str(key): int(value)
             for key, value in (resident.get("affinities") or {}).items()
         }
+        entry["player_affinity"] = _clamp(
+            _int_or_zero(resident.get("player_affinity")),
+            HAKONIWA_AFFINITY_MIN,
+            HAKONIWA_AFFINITY_MAX,
+        )
         entry["transformation_history"] = list(
             resident.get("transformation_history") or []
         )

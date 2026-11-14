@@ -9,6 +9,7 @@ import pytest
 from gateway.services import hakoniwa_generation as gen
 from gateway.services import hakoniwa_logic as logic
 from gateway.services.hakoniwa_scene import (
+    SceneAction,
     dress_for_scene,
     scene_request,
     strip_clothing_tags,
@@ -154,3 +155,141 @@ def test_covered_attire_adds_a_nude_negative():
     assert "nipples" in aoi["negative_prompt"]
     # 裸に選ばれた人物には付けない
     assert "completely nude" not in ren.get("negative_prompt", "")
+
+
+# --- 誰が誰にする動作か・その場面だけの服 ---
+
+
+def test_scene_action_marks_the_doer_and_the_receiver():
+    state = _state()
+    event = {"participants": ["aoi", "ren"], "area": "living"}
+    action = SceneAction(tag="dressing another", source_id="ren", target_id="aoi")
+
+    request = scene_request(state, event, "smile", nsfw=True, action=action)
+
+    aoi, ren = (frame["prompt"] for frame in request["characters"])
+    assert aoi.endswith("target#dressing another")
+    assert ren.endswith("source#dressing another")
+    assert "#" not in request["prompt"]
+    # NovelAI 以外には向きを付けずに動作だけ渡す
+    assert "dressing another" in request["flat_prompt"]
+    assert "#" not in request["flat_prompt"]
+
+
+def test_mutual_action_goes_to_both_and_unknown_ids_are_ignored():
+    state = _state()
+    event = {"participants": ["aoi", "ren"], "area": "living"}
+
+    mutual = scene_request(
+        state,
+        event,
+        "smile",
+        action=SceneAction(tag="hug", source_id="aoi", target_id="ren", mutual=True),
+    )
+    assert all(frame["prompt"].endswith("mutual#hug") for frame in mutual["characters"])
+
+    stray = scene_request(
+        state,
+        event,
+        "smile",
+        action=SceneAction(tag="hug", source_id="aoi", target_id="tamako"),
+    )
+    assert all("#" not in frame["prompt"] for frame in stray["characters"])
+
+
+def test_outfit_replaces_the_clothes_and_keeps_them_on():
+    state = _state()
+    event = {"participants": ["aoi", "ren"], "area": "living"}
+
+    request = scene_request(
+        state,
+        event,
+        "dancing",
+        {"aoi": "nude"},
+        nsfw=True,
+        outfits={"aoi": "silver bikini top, orange pelvic curtain"},
+    )
+
+    aoi = request["characters"][0]
+    assert "silver bikini top" in aoi["prompt"]
+    assert "casual jacket" not in aoi["prompt"]
+    assert "completely nude" not in aoi["prompt"]
+    assert "nipples" in aoi["negative_prompt"]
+    assert "casual jacket" in logic.find_resident(state, "aoi")["base_tags"]
+
+
+@pytest.mark.asyncio
+async def test_scene_tags_read_action_and_outfits_by_name(monkeypatch):
+    calls = _stub(
+        monkeypatch,
+        [
+            json.dumps(
+                {
+                    "tags": "smile, garden",
+                    "attire": {"高瀬 葵": "as_is", "苑田 蓮": "as_is"},
+                    "outfits": {"苑田蓮": "silver bra, orange skirt", "誰か": "hat"},
+                    "action": {
+                        "tag": "dressing another",
+                        "by": "高瀬 葵",
+                        "to": "苑田 蓮",
+                    },
+                },
+                ensure_ascii=False,
+            )
+        ],
+    )
+    event = {
+        "title": "踊り子",
+        "narration": "葵は蓮に衣装を着せた。",
+        "lines": [],
+        "participants": ["aoi", "ren"],
+        "instruction": "蓮に、葵が踊り子の衣装を着せてあげる",
+    }
+    names = {"aoi": "高瀬 葵", "ren": "苑田 蓮"}
+
+    scene = await gen.convert_scene_to_tags(
+        event, names, "garden", novelai_model=None, nsfw=False
+    )
+
+    assert scene is not None
+    assert scene.outfits == {"ren": "silver bra, orange skirt"}
+    assert scene.action == SceneAction(
+        tag="dressing another", source_id="aoi", target_id="ren"
+    )
+    system, user = calls[0]
+    assert "never swap them" in system
+    assert "蓮に、葵が踊り子の衣装を着せてあげる" in user
+
+
+@pytest.mark.asyncio
+async def test_broken_action_or_outfits_keep_the_tags(monkeypatch):
+    _stub(
+        monkeypatch,
+        [
+            json.dumps(
+                {
+                    "tags": "smile",
+                    "attire": {},
+                    "outfits": "silver bra",
+                    "action": {"tag": "hug", "by": "高瀬 葵", "to": "高瀬 葵"},
+                },
+                ensure_ascii=False,
+            )
+        ],
+    )
+    event = {
+        "title": "t",
+        "narration": "n",
+        "lines": [],
+        "participants": ["aoi", "ren"],
+    }
+    names = {"aoi": "高瀬 葵", "ren": "苑田 蓮"}
+
+    scene = await gen.convert_scene_to_tags(
+        event, names, "x", novelai_model=None, nsfw=False
+    )
+
+    assert scene is not None
+    assert scene.tags == "smile"
+    assert scene.outfits == {}
+    assert scene.action is None

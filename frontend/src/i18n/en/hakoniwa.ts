@@ -240,6 +240,7 @@ export const hakoniwa = {
     addCustom: "Write a new resident",
     addCharacter: "Bring in a character",
     mood: "Mood",
+    playerAffinity: "Feelings toward {{name}}",
     moodLabels: {
       great: "Great",
       good: "Happy",
@@ -647,7 +648,7 @@ export const hakoniwa = {
     open: "Enlarge the portrait to touch",
     title: "Touch {{name}}",
     close: "Close",
-    hint: "Press where you want to touch (head, chest, below the waist). The mood shifts a little. Nothing is added to the chronicle.",
+    hint: "Press where you want to touch (head, chest, below the waist). The reaction depends on how they feel about you, and the mood shifts a little. Nothing is added to the chronicle.",
     figure: "Portrait of {{name}} (touches where you press)",
     waiting: "Not touched yet.",
     part: {
@@ -660,6 +661,7 @@ export const hakoniwa = {
     title: "Talk with {{name}}",
     you: "You",
     system: "Notice",
+    affinityChange: "Affinity {{delta}}",
     log: "Log",
     logTitle: "Conversation log",
     logClose: "Close the log",

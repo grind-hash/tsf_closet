@@ -40,6 +40,11 @@ from ..consts.hakoniwa_play import (
     HAKONIWA_THEME_TEXT_MAX,
     HAKONIWA_WORLD_MEMO_MAX,
     INTERVENTION_ARC_BOOST_AFFINITY,
+    PLAYER_AFFINITY_CLOSE_MIN,
+    PLAYER_AFFINITY_HOSTILE_MAX,
+    PLAYER_AFFINITY_NEUTRAL_MAX,
+    PLAYER_AFFINITY_TALK_DELTA_LIMIT,
+    PLAYER_AFFINITY_WARY_BELOW,
     TOUCH_PARTS,
     TOUCH_TOLERANT_MOOD,
 )
@@ -251,10 +256,15 @@ def validate_touch_part(part: Any) -> str:
 
 
 def touch_mood_delta(resident: dict[str, Any], part: str) -> int:
-    """頭は好意的(+2)。胸・腰は、機嫌が良ければ照れつつ受け入れ、悪ければ下がる。"""
-    tolerant = int(resident.get("mood") or 50) >= TOUCH_TOLERANT_MOOD
+    """頭は好意的(+2)。胸・腰は、機嫌が良いかプレイヤーと仲が良ければ照れつつ受け入れ、
+    そうでなければ下がる。プレイヤーを嫌っている住民は頭でも気分が上がらない。"""
+    tier = player_affinity_tier(resident)
+    tolerant = int(resident.get("mood") or 50) >= TOUCH_TOLERANT_MOOD or tier in (
+        "friendly",
+        "close",
+    )
     if part == "head":
-        return 2
+        return 0 if tier in ("hostile", "wary") else 2
     if part == "chest":
         return 1 if tolerant else -2
     return 0 if tolerant else -3
@@ -265,6 +275,54 @@ def adjust_mood(state: dict[str, Any], resident_id: str, delta: int) -> dict[str
     for resident in new_state["residents"]:
         if resident["id"] == resident_id:
             resident["mood"] = max(0, min(100, int(resident["mood"]) + int(delta)))
+    return new_state
+
+
+# --- プレイヤーへの好感度 ---
+
+
+def player_affinity(resident: dict[str, Any]) -> int:
+    try:
+        value = int(resident.get("player_affinity") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(HAKONIWA_AFFINITY_MIN, min(HAKONIWA_AFFINITY_MAX, value))
+
+
+def player_affinity_tier(resident: dict[str, Any]) -> str:
+    """プレイヤーへの好感度の段階(hostile / wary / neutral / friendly / close)。"""
+    value = player_affinity(resident)
+    if value <= PLAYER_AFFINITY_HOSTILE_MAX:
+        return "hostile"
+    if value < PLAYER_AFFINITY_WARY_BELOW:
+        return "wary"
+    if value <= PLAYER_AFFINITY_NEUTRAL_MAX:
+        return "neutral"
+    if value < PLAYER_AFFINITY_CLOSE_MIN:
+        return "friendly"
+    return "close"
+
+
+def clamp_talk_affinity_delta(value: Any) -> int:
+    """会話1回の好感度の変化を ±PLAYER_AFFINITY_TALK_DELTA_LIMIT に収める。読めなければ 0。"""
+    try:
+        delta = int(value)
+    except (TypeError, ValueError):
+        return 0
+    limit = PLAYER_AFFINITY_TALK_DELTA_LIMIT
+    return max(-limit, min(limit, delta))
+
+
+def adjust_player_affinity(
+    state: dict[str, Any], resident_id: str, delta: int
+) -> dict[str, Any]:
+    new_state = deepcopy(state)
+    for resident in new_state["residents"]:
+        if resident["id"] == resident_id:
+            resident["player_affinity"] = max(
+                HAKONIWA_AFFINITY_MIN,
+                min(HAKONIWA_AFFINITY_MAX, player_affinity(resident) + int(delta)),
+            )
     return new_state
 
 

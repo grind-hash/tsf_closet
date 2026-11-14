@@ -139,11 +139,11 @@ export const guide = {
         heading: "Talking with residents",
         items: [
           'Click a resident in the room, or press "Hear a word" on the Residents tab, to hear a word that fits their mood.',
-          '"Chat" lets you type messages and talk for as long as you like. Asking "Put on ..." or "Change back" transforms them or undoes it on the spot.',
+          '"Chat" lets you type messages and talk for as long as you like. What you say raises or lowers how the resident feels about you, shown under their name on the Residents tab. Asking "Put on ..." or "Change back" transforms them or undoes it on the spot.',
           'Enable "Use web search" in the world settings (off by default) with a Tavily API key configured to let chat search when current information is needed. About one daily event uses topics matching the residents’ interests when it does not conflict with a dedicated story scene.',
           'Dialogue is AI-generated, may contain errors or bias, and does not represent the app or its author. Open "Referenced information" to check sources. Conversations continue even if search is unavailable.',
           'When you pick a resident on the Residents tab, the tabs under their name switch between "Transform / Event / Rewrite", "Profile" (personality, relationships and memories) and "Looks & edit".',
-          "Press a portrait to enlarge it and touch the head, chest or below the waist (the mood shifts a little and nothing goes into the chronicle).",
+          "Press a portrait to enlarge it and touch the head, chest or below the waist. The reaction depends on how they feel about you: a resident who likes you welcomes it, one who dislikes you pushes you away (the mood shifts a little and nothing goes into the chronicle).",
           'Residents remember transformations, swaps and events that moved a relationship a lot ("Remembers" under "Profile"), and may bring them up later.',
           'When editing a resident, choose how they call the other residents (given name, family name, with or without an honorific); event and chat lines use it. Random residents get a style that fits their personality, and much older housemates get an honorific. "Relationships" under "Profile" shows what each resident calls the others.',
           'Enter a name under "Your name" on the Settings tab and the residents call you by it in one-liners, chat and touch (and in events too, once they know you exist). If it is left empty, they speak to you as "you", without a name or a title.',

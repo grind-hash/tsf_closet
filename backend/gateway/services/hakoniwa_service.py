@@ -91,6 +91,7 @@ from .hakoniwa_generation import (
     generate_rule_look_tags,
     generate_touch_reaction,
     generate_transform_reaction,
+    judge_player_impression,
     needs_tag_expansion,
     plan_event_looks,
     plan_memo_look,
@@ -211,6 +212,7 @@ def _resident_view(
         "dress_tags": resident.get("dress_tags") or "",
         "mood": int(resident["mood"]),
         "affinities": dict(resident["affinities"]),
+        "player_affinity": play.player_affinity(resident),
         # 変身は体に付くので、いま入っている体の変身と履歴を出す(入れ替わり中は相手の体)
         "transformation": _transformation_view(
             world_id, logic.current_transformation(state, resident)
@@ -2229,15 +2231,27 @@ class HakoniwaService:
                     }
                     entries.append(reply)
             else:
-                generated = await generate_chat_reply(
-                    state,
-                    resident,
-                    play.chat_history(state, resident_id),
-                    text,
-                    lang,
-                    rng,
-                    novelai_model=novelai_model,
-                    nsfw=nsfw,
+                history = play.chat_history(state, resident_id)
+                # 返事と、発言でプレイヤーへの好感度がどう動くかの採点は並列に呼ぶ
+                generated, affinity_delta = await asyncio.gather(
+                    generate_chat_reply(
+                        state,
+                        resident,
+                        history,
+                        text,
+                        lang,
+                        rng,
+                        novelai_model=novelai_model,
+                        nsfw=nsfw,
+                    ),
+                    judge_player_impression(
+                        state,
+                        resident,
+                        history,
+                        text,
+                        lang,
+                        novelai_model=novelai_model,
+                    ),
                 )
                 reply = {
                     "role": "resident",
@@ -2245,6 +2259,17 @@ class HakoniwaService:
                     "source": generated["source"],
                     "web_search": generated.get("web_search"),
                 }
+                if affinity_delta:
+                    before = play.player_affinity(resident)
+                    state = play.adjust_player_affinity(
+                        state, resident_id, affinity_delta
+                    )
+                    moved = (
+                        play.player_affinity(logic.find_resident(state, resident_id))
+                        - before
+                    )
+                    if moved:
+                        reply["affinity_delta"] = moved
                 entries.append(reply)
             state = play.append_chat(state, resident_id, entries)
             view = await self._store_view(world_id, state, lang, user_settings)
@@ -2363,6 +2388,8 @@ class HakoniwaService:
                 scene.tags if scene else "",
                 scene.attire if scene else None,
                 nsfw=nsfw,
+                outfits=scene.outfits if scene else None,
+                action=scene.action if scene else None,
             )
             try:
                 data = await generate_scene_bytes(

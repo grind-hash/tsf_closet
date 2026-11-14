@@ -39,6 +39,7 @@ from ..consts.hakoniwa_play import (
     HAKONIWA_CHAT_HISTORY_CONTEXT,
     HAKONIWA_CHAT_REPLY_MAX,
     INTERVENTION_DIRECTIVES,
+    PLAYER_AFFINITY_TALK_DELTA_LIMIT,
     TOUCH_PART_PROMPTS,
     TOUCH_TOLERANT_MOOD,
 )
@@ -818,7 +819,10 @@ def directed_event_focus_text(
         "what the instruction describes is already under way when the scene opens or "
         "begins within the first two lines, and most of the narration and lines depict "
         "actually carrying it out. Make it a scene that depicts the act or situation "
-        "itself, not a scene that only talks about it or leads up to it. Replacing it "
+        "itself, not a scene that only talks about it or leads up to it. Keep who "
+        "does what to whom exactly as the order says: the one the order has doing "
+        "something does it, and the one it is done to receives it; never swap these "
+        "roles. Replacing it "
         "with a harmless topic, stopping just before it, or blurring it with metaphors "
         "is forbidden. The premise and circumstances given above (the world's "
         "strangeness, getting used to a new body or look) only color how they feel "
@@ -1239,6 +1243,48 @@ def greeting_prompts(
     return system_prompt, user_prompt
 
 
+# プレイヤーへの好感度の段階ごとの気持ち(一言・タッチ・会話の口調に効かせる)
+PLAYER_FEELINGS = {
+    "hostile": "you dislike them and do not want them near you",
+    "wary": "you are wary of them and keep your distance",
+    "neutral": "neither close nor distant yet",
+    "friendly": "you like them and feel at ease with them",
+    "close": "you are very fond of them and trust them deeply",
+}
+
+# タッチの反応の、好感度の段階ごとの指示(頭・胸や腰)
+TOUCH_FEELING_HINTS = {
+    "hostile": (
+        "React with open disgust: you do not want them touching you at all.",
+        "React with open disgust or a sharp refusal: you do not want them touching "
+        "you at all.",
+    ),
+    "wary": (
+        "React warily: pull away a little and make it clear you are not comfortable "
+        "with it.",
+        "Make it clear you dislike it: push their hand away and tell them off.",
+    ),
+    "neutral": (
+        "React to having your head patted, with embarrassment or relief.",
+        "React to being touched suddenly, in character: surprise, embarrassment, a "
+        "rebuke, or, depending on the mood, a shy acceptance.",
+    ),
+    "friendly": (
+        "You like the player, so you are pleased: a shy smile, relief or a playful "
+        "remark.",
+        "You like the player: even if it surprises you, take it with a flustered "
+        "smile or a light tease rather than anger; a gentle 'not here' is fine, "
+        "disgust is not.",
+    ),
+    "close": (
+        "You adore the player: welcome it happily, lean into it or ask for more.",
+        "You adore and trust the player: welcome the touch with delight or "
+        "sweetness, lean into it, tease back or coyly ask for more. Do not show "
+        "disgust or anger.",
+    ),
+}
+
+
 def resident_profile_text(
     state: dict[str, Any], resident: dict[str, Any], language: str
 ) -> str:
@@ -1255,11 +1301,14 @@ def resident_profile_text(
             f"(affinity {value})."
         )
     pronoun = f" First-person pronoun: {text['pronoun']}." if text["pronoun"] else ""
+    feeling = PLAYER_FEELINGS[play.player_affinity_tier(resident)]
     return (
         f"You are {text['name']} ({_gender_label(resident_gender(resident))}, "
         f"{text['age']}, {text['job']}). Personality: "
         f"{str(text['personality'])[:HAKONIWA_PERSONALITY_PROMPT_MAX]}{pronoun} "
         f"Mood {resident['mood']}/100.{top_affinity} "
+        f"Your feelings toward the player: {feeling} (affinity "
+        f"{play.player_affinity(resident)} on a scale from -50 to 50). "
         f"Currently in the {area_name(resident.get('current_area'), 'en').lower()}."
         f"{address_text(state, resident, language)}"
         f"{_swap_note(state, resident, language)}{appearance_note(state, resident)}"
@@ -1307,14 +1356,9 @@ def touch_prompts(
     nsfw: bool,
 ) -> tuple[str, str]:
     """プレイヤーに体を触られた住民の、その場の一言。"""
-    hints = []
-    if part == "head":
-        hints.append("React to having your head patted, with embarrassment or relief.")
-    else:
-        hints.append(
-            "React to being touched suddenly, in character: surprise, embarrassment, a "
-            "rebuke, or, depending on the mood, a shy acceptance."
-        )
+    tier = play.player_affinity_tier(resident)
+    head_hint, body_hint = TOUCH_FEELING_HINTS[tier]
+    hints = [head_hint if part == "head" else body_hint]
     if appearance_is_risque(state, resident):
         hints.append(
             "Your look is revealing and daring; let the embarrassment and the extra "
@@ -1325,10 +1369,11 @@ def touch_prompts(
             "You are originally a man in a feminine form; let bewilderment, confusion "
             "and embarrassment at being touched in this form show strongly."
         )
+    # 気分は好感度の反応に添える程度。好きな相手を気分のせいで嫌悪しない
     mood = int(resident.get("mood") or 50)
     if mood >= TOUCH_TOLERANT_MOOD:
         hints.append("Your mood is good, so you can take it lightly or jokingly.")
-    elif mood < 40:
+    elif mood < 40 and tier not in ("friendly", "close"):
         hints.append("Your mood is not good, so the reaction tends to be prickly.")
     system_prompt = (
         f"{world_brief(state)}\n"
@@ -1352,6 +1397,63 @@ def touch_prompts(
     return system_prompt, user_prompt
 
 
+def _chat_history_text(history: list[dict[str, Any]], name: str, count: int) -> str:
+    lines = []
+    for entry in history[-count:]:
+        role = entry.get("role")
+        if role == "player":
+            speaker = "Player"
+        elif role == "resident":
+            speaker = name
+        else:
+            speaker = "(system)"
+        lines.append(f"{speaker}: {str(entry.get('text') or '')[:300]}")
+    return "\n".join(lines) if lines else "(no conversation yet)"
+
+
+def player_impression_prompts(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    history: list[dict[str, Any]],
+    message: str,
+    language: str,
+) -> tuple[str, str]:
+    """プレイヤーの発言で、住民のプレイヤーへの好感度がどう動くかを採点させる。"""
+    limit = PLAYER_AFFINITY_TALK_DELTA_LIMIT
+    system_prompt = (
+        "You judge how a message from the player changes a resident's feelings toward "
+        "the player in a life-simulation game. Consider the resident's personality and "
+        "current feelings toward the player. Output only one JSON object: "
+        f'{{"delta": an integer from -{limit} to {limit}}}, with no explanation.\n'
+        "+3: it deeply delights them (it strikes their interests or values, or shows "
+        "heartfelt care or praise that suits them).\n"
+        "+2: kind, considerate, or a compliment they would welcome.\n"
+        "+1: a pleasant, friendly exchange.\n"
+        "0: neutral talk, plain questions or requests.\n"
+        "-1 or -2: rude, dismissive, mocking or pushy.\n"
+        "-3: insulting, cruel, or harassment they would hate.\n"
+        "Flirting, teasing or remarks about their body are positive or negative "
+        "depending on their personality and current feelings toward the player. Judge "
+        "only the player's latest message."
+    )
+    user_prompt = (
+        f"{resident_profile_text(state, resident, language)}\n\n"
+        "Recent conversation:\n"
+        f"{_chat_history_text(history, resident_name(resident, language), 4)}\n\n"
+        f"The player's latest message: {message}"
+    )
+    return system_prompt, user_prompt
+
+
+# 会話で検索した資料を使うときだけ足す(資料を一言で流さず、具体的に語らせる)
+CHAT_REFERENCE_DEPTH = (
+    "\nWhen you use the references, pick one or two concrete points from them and "
+    "talk about them in your own words with your own view. Even if the topic is "
+    "unfamiliar in your world, engage with it with curiosity instead of brushing it "
+    "off as something far away."
+)
+
+
 def chat_reply_prompts(
     state: dict[str, Any],
     resident: dict[str, Any],
@@ -1362,18 +1464,9 @@ def chat_reply_prompts(
     nsfw: bool,
 ) -> tuple[str, str]:
     """箱庭の中で、住民本人としてプレイヤーと会話する。"""
-    name = resident_name(resident, language)
-    lines = []
-    for entry in history[-HAKONIWA_CHAT_HISTORY_CONTEXT:]:
-        role = entry.get("role")
-        if role == "player":
-            speaker = "Player"
-        elif role == "resident":
-            speaker = name
-        else:
-            speaker = "(system)"
-        lines.append(f"{speaker}: {str(entry.get('text') or '')[:300]}")
-    history_text = "\n".join(lines) if lines else "(no conversation yet)"
+    history_text = _chat_history_text(
+        history, resident_name(resident, language), HAKONIWA_CHAT_HISTORY_CONTEXT
+    )
     limit = (
         HAKONIWA_CHAT_REPLY_MAX // 2 if language == "ja" else HAKONIWA_CHAT_REPLY_MAX
     )
@@ -1381,12 +1474,15 @@ def chat_reply_prompts(
         f"{world_brief(state)}\n"
         "You are this resident of the miniature world, talking freely with the player "
         "(the one who watches over and rewrites this world). Reply to the player's "
-        "latest message with a natural reply in character, 1-3 sentences "
-        f"(at most {limit} characters). Output only the spoken words: no narration, "
-        "headings, quotation marks, lists or meta explanations. Reflect the active "
-        "rules, your current look, mood and relationships, and continue the flow of the "
-        "recent conversation. Do not pretend to know things you do not know; keep the "
-        "everyday feel of a resident.\n"
+        "latest message in character. Length: usually three to six sentences, up to "
+        "about eight when you talk about your feelings or a topic you have something "
+        f"to say about (at most {limit} characters). Do not stop at a single remark or "
+        "a bare reaction: add your own thoughts, something concrete from your daily "
+        "life in this world, or a question back. Output only the spoken words: no "
+        "narration, headings, quotation marks, lists or meta explanations. Reflect "
+        "the active rules, your current look, mood, relationships and feelings toward "
+        "the player, and continue the flow of the recent conversation. Do not pretend "
+        "to know things you do not know; keep the everyday feel of a resident.\n"
         f"{gender_address_rules(language)}\n"
         f"{story_text.player_address_rule(state, language, direct=True)}\n"
         f"{content_rule(nsfw)}\n"
@@ -1713,6 +1809,21 @@ def scene_tags_prompts(
         else "bathing or showering: towel; undressing: underwear"
     )
     attire_shape = ", ".join(f'"{name}": "one of the attire ids"' for name in cast)
+    # 2人以上なら「誰が誰に」を動作のタグに付ける(NovelAI の source#/target#/mutual#)
+    action_rule = (
+        "action: the main thing one character does to another at that moment, if "
+        'any, as {"tag": one English Danbooru-style action tag such as hug, kiss, '
+        'dressing another or hand on another\'s shoulder, "by": the name of the one '
+        'doing it, "to": the name of the one it is done to, "mutual": true only when '
+        "both do it to each other}. Follow the ordered scene and the narration for "
+        "who does it and who receives it, and never swap them. Use null when nobody "
+        "acts on another. Do not repeat this tag in tags.\n"
+        if len(cast) >= 2
+        else ""
+    )
+    action_shape = (
+        ', "action": {"tag": "...", "by": "...", "to": "...", "mutual": false} | null'
+    )
     system_prompt = (
         "You design tags for image generation. You are given an event from a "
         "miniature-world story. Pick the climactic moment of the event.\n"
@@ -1724,16 +1835,31 @@ def scene_tags_prompts(
         f"of these ids: {', '.join(options)}. as_is means their usual clothes; "
         "choose it unless the event clearly has them undressed or changed "
         f"({undressed}; a beach or a pool: swimsuit; bedtime: pajamas).\n"
+        "outfits: only for a character who, at that moment, is wearing or being "
+        "dressed in a specific outfit that is neither their usual clothes nor one of "
+        "the attire ids (for example a costume someone puts on them): English "
+        "Danbooru-style clothing tags for what they wear, at most 8. Leave everyone "
+        "else out; use {} when nobody needs it.\n"
+        f"{action_rule}"
         "Output only one JSON object in this format, with no preface or code fence:\n"
-        f'{{"tags": "tag, tag, ...", "attire": {{{attire_shape}}}}}'
+        f'{{"tags": "tag, tag, ...", "attire": {{{attire_shape}}}, '
+        f'"outfits": {{"name": "clothing tags"}}'
+        f"{action_shape if action_rule else ''}}}"
     )
     lines = "\n".join(
         f"{names.get(str(line.get('speaker')), '?')}: {line.get('text', '')}"
         for line in event.get("lines") or []
     )
+    instruction = str(event.get("instruction") or "").strip()
+    ordered = (
+        f'Ordered scene (who does what to whom follows this): "{instruction}"\n'
+        if instruction
+        else ""
+    )
     user_prompt = (
         f"Title: {event.get('title', '')}\n"
         f"Place: {area_label}\n"
+        f"{ordered}"
         f"Narration: {event.get('narration', '')}\n"
         f"Lines:\n{lines or '(none)'}"
     )

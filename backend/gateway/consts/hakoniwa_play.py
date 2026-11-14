@@ -143,6 +143,18 @@ INTERVENTION_DIRECTIVES = {
     ),
 }
 
+# --- プレイヤーへの好感度 ---
+# 値は住民どうしの好感度と同じ -50..50(HAKONIWA_AFFINITY_MIN/MAX)。段階の境目は
+# フロントの affinityLevel()(hakoniwaLabels.ts)と同じ: <=-25 険悪 / <-5 ぎこちない /
+# <=10 ふつう / <30 仲良し / >=30 親密
+PLAYER_AFFINITY_HOSTILE_MAX = -25
+PLAYER_AFFINITY_WARY_BELOW = -5
+PLAYER_AFFINITY_NEUTRAL_MAX = 10
+PLAYER_AFFINITY_CLOSE_MIN = 30
+PLAYER_AFFINITY_TIERS = ("hostile", "wary", "neutral", "friendly", "close")
+# 会話1回で動く幅
+PLAYER_AFFINITY_TALK_DELTA_LIMIT = 3
+
 # --- タッチ ---
 TOUCH_PARTS = ("head", "chest", "lower")
 TOUCH_TOLERANT_MOOD = 70
@@ -194,6 +206,30 @@ TOUCH_REACTION_TEMPLATES: dict[str, dict[tuple[str, str], list[str]]] = {
             "待て待て待て！ ……今の体で、そこは本当にまずいだろ……",
             "うわっ、そこは絶対に駄目だ！ ……この体の扱い、まだ全然分からないんだよ……",
         ],
+        ("head", "fond"): [
+            "えへへ……もっと撫でてもいいよ。あなたの手、落ち着くから",
+            "ん……ふふ、くすぐったい。でも、やめなくていいからね",
+        ],
+        ("head", "averse"): [
+            "……触らないで。頭を撫でられるような仲じゃないでしょ",
+            "ちょっと、やめて。そういうの、あなたにはされたくない",
+        ],
+        ("chest", "fond"): [
+            "ひゃっ……！ もう、急なんだから。……あなたなら、嫌じゃないけど",
+            "んっ……ふふ、甘えたいの？ 仕方ないなあ、少しだけだよ",
+        ],
+        ("chest", "averse"): [
+            "触らないでって言ってるでしょ！ ……本当に、気持ち悪い",
+            "やめて！ ……あなたにそういうことされるの、すごく嫌なの",
+        ],
+        ("lower", "fond"): [
+            "きゃっ……もう、いたずらっ子なんだから。……あなたじゃなきゃ怒ってるよ",
+            "ん……そんなとこ触って。……ふふ、あなたなら許してあげる",
+        ],
+        ("lower", "averse"): [
+            "どこ触ってるの！ ……二度と近寄らないで",
+            "やめてよ！ ……あなたのそういうところ、本当に無理",
+        ],
     },
     "en": {
         ("head", "standard"): [
@@ -236,12 +272,38 @@ TOUCH_REACTION_TEMPLATES: dict[str, dict[tuple[str, str], list[str]]] = {
             "Wait wait wait! ...That's really not okay with this body...",
             "No, not there! ...I still have no idea how to handle this body...",
         ],
+        ("head", "fond"): [
+            "Hehe... you can keep going. Your hand is soothing.",
+            "Mm... that tickles. But don't stop, okay?",
+        ],
+        ("head", "averse"): [
+            "...Don't touch me. We're not that close.",
+            "Hey, stop it. I don't want that from you.",
+        ],
+        ("chest", "fond"): [
+            "Eek...! So sudden. ...Not that I mind, if it's you.",
+            "Mm... want to be spoiled? Fine, just a little.",
+        ],
+        ("chest", "averse"): [
+            "I said don't touch me! ...That's really creepy.",
+            "Stop it! ...I really hate it when you do that.",
+        ],
+        ("lower", "fond"): [
+            "Eek... you little troublemaker. ...I'd be mad if it weren't you.",
+            "Mm... touching me there? ...Fine, I'll let it go, since it's you.",
+        ],
+        ("lower", "averse"): [
+            "Where do you think you're touching?! ...Stay away from me.",
+            "Stop it! ...I can't stand that about you.",
+        ],
     },
 }
 
 # --- 会話 ---
 HAKONIWA_CHAT_MESSAGE_MAX = 500
-HAKONIWA_CHAT_REPLY_MAX = 360
+# 返事の長さの上限(英語の文字数。日本語はその半分を目安としてプロンプトで伝える)。
+# 超えた分は文末で切る
+HAKONIWA_CHAT_REPLY_MAX = 640
 HAKONIWA_CHAT_HISTORY_MAX = 40
 HAKONIWA_CHAT_HISTORY_CONTEXT = 12
 CHAT_FALLBACKS = {

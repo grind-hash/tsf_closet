@@ -240,6 +240,7 @@ export const hakoniwa = {
     addCustom: "住民を書いて迎える",
     addCharacter: "キャラクターを迎える",
     mood: "気分",
+    playerAffinity: "{{name}}への好感度",
     moodLabels: {
       great: "絶好調",
       good: "ご機嫌",
@@ -637,7 +638,7 @@ export const hakoniwa = {
     open: "立ち絵を拡大して触れる",
     title: "{{name}}に触れる",
     close: "閉じる",
-    hint: "立ち絵の触れたいところを押してください（頭・胸・腰から下）。気分が少し動きます。年代記には残りません。",
+    hint: "立ち絵の触れたいところを押してください（頭・胸・腰から下）。反応はあなたへの好感度で変わり、気分が少し動きます。年代記には残りません。",
     figure: "{{name}}の立ち絵（押した位置に触れます）",
     waiting: "まだ触れていません。",
     part: {
@@ -650,6 +651,7 @@ export const hakoniwa = {
     title: "{{name}}と話す",
     you: "あなた",
     system: "お知らせ",
+    affinityChange: "好感度 {{delta}}",
     log: "ログ",
     logTitle: "会話のログ",
     logClose: "ログを閉じる",
