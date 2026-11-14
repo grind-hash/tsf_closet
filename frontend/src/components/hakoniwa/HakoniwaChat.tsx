@@ -2,7 +2,6 @@ import {
   type FormEvent,
   type KeyboardEvent,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -35,7 +34,6 @@ export default function HakoniwaChat() {
   const { t } = useTranslation();
   const { world, chatResidentId, chatHistory, closeChat, sendChat, busy } =
     useHakoniwa();
-  const inputId = useId();
   const [draft, setDraft] = useState("");
   const [windowHidden, setWindowHidden] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
@@ -208,14 +206,14 @@ export default function HakoniwaChat() {
             </p>
           </div>
           <HakoniwaMessageFooter search={sending ? null : latest?.web_search} />
+          {/* 入力欄とボタンは1段に並べる(返事の行を残すため、見出しは読み上げ用の名前だけにする) */}
           <form className="hakoniwa-chat__form" onSubmit={submit}>
-            <label className="hakoniwa-chat__label" htmlFor={inputId}>
-              {t("hakoniwa.chat.inputLabel", { name: resident.name })}
-            </label>
             <textarea
               ref={inputRef}
-              id={inputId}
-              rows={2}
+              aria-label={t("hakoniwa.chat.inputLabel", {
+                name: resident.name,
+              })}
+              rows={1}
               value={draft}
               maxLength={MESSAGE_MAX}
               placeholder={t("hakoniwa.chat.placeholder")}

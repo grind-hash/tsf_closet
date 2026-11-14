@@ -1375,6 +1375,9 @@
   bottom: 20px;
   left: max(16px, calc((100% - 1100px) / 2));
   display: grid;
+  /* 列は窓の幅に固定する。既定の auto 列だと、折り返さない自分の言葉(あなた「…」)の
+     全文幅まで列が広がり、本文や入力欄が窓の右端からはみ出す */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   box-sizing: border-box;
   height: var(--hk-adv-window-height);
@@ -2338,9 +2341,10 @@
   cursor: default;
 }
 
-/* 行はメタ・本文(返事)・AI の注記と出典・入力欄・ヒント。本文だけスクロールする */
+/* 行はメタ・本文(返事)・AI の注記と出典・入力欄・ヒント。本文だけスクロールする。
+   高さはキャラチャットの窓に合わせ、返事がおよそ4行見える程度にする */
 .hakoniwa-chat__window {
-  --hk-adv-window-height: clamp(320px, 52vh, 480px);
+  --hk-adv-window-height: clamp(290px, 33vh, 320px);
   grid-template-rows: auto minmax(0, 1fr) auto auto auto;
 }
 
@@ -2387,20 +2391,23 @@
   color: var(--hk-muted);
 }
 
+/* 入力欄とボタン(会話を終える・送る)を1段に並べる。狭い画面では入力欄を上の段に置く */
 .hakoniwa-chat__form {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 8px;
 }
 
-.hakoniwa-chat__label {
-  color: var(--hk-muted);
-  font-size: 0.78rem;
+.hakoniwa-chat__form .hakoniwa-adv__controls {
+  flex-shrink: 0;
 }
 
+/* 複数行に伸ばしても返事の行が残るよう、伸びる上限を窓の高さの 4 割にする */
 .hakoniwa-chat__form textarea {
   box-sizing: border-box;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: calc(var(--hk-adv-window-height) * 0.4);
   padding: 8px 10px;
   border: 1px solid var(--hk-border-strong);
   border-radius: 8px;
@@ -2408,6 +2415,19 @@
   color: var(--hk-text);
   font: inherit;
   resize: vertical;
+}
+
+@media (max-width: 640px) {
+  .hakoniwa-chat__form {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  /* 例文が折り返すため、狭い画面では2行分の高さにする */
+  .hakoniwa-chat__form textarea {
+    flex-basis: 100%;
+    min-height: calc(2lh + 18px);
+  }
 }
 
 .hakoniwa-chat__hint {
@@ -2440,6 +2460,15 @@
 .hakoniwa-message-footer ul {
   margin: 4px 0;
   padding-left: 20px;
+}
+
+/* 窓の中では注記の行の余白を詰めて、本文の行を残す */
+.hakoniwa-adv__window .hakoniwa-message-footer {
+  margin: 6px 0;
+}
+
+.hakoniwa-adv__window .hakoniwa-message-footer > p {
+  margin: 0;
 }
 
 /* 高さを固定した窓の中では、出典の一覧だけをスクロールさせて本文の行を残す */
