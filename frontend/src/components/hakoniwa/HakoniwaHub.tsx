@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
@@ -9,6 +9,7 @@ import {
   hakoniwaMediaUrl,
 } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
+import { useSettings } from "../../contexts/SettingsContext";
 import { getHakoniwaWorldPath } from "../../routes";
 import { mediaUrl } from "../../utils/adventureFormat";
 import MainLayout from "../layout/MainLayout";
@@ -17,11 +18,24 @@ import HakoniwaCharacterAdder, {
   type HakoniwaPickedCharacter,
 } from "./HakoniwaCharacterAdder";
 import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
+import type { HakoniwaWorldLocationState } from "./HakoniwaOpening";
 import HakoniwaPortrait from "./HakoniwaPortrait";
 import HakoniwaPresencePicker from "./HakoniwaPresencePicker";
 import HakoniwaRandomRoster from "./HakoniwaRandomRoster";
 import HakoniwaThemePicker, { normalizeTheme } from "./HakoniwaThemePicker";
+import {
+  ALL_WORLDS,
+  filterWorlds,
+  type HakoniwaWorldFilter,
+  worldFacetCounts,
+  worldPresence,
+} from "./worldFilters";
 
+const PRESENCE_FILTERS: HakoniwaWorldFilter["presence"][] = [
+  "all",
+  "known",
+  "hidden",
+];
 const WORLD_NAME_MAX = 50;
 const MIN_RESIDENTS = 2;
 const MAX_RESIDENTS = 10;
@@ -39,12 +53,17 @@ export default function HakoniwaHub() {
     createWorld,
     deleteWorld,
   } = useHakoniwa();
+  const { state: settingsState } = useSettings();
+  // 設定画面「AI箱庭」の新しい世界の既定(住民とあなた・違和感は、ここで変えられる)
+  const defaults = settingsState.hakoniwaPreferences;
   const nameId = useId();
   const dissonanceId = useId();
-  const [dissonanceEnabled, setDissonanceEnabled] = useState(true);
-  // 住民とあなた。既定は顔なじみ(見えない存在は選んだ人だけが遊ぶ新しい遊び方)
-  const [playerPresence, setPlayerPresence] =
-    useState<HakoniwaPlayerPresence>("known");
+  const [dissonanceEnabled, setDissonanceEnabled] = useState(
+    defaults.dissonanceEnabled,
+  );
+  const [playerPresence, setPlayerPresence] = useState<HakoniwaPlayerPresence>(
+    defaults.playerPresence,
+  );
   const [name, setName] = useState("");
   const [presetIds, setPresetIds] = useState<string[] | null>(null);
   const [characters, setCharacters] = useState<HakoniwaPickedCharacter[]>([]);
@@ -52,6 +71,16 @@ export default function HakoniwaHub() {
     HakoniwaRandomResident[]
   >([]);
   const [theme, setTheme] = useState<HakoniwaTheme | null>(null);
+  const [worldFilter, setWorldFilter] =
+    useState<HakoniwaWorldFilter>(ALL_WORLDS);
+  const shownWorlds = useMemo(
+    () => filterWorlds(worlds, worldFilter),
+    [worlds, worldFilter],
+  );
+  const facets = useMemo(
+    () => worldFacetCounts(worlds, worldFilter),
+    [worlds, worldFilter],
+  );
   const [deleteTarget, setDeleteTarget] = useState<HakoniwaWorldSummary | null>(
     null,
   );
@@ -95,6 +124,8 @@ export default function HakoniwaHub() {
       })),
       dissonanceEnabled,
       playerPresence,
+      playerName: defaults.playerName,
+      webSearchEnabled: defaults.webSearchEnabled,
       customResidents: randomResidents,
       theme: normalizeTheme(theme),
     });
@@ -103,7 +134,10 @@ export default function HakoniwaHub() {
       setCharacters([]);
       setRandomResidents([]);
       setTheme(null);
-      navigate(getHakoniwaWorldPath(created.id));
+      // 作った直後だけ開幕を流す(再読み込みや「戻る」では流さない)
+      navigate(getHakoniwaWorldPath(created.id), {
+        state: { opening: true } satisfies HakoniwaWorldLocationState,
+      });
     }
   };
 
@@ -118,67 +152,8 @@ export default function HakoniwaHub() {
 
         <HakoniwaErrorBanner />
 
-        {worlds.length > 0 && (
-          <section className="hakoniwa-card">
-            <h2>{t("hakoniwa.hub.worldsHeading")}</h2>
-            <ul className="hakoniwa-worlds">
-              {worlds.map((world) => (
-                <li key={world.id} className="hakoniwa-worlds__item">
-                  <div className="hakoniwa-worlds__faces" aria-hidden>
-                    {world.residents.map((resident) =>
-                      resident.avatar_url ? (
-                        <HakoniwaPortrait
-                          key={resident.id}
-                          src={hakoniwaMediaUrl(resident.avatar_url)}
-                          alt=""
-                          className="hakoniwa-worlds__face"
-                        />
-                      ) : (
-                        <span
-                          key={resident.id}
-                          className="hakoniwa-worlds__face hakoniwa-worlds__face--empty"
-                        >
-                          {Array.from(resident.name)[0] ?? "?"}
-                        </span>
-                      ),
-                    )}
-                  </div>
-                  <div className="hakoniwa-worlds__text">
-                    <strong>{world.name}</strong>
-                    <span>
-                      {t("hakoniwa.hub.dayAndResidents", {
-                        day: world.day,
-                        count: world.resident_count,
-                      })}
-                    </span>
-                  </div>
-                  <div className="hakoniwa-worlds__actions">
-                    <button
-                      type="button"
-                      className="hakoniwa-button hakoniwa-button--primary"
-                      onClick={() => navigate(getHakoniwaWorldPath(world.id))}
-                    >
-                      {t("hakoniwa.hub.open")}
-                    </button>
-                    <button
-                      type="button"
-                      className="hakoniwa-button hakoniwa-button--ghost"
-                      onClick={() => setDeleteTarget(world)}
-                    >
-                      {t("hakoniwa.hub.delete")}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
         <section className="hakoniwa-card">
           <h2>{t("hakoniwa.hub.createHeading")}</h2>
-          {worlds.length === 0 && busy !== "load" && (
-            <p className="hakoniwa-note">{t("hakoniwa.hub.empty")}</p>
-          )}
           <label className="hakoniwa-field" htmlFor={nameId}>
             <span>{t("hakoniwa.hub.nameLabel")}</span>
             <input
@@ -324,6 +299,166 @@ export default function HakoniwaHub() {
               )}
             </button>
           </div>
+        </section>
+
+        {/* つくった世界(新しい世界をつくる、の下)。世界が増えても探せるよう絞り込める */}
+        <section className="hakoniwa-card">
+          <div className="hakoniwa-worlds-header">
+            <h2>{t("hakoniwa.hub.worldsHeading")}</h2>
+            <span className="hakoniwa-worlds-header__count">
+              {t("hakoniwa.hub.worldsCount", { count: worlds.length })}
+            </span>
+          </div>
+          {worlds.length > 0 && (
+            <div className="hakoniwa-filters">
+              <div
+                className="hakoniwa-filters__row"
+                role="group"
+                aria-label={t("hakoniwa.hub.filterPresence")}
+              >
+                <span className="hakoniwa-filters__label">
+                  {t("hakoniwa.hub.filterPresence")}
+                </span>
+                {PRESENCE_FILTERS.map((value) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={`hakoniwa-filters__chip${
+                      worldFilter.presence === value ? " is-active" : ""
+                    }`}
+                    aria-pressed={worldFilter.presence === value}
+                    // 0件でも選択中なら押せるままにし、抜け出せない状態を作らない
+                    disabled={
+                      facets.presence[value] === 0 &&
+                      worldFilter.presence !== value
+                    }
+                    onClick={() =>
+                      setWorldFilter((current) => ({
+                        ...current,
+                        presence: value,
+                      }))
+                    }
+                  >
+                    {value === "all"
+                      ? t("hakoniwa.hub.filterAll")
+                      : t(`hakoniwa.presence.options.${value}`)}
+                    <span className="hakoniwa-filters__count">
+                      {facets.presence[value]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div
+                className="hakoniwa-filters__row"
+                role="group"
+                aria-label={t("hakoniwa.hub.filterResident")}
+              >
+                <span className="hakoniwa-filters__label">
+                  {t("hakoniwa.hub.filterResident")}
+                </span>
+                <button
+                  type="button"
+                  className={`hakoniwa-filters__chip${
+                    worldFilter.resident === null ? " is-active" : ""
+                  }`}
+                  aria-pressed={worldFilter.resident === null}
+                  onClick={() =>
+                    setWorldFilter((current) => ({
+                      ...current,
+                      resident: null,
+                    }))
+                  }
+                >
+                  {t("hakoniwa.hub.filterAll")}
+                </button>
+                {facets.residents.map((item) => (
+                  <button
+                    type="button"
+                    key={item.name}
+                    className={`hakoniwa-filters__chip${
+                      worldFilter.resident === item.name ? " is-active" : ""
+                    }`}
+                    aria-pressed={worldFilter.resident === item.name}
+                    onClick={() =>
+                      setWorldFilter((current) => ({
+                        ...current,
+                        resident:
+                          current.resident === item.name ? null : item.name,
+                      }))
+                    }
+                  >
+                    {item.name}
+                    <span className="hakoniwa-filters__count">
+                      {item.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {worlds.length === 0 ? (
+            busy !== "load" && (
+              <p className="hakoniwa-note">{t("hakoniwa.hub.empty")}</p>
+            )
+          ) : shownWorlds.length === 0 ? (
+            <p className="hakoniwa-note">
+              {t("hakoniwa.hub.noWorldsForFilter")}
+            </p>
+          ) : (
+            <ul className="hakoniwa-worlds">
+              {shownWorlds.map((world) => (
+                <li key={world.id} className="hakoniwa-worlds__item">
+                  <div className="hakoniwa-worlds__faces" aria-hidden>
+                    {world.residents.map((resident) =>
+                      resident.avatar_url ? (
+                        <HakoniwaPortrait
+                          key={resident.id}
+                          src={hakoniwaMediaUrl(resident.avatar_url)}
+                          alt=""
+                          className="hakoniwa-worlds__face"
+                        />
+                      ) : (
+                        <span
+                          key={resident.id}
+                          className="hakoniwa-worlds__face hakoniwa-worlds__face--empty"
+                        >
+                          {Array.from(resident.name)[0] ?? "?"}
+                        </span>
+                      ),
+                    )}
+                  </div>
+                  <div className="hakoniwa-worlds__text">
+                    <strong>{world.name}</strong>
+                    <span>
+                      {t("hakoniwa.hub.dayAndResidents", {
+                        day: world.day,
+                        count: world.resident_count,
+                        presence: t(
+                          `hakoniwa.presence.options.${worldPresence(world)}`,
+                        ),
+                      })}
+                    </span>
+                  </div>
+                  <div className="hakoniwa-worlds__actions">
+                    <button
+                      type="button"
+                      className="hakoniwa-button hakoniwa-button--primary"
+                      onClick={() => navigate(getHakoniwaWorldPath(world.id))}
+                    >
+                      {t("hakoniwa.hub.open")}
+                    </button>
+                    <button
+                      type="button"
+                      className="hakoniwa-button hakoniwa-button--ghost"
+                      onClick={() => setDeleteTarget(world)}
+                    >
+                      {t("hakoniwa.hub.delete")}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </div>
       <ConfirmDialog

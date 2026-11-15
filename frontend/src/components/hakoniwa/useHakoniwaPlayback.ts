@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { HakoniwaEvent, HakoniwaLine } from "../../apis/hakoniwa";
 import { useHakoniwa } from "../../contexts/HakoniwaContext";
 
@@ -94,7 +100,8 @@ export function useHakoniwaPlayback(
     clearPlayback();
   }, [clearPlayback, release]);
 
-  useEffect(() => {
+  // 字幕が画面に出る前にキーを受け付ける(出た直後の Esc・Enter を取りこぼさない)
+  useLayoutEffect(() => {
     if (!event) return;
     const onKeyDown = (keyEvent: KeyboardEvent) => {
       if (keyEvent.key === "Escape") {

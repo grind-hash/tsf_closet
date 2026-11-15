@@ -1874,3 +1874,22 @@ def test_chat_transform_follows_whether_residents_know_the_player(
         json={"player_presence": "ghost"},
     )
     assert rejected.status_code == 422
+
+
+def test_world_creation_takes_defaults_from_the_settings_screen(client: TestClient):
+    # 設定画面の「新しい世界の既定」(あなたの名前・Web検索)を作成時に受け取る
+    world = _create(client, player_name=" はっしゅ ", web_search_enabled=True)
+    assert world["player_name"] == "はっしゅ"
+    assert world["web_search_enabled"] is True
+    plain = _create(client)
+    assert plain["player_name"] == ""
+    assert plain["web_search_enabled"] is False
+
+
+def test_world_list_carries_presence_and_all_resident_names(client: TestClient):
+    # 一覧の絞り込み(住民とあなた・住民)に使う項目
+    _create(client, ["aoi", "ren"], player_presence="hidden")
+    body = client.get("/api/hakoniwa/worlds?language=ja").json()
+    summary = body["worlds"][0]
+    assert summary["player_presence"] == "hidden"
+    assert summary["resident_names"] == ["高瀬 葵", "苑田 蓮"]

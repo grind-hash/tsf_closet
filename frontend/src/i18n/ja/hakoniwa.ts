@@ -11,21 +11,26 @@ export const hakoniwa = {
     unused: "この発言では検索結果を使用していません。",
   },
   eyebrow: "HAKONIWA",
-  title: "AI箱庭",
+  title: "箱庭",
   lead: "小さな下宿「星屑荘」で、住民たちが勝手に暮らしています。掟を差し込み、1日を進めて、何が起きるかを眺めましょう。住民をクリックすると一言しゃべり、その場で変身させることもできます。",
   loading: "読み込んでいます…",
   back: "世界の一覧へ",
   hub: {
     worldsHeading: "つくった世界",
+    worldsCount: "{{count}}件",
     empty:
-      "まだ世界がありません。下で住民を選んで、最初の世界をつくりましょう。",
+      "まだ世界がありません。上で住民を選んで、最初の世界をつくりましょう。",
+    filterPresence: "住民とあなた",
+    filterResident: "住民",
+    filterAll: "すべて",
+    noWorldsForFilter: "条件に合う世界はありません。",
     open: "この世界を開く",
     delete: "削除",
     deleteTitle: "世界を削除しますか？",
     deleteBody:
       "「{{name}}」の住民・掟・年代記と、生成した画像をすべて削除します。元に戻せません。",
     deleteConfirm: "削除する",
-    dayAndResidents: "{{day}}日目・住民{{count}}人",
+    dayAndResidents: "{{day}}日目・住民{{count}}人・{{presence}}",
     createHeading: "新しい世界をつくる",
     nameLabel: "世界の名前",
     namePlaceholder: "例: 星屑荘",
@@ -462,7 +467,8 @@ export const hakoniwa = {
   settings: {
     webSearchToggle: "Web検索を利用する",
     webSearchNote:
-      "既定はOFFです。ONにすると、チャットでは必要に応じて、住民同士の会話では1日1件を目安にWeb検索を利用します。設定はこの世界に保存されます。",
+      "ONにすると、チャットでは必要に応じて、住民同士の会話では1日1件を目安にWeb検索（Tavily）を利用します。ONにするときに利用条件への同意を確認します。検索1回につきTavilyのクレジットを1消費します。新しい世界の既定は、設定画面の「箱庭」で決められます。",
+    webSearchTerms: "Web検索の利用条件を読む",
     webSearchUnavailable:
       "TavilyのAPIキーが未設定のため、ONにしてもWeb検索は行いません。",
     imageModelHeading: "姿を生成する画像モデル",
@@ -632,21 +638,38 @@ export const hakoniwa = {
       custom: "{{day}}日目・出来事{{events}}件。",
     },
   },
-  intro: {
-    title: "はじまりの案内",
-    lead: "住民たちは勝手に暮らし、小さな出来事を起こし続けます。あなたは「掟」で世界を書き換え、住民を変身させる、見えない書き手です。",
-    stepRules: "掟を1枚有効にして、世界のルールを変えてみる",
-    stepClick:
-      "部屋の住民をクリックすると、その住民のひとことが聞ける（住民タブの「チャットする」で話し込んだり、変身させたりもできる）",
-    stepAdvance: "「1日進める」を押すと、その日の出来事が3件生まれる",
-    noteAchievements: "観察の記録は「実績」画面の「AI箱庭」で見られます。",
-    noteDissonance:
-      "書き換えを重ねるほど、住民たちは世界の変化に気づき始めます。",
+  opening: {
+    label: "開幕",
+    welcomeHeading: "ようこそ",
+    welcome:
+      "「{{world}}」での暮らしがはじまります。住民は {{names}} の{{count}}人です。",
+    presenceHeading: "住民とあなた",
+    presenceKnown:
+      "住民たちは、あなたを知っています。話しかければ答えてくれ、あなたに変えてもらった姿のことを、住民どうしで話したりもします。",
+    presenceKnownNamed:
+      "住民たちは、あなた（{{name}}）を知っています。話しかければ答えてくれ、あなたに変えてもらった姿のことを、住民どうしで話したりもします。",
+    presenceHidden:
+      "住民たちには、あなたの姿は見えません。話しかければ「謎の声」、触れれば見えない手として受け止められます。",
+    presenceHiddenDissonance:
+      "世界の違和感が育つと、住民たちは声の主を探しはじめます。",
+    presenceHiddenOff:
+      "この世界では違和感を使わないので、声の主はずっと謎のままです。",
+    rulesHeading: "掟で世界を書き換える",
+    rules:
+      "「掟」タブで掟を有効にすると、その日から世界のルールが変わります。住民は新しい常識として受け入れて暮らします。自分で掟を書くこともできます。",
+    residentsHeading: "住民と関わる",
+    residents:
+      "部屋の住民をクリックすると、ひとこと話します。住民タブの「チャットする」で話し込んだり、「〜に着替えて」と頼んでその場で姿を変えたりできます。起こしてほしい出来事を指示することもできます。",
+    dayHeading: "1日の流れ",
+    day: "準備ができたら、右下の「1日進める」を押します。その日の出来事が3件生まれて部屋で再生され、最後に1日のまとめが出ます。",
+    dayTheme: "実験テーマの進み具合も、まとめに出ます。",
+    dayAchievements: "観察の記録は「実績」画面の「箱庭」で見られます。",
+    next: "次へ",
+    skip: "スキップ",
     openRules: "掟を見てみる",
-    advance: "さっそく1日進める",
-    fold: "畳む",
-    open: "開く",
-    dismiss: "案内を閉じる",
+    openResidents: "住民と話してみる",
+    start: "はじめる",
+    replay: "はじまりの説明をもう一度見る",
   },
   ruleReaction: {
     title: "掟の切り替え: {{rule}}",

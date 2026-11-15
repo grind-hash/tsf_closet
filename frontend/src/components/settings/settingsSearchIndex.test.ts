@@ -181,6 +181,14 @@ describe("getItemIdsIn", () => {
         "characterChatRealWorld",
       ]);
     }
+    // AI箱庭の新しい世界の既定と開幕は、有効化のトグル(Experimental)とは別の節に置く
+    for (const layout of ["classic", "v2"] as const) {
+      expect(getItemIdsIn("hakoniwa", layout)).toEqual([
+        "hakoniwaWebSearch",
+        "hakoniwaDefaults",
+        "hakoniwaOpening",
+      ]);
+    }
     expect(getItemIdsIn("image", "v2")).toEqual([
       "imageProvider",
       "novelaiImageModelNsfw",

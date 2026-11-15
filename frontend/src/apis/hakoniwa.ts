@@ -100,6 +100,9 @@ export type HakoniwaDissonanceStage =
  */
 export type HakoniwaPlayerPresence = "known" | "hidden";
 
+/** あなたの名前の上限(バックエンドの HAKONIWA_PLAYER_NAME_MAX) */
+export const HAKONIWA_PLAYER_NAME_MAX = 20;
+
 export interface HakoniwaDissonance {
   enabled: boolean;
   value: number;
@@ -549,6 +552,10 @@ export interface HakoniwaWorldSummary {
   created_at: string | null;
   updated_at: string | null;
   residents: { id: string; name: string; avatar_url: string | null }[];
+  /** 住民とあなた(一覧の絞り込みに使う) */
+  player_presence?: HakoniwaPlayerPresence;
+  /** 住民全員の名前(顔は先頭の数人だけ。一覧の住民での絞り込みに使う) */
+  resident_names?: string[];
 }
 
 export interface HakoniwaPreset {
@@ -684,6 +691,9 @@ export function createHakoniwaWorld(body: {
   language: string;
   dissonance_enabled: boolean;
   player_presence: HakoniwaPlayerPresence;
+  /** 設定画面の既定(あなたの名前・Web検索) */
+  player_name?: string;
+  web_search_enabled?: boolean;
   custom_residents?: HakoniwaRandomResident[];
   experiment_theme?: HakoniwaTheme | null;
 }): Promise<HakoniwaWorld> {

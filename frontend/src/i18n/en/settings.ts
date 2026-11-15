@@ -61,9 +61,53 @@ export const settings = {
   experimentalSalon: "Salon Management",
   experimentalSalonDesc:
     "Show a mode in the menu where you run a dress-up salon in seasons of 4 or 12 weeks, turning customers into the look they wish for. Serving uses the same rules as request mode (3 styling turns, 2 questions), and the satisfaction at checkout decides sales and reputation",
-  experimentalHakoniwa: "AI Dollhouse",
+  experimentalHakoniwa: "Dollhouse",
   experimentalHakoniwaDesc:
     "Show a dollhouse mode in the menu where residents of a boarding house live on their own. Slot in rules and advance day by day to watch events play out in the room. Characters you made on the Characters screen can join as residents",
+  hakoniwaSection: "Dollhouse",
+  hakoniwaSectionNote:
+    "Used when Dollhouse (experimental) is on. Here you set the defaults for new worlds and the opening. Each world's own settings can be changed on that world's Settings tab.",
+  hakoniwaWebSearch: "Use web search in new worlds",
+  hakoniwaWebSearchDesc:
+    "In new worlds, conversations search the web (Tavily) when needed, and about one event among residents a day brings in recent topics. Only topic keywords are sent, never the text of conversations or events. You are asked to agree to the terms when turning this on. Each search uses 1 Tavily credit. You can switch it per world on the Settings tab.",
+  hakoniwaWebSearchUnavailable:
+    "TAVILY_API_KEY is not set on the server, so no searches are made even when this is on. Set it in .env (config.env in the release build) and restart the server.",
+  hakoniwaPlayerName: "Your name",
+  hakoniwaPlayerNameDesc:
+    'The name residents call you by in new worlds (up to 20 characters). If empty, they speak to you as "you" without a name. You can change it per world on the Settings tab.',
+  hakoniwaPlayerNamePlaceholder: "e.g. Yu",
+  hakoniwaPresence: "You and the residents",
+  hakoniwaPresenceKnown: "Familiar face",
+  hakoniwaPresenceKnownDesc:
+    "The residents know you from the start. A look you give them in chat raises their feelings toward you if they wanted it, or lowers them if not.",
+  hakoniwaPresenceHidden: "Unseen presence",
+  hakoniwaPresenceHiddenDesc:
+    "The residents cannot see you, and your words reach them as a mysterious voice. As world strangeness grows, they start looking for its source.",
+  hakoniwaDissonance: "Use world strangeness",
+  hakoniwaDissonanceDesc:
+    "Rule switches and transformations make residents notice the rewrites (investigation and the confrontation happen only in Unseen presence worlds). You can also switch it when creating a world.",
+  hakoniwaOpening: "Play the opening when a world is created",
+  hakoniwaOpeningDesc:
+    'Right after you create a world, its residents and "You and the residents" are introduced one scene at a time in the ADV window (click to advance; you can skip). You can replay it anytime from each world\'s Settings tab.',
+  hakoniwaOpeningGuide: "Include how to play in the opening",
+  hakoniwaOpeningGuideFirst: "First world only",
+  hakoniwaOpeningGuideFirstDesc:
+    "Adds the explanation of rules, chat and transformations, and the flow of a day only when you create your first world.",
+  hakoniwaOpeningGuideAlways: "Every time",
+  hakoniwaOpeningGuideAlwaysDesc:
+    "Adds the how-to-play explanation every time you create a world.",
+  hakoniwaOpeningGuideNever: "Never",
+  hakoniwaOpeningGuideNeverDesc:
+    'The opening only introduces the residents and "You and the residents".',
+  hakoniwaOpeningGuideUnused:
+    'The opening is turned off, so this setting is not used. "Replay the opening" on each world\'s Settings tab always shows it with the explanation.',
+  hakoniwaWebSearchTransmission: {
+    heading: "3. Information that is sent",
+    paragraphs: [
+      "Web search does not send the text of conversations or events itself. Only the search keywords that TSF Closet creates from it are sent to Tavily.",
+      'You can check the keywords that were sent under "Referenced information" below the reply or event. When a search is skipped because it may violate the terms, a note says so there.',
+    ],
+  },
   characterChatWebSearch: "Let Serena search the web",
   characterChatWebSearchDesc:
     "In Character Chat, Serena searches the web (Tavily) only when you ask about recent events or real-world topics. Only the topic keywords are sent, never the conversation text. Searches that may go against Tavily's terms, such as sexually explicit topics, are skipped (Serena tells you when this happens). You are asked to agree to the terms when turning this on. Each search uses 1 Tavily credit.",

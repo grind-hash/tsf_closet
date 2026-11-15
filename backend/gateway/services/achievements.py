@@ -359,12 +359,12 @@ def _hakoniwa(
     )
 
 
-# AI箱庭の観察記録(すべての世界を通して数える)。アイコンは記号の文字
+# 箱庭の観察記録(すべての世界を通して数える)。アイコンは記号の文字
 HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_first_day",
         "初めての日",
-        "AI箱庭で、初めて1日を進めた",
+        "箱庭で、初めて1日を進めた",
         "◇",
         "count",
         "hakoniwa_day",
@@ -374,7 +374,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_day_7",
         "一週間の観察",
-        "AI箱庭のどこかの世界で、7日目に到達した",
+        "箱庭のどこかの世界で、7日目に到達した",
         "◆",
         "count",
         "hakoniwa_day",
@@ -384,7 +384,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_day_30",
         "一ヶ月の観察",
-        "AI箱庭のどこかの世界で、30日目に到達した",
+        "箱庭のどこかの世界で、30日目に到達した",
         "◈",
         "count",
         "hakoniwa_day",
@@ -394,7 +394,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_events_10",
         "見届けた日々・10",
-        "AI箱庭で、出来事を10件見届けた",
+        "箱庭で、出来事を10件見届けた",
         "✎",
         "count",
         "hakoniwa_events",
@@ -404,7 +404,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_events_50",
         "見届けた日々・50",
-        "AI箱庭で、出来事を50件見届けた",
+        "箱庭で、出来事を50件見届けた",
         "✐",
         "count",
         "hakoniwa_events",
@@ -414,7 +414,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_all_rules",
         "掟の蒐集家",
-        "AI箱庭で、すべての既定の掟を一度は有効にした",
+        "箱庭で、すべての既定の掟を一度は有効にした",
         "§",
         "specific",
         "hakoniwa_all_rules",
@@ -424,7 +424,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_custom_rule",
         "立法者",
-        "AI箱庭で、初めて自作の掟を作った",
+        "箱庭で、初めて自作の掟を作った",
         "¶",
         "specific",
         "hakoniwa_custom_rule",
@@ -434,7 +434,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_first_transform",
         "初めての変身",
-        "AI箱庭で、初めて住民を変身させた",
+        "箱庭で、初めて住民を変身させた",
         "✧",
         "count",
         "hakoniwa_transforms",
@@ -444,7 +444,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_transform_5",
         "変身の常連",
-        "AI箱庭で、住民を5回変身させた",
+        "箱庭で、住民を5回変身させた",
         "✦",
         "count",
         "hakoniwa_transforms",
@@ -454,7 +454,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_dress_all",
         "ドレスの観客",
-        "AI箱庭で、ある世界の住民全員のドレス姿を見た",
+        "箱庭で、ある世界の住民全員のドレス姿を見た",
         "♢",
         "specific",
         "hakoniwa_dress_all",
@@ -464,7 +464,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_swap",
         "入れ替わりの朝",
-        "AI箱庭で、入れ替わりを体験した",
+        "箱庭で、入れ替わりを体験した",
         "⇄",
         "specific",
         "hakoniwa_swap",
@@ -474,7 +474,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_affinity_close",
         "親密な二人",
-        "AI箱庭で、いずれかの二人の好感度が「親密」に達した",
+        "箱庭で、いずれかの二人の好感度が「親密」に達した",
         "♡",
         "threshold",
         "hakoniwa_affinity",
@@ -484,7 +484,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_favorites_5",
         "お気に入りの棚",
-        "AI箱庭で、お気に入りの出来事を5件集めた",
+        "箱庭で、お気に入りの出来事を5件集めた",
         "☆",
         "count",
         "hakoniwa_favorites",
@@ -494,7 +494,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_new_world",
         "新しい世界",
-        "AI箱庭で、2つ目の世界を作った",
+        "箱庭で、2つ目の世界を作った",
         "○",
         "count",
         "hakoniwa_worlds",
@@ -504,7 +504,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_dissonance_stirring",
         "ざわめきの始まり",
-        "AI箱庭で、世界の違和感が「ざわめき」に達した",
+        "箱庭で、世界の違和感が「ざわめき」に達した",
         "∴",
         "threshold",
         "hakoniwa_dissonance",
@@ -514,7 +514,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_dissonance_probing",
         "真実への接近",
-        "AI箱庭で、世界の違和感が「探り合い」に達した",
+        "箱庭で、世界の違和感が「探り合い」に達した",
         "∵",
         "threshold",
         "hakoniwa_dissonance",
@@ -524,7 +524,7 @@ HAKONIWA_ACHIEVEMENTS: tuple[Achievement, ...] = (
     _hakoniwa(
         "hakoniwa_dissonance_confrontation",
         "書き手への呼びかけ",
-        "AI箱庭で、住民たちが書き手へ呼びかける「対面」に到達した",
+        "箱庭で、住民たちが書き手へ呼びかける「対面」に到達した",
         "※",
         "count",
         "hakoniwa_confrontations",
@@ -614,7 +614,7 @@ class AchievementStats(BaseModel):
     shame: int = 0
     adaptation: int = 0
     has_gender_change: bool = False
-    # AI箱庭(すべての世界を通して)
+    # 箱庭(すべての世界を通して)
     hakoniwa_max_day: int = 0
     hakoniwa_event_count: int = 0
     hakoniwa_transform_count: int = 0
@@ -629,7 +629,7 @@ class AchievementStats(BaseModel):
     hakoniwa_swap: bool = False
 
 
-# AI箱庭の観察記録: 条件対象 -> 判定に使う統計
+# 箱庭の観察記録: 条件対象 -> 判定に使う統計
 _HAKONIWA_COUNTS = {
     "hakoniwa_day": "hakoniwa_max_day",
     "hakoniwa_events": "hakoniwa_event_count",

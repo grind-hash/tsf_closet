@@ -1,7 +1,10 @@
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import type { HakoniwaTheme } from "../../apis/hakoniwa";
+import {
+  HAKONIWA_PLAYER_NAME_MAX,
+  type HakoniwaTheme,
+} from "../../apis/hakoniwa";
 import {
   ADVENTURE_IMAGE_MODEL_CHOICES,
   isV5ImageModel,
@@ -10,6 +13,9 @@ import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
+import WebSearchTermsDialog, {
+  type WebSearchTermsMode,
+} from "../settings/WebSearchTermsDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaPresencePicker from "./HakoniwaPresencePicker";
 import {
@@ -21,8 +27,6 @@ import HakoniwaThemePicker, { normalizeTheme } from "./HakoniwaThemePicker";
 
 const DEFAULT_MODEL = "default";
 const MEMO_MAX = 1000;
-/** バックエンドの HAKONIWA_PLAYER_NAME_MAX */
-const PLAYER_NAME_MAX = 20;
 
 function modelLabel(model: string): string {
   return (
@@ -52,7 +56,10 @@ export default function HakoniwaSettingsTab() {
     generateLook,
     applyMemoLook,
     playbackQueue,
+    openOpening,
   } = useHakoniwa();
+  // Web 検索を ON にするときは、設定画面と同じ利用条件への同意を確かめる
+  const [termsMode, setTermsMode] = useState<WebSearchTermsMode | null>(null);
   const [confirmMemoLook, setConfirmMemoLook] = useState<LookRequest | null>(
     null,
   );
@@ -133,11 +140,21 @@ export default function HakoniwaSettingsTab() {
             className="hakoniwa-toggle__input"
             checked={world.web_search_enabled ?? false}
             disabled={busy !== null}
-            onChange={(event) => void setWebSearchEnabled(event.target.checked)}
+            onChange={(event) => {
+              if (event.target.checked) setTermsMode("consent");
+              else void setWebSearchEnabled(false);
+            }}
           />
           <span className="hakoniwa-toggle__switch" aria-hidden />
         </label>
         <p className="hakoniwa-note">{t("hakoniwa.settings.webSearchNote")}</p>
+        <button
+          type="button"
+          className="hakoniwa-link-button"
+          onClick={() => setTermsMode("read")}
+        >
+          {t("hakoniwa.settings.webSearchTerms")}
+        </button>
         {!world.web_search_configured && (
           <p className="hakoniwa-note">
             {t("hakoniwa.settings.webSearchUnavailable")}
@@ -152,7 +169,7 @@ export default function HakoniwaSettingsTab() {
             id={playerNameId}
             type="text"
             value={playerName}
-            maxLength={PLAYER_NAME_MAX}
+            maxLength={HAKONIWA_PLAYER_NAME_MAX}
             placeholder={t("hakoniwa.settings.playerNamePlaceholder")}
             onChange={(event) => setPlayerNameDraft(event.target.value)}
           />
@@ -272,6 +289,17 @@ export default function HakoniwaSettingsTab() {
       )}
 
       <section className="hakoniwa-settings__section">
+        <button
+          type="button"
+          className="hakoniwa-button hakoniwa-button--ghost"
+          onClick={() => openOpening(true)}
+          disabled={playbackQueue.length > 0}
+        >
+          {t("hakoniwa.opening.replay")}
+        </button>
+      </section>
+
+      <section className="hakoniwa-settings__section">
         <strong>{t("hakoniwa.settings.deleteHeading")}</strong>
         <button
           type="button"
@@ -283,6 +311,13 @@ export default function HakoniwaSettingsTab() {
         </button>
       </section>
 
+      <WebSearchTermsDialog
+        mode={termsMode}
+        variant="hakoniwa"
+        onAccept={() => void setWebSearchEnabled(true)}
+        onClose={() => setTermsMode(null)}
+        testId="hakoniwa-world-web-search-terms"
+      />
       <ConfirmDialog
         open={confirmMemoLook !== null}
         title={t("hakoniwa.rules.lookConfirmTitle")}

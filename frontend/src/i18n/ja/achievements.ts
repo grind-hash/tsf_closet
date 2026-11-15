@@ -7,7 +7,7 @@ export const achievements = {
   filterCollection: "コレクション",
   filterSelf: "自分モード",
   filterSalon: "サロン経営",
-  filterHakoniwa: "AI箱庭",
+  filterHakoniwa: "箱庭",
   transformCount: "変身回数: {{count}}",
   crossdressCount: "女装回数: {{count}}",
   realityAlterCount: "現実改変回数: {{count}}",

@@ -105,7 +105,7 @@ export const guide = {
     open: "Open Salon Management",
   },
   hakoniwa: {
-    title: "AI Dollhouse",
+    title: "Dollhouse",
     desc: 'Watch residents live on their own in Stardust House, a small boarding house. Each time you press "Advance the day", three events happen and pile up in the chronicle. As the unseen writer, you can rewrite the world’s common sense with rules and the world memo, transform or rewrite the residents, and order scenes.',
     note: "Events, words and chats use text generation; transformations, looks and scene pictures use image generation (choose the image model per world on the Settings tab).",
     details: [
@@ -125,7 +125,8 @@ export const guide = {
           '"Random residents" puts together residents with different names, personalities and looks (swap them out one by one; uses text generation). "Generate looks for residents without a portrait" on the Residents tab draws missing portraits one at a time.',
           "Pick an experiment theme (keep the swap going, a week of the dress rule, grow the strangeness to a confrontation, transformation experiment, free experiment, or write your own) and its progress appears in the recap. A theme you write also gently shapes events and conversations.",
           '"You and the residents" (also on the Settings tab): with Familiar face (default) they know you, and a look you give them in chat raises their feelings toward you if they wanted it, or lowers them if not. With Unseen presence you are a mysterious voice and an invisible hand; as world strangeness grows they look for you, and after the confrontation it works like Familiar face.',
-          "On day 1 of a new world, a getting-started guide appears (you can fold or close it).",
+          'Right after you create a world, an opening introduces its residents and "You and the residents" (click to advance; Skip or Esc closes it). Your first world also gets an explanation of rules, getting involved and how a day goes. Replay it with "Replay the opening" on the Settings tab.',
+          "Under Dollhouse on the Settings screen, set the defaults for new worlds (web search, your name, You and the residents, world strangeness) and whether the opening plays and includes how to play (first world only, every time, never).",
           "Whatever you write in the world memo on the Settings tab becomes this world’s common sense (what everyone believes has always been true) and applies right away to every generation, ahead of the rules. If it changes how every resident looks, saving it generates a memo look for every resident, one at a time (the same memo is not checked again).",
         ],
       },
@@ -142,7 +143,7 @@ export const guide = {
         items: [
           'Click a resident in the room, or press "Hear a word" on the Residents tab, to hear a word that fits their mood.',
           '"Chat" lets you type messages and talk for as long as you like. What you say raises or lowers how the resident feels about you, shown under their name on the Residents tab. Asking "Put on ..." or "Change back" transforms them or undoes it on the spot.',
-          'Enable "Use web search" in the world settings (off by default) with a Tavily API key configured to let chat search when current information is needed. About one daily event uses topics matching the residents’ interests when it does not conflict with a dedicated story scene.',
+          'Turn on "Use web search" in the world settings (you agree to the terms when turning it on; the default for new worlds is set under Dollhouse on the Settings screen). With a Tavily API key, chat searches when current information is needed, and about one daily event uses topics the residents care about. Each search uses 1 Tavily credit.',
           'Dialogue is AI-generated, may contain errors or bias, and does not represent the app or its author. Open "Referenced information" to check sources. Conversations continue even if search is unavailable.',
           'When you pick a resident on the Residents tab, the tabs under their name switch between "Transform / Event / Rewrite", "Profile" (personality, relationships and memories) and "Looks & edit".',
           "Press a portrait to enlarge it and touch the head, chest or below the waist. The reaction depends on how they feel about you: a resident who likes you welcomes it, one who dislikes you pushes you away (the mood shifts a little and nothing goes into the chronicle).",
@@ -212,11 +213,11 @@ export const guide = {
         heading: "World strangeness and records",
         items: [
           'In worlds that use "world strangeness" (on by default, also on the Settings tab), rule switches and transformations make residents notice the rewrites (stillness → stirring → probing); at 80 they call out to the writer once (Unseen presence worlds only, which also get investigations). A transformation in chat adds only a little once they know you. The top bar shows the stage and value.',
-          "What you observe in the dollhouse (days, events, rules, transformations, dresses, swaps, strangeness and more, 17 records) is counted across all worlds and recorded under AI Dollhouse on the Achievements screen.",
+          "What you observe in the dollhouse (days, events, rules, transformations, dresses, swaps, strangeness and more, 17 records) is counted across all worlds and recorded under Dollhouse on the Achievements screen.",
         ],
       },
     ],
-    open: "Open AI Dollhouse",
+    open: "Open Dollhouse",
   },
   voice: {
     title: "Line Read-Aloud (Speech Synthesis)",

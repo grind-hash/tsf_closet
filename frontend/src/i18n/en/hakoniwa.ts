@@ -11,20 +11,25 @@ export const hakoniwa = {
     unused: "Search results were not used in this dialogue.",
   },
   eyebrow: "HAKONIWA",
-  title: "AI Dollhouse",
+  title: "Dollhouse",
   lead: "In Stardust House, a small boarding house, the residents live their own lives. Slot in rules, advance the day and watch what happens. Click a resident to hear a word from them, or transform them on the spot.",
   loading: "Loading…",
   back: "Back to worlds",
   hub: {
     worldsHeading: "Your worlds",
-    empty: "No worlds yet. Pick residents below and create your first world.",
+    worldsCount: "{{count}} worlds",
+    empty: "No worlds yet. Pick residents above and create your first world.",
+    filterPresence: "You and the residents",
+    filterResident: "Resident",
+    filterAll: "All",
+    noWorldsForFilter: "No worlds match these filters.",
     open: "Open this world",
     delete: "Delete",
     deleteTitle: "Delete this world?",
     deleteBody:
       'This deletes the residents, rules, chronicle and generated images of "{{name}}". This cannot be undone.',
     deleteConfirm: "Delete",
-    dayAndResidents: "Day {{day}} · {{count}} residents",
+    dayAndResidents: "Day {{day}} · {{count}} residents · {{presence}}",
     createHeading: "Create a new world",
     nameLabel: "World name",
     namePlaceholder: "e.g. Stardust House",
@@ -463,7 +468,8 @@ export const hakoniwa = {
   settings: {
     webSearchToggle: "Use web search",
     webSearchNote:
-      "Off by default. When enabled, chat searches when needed and about one daily conversation uses web results. This setting is saved for this world.",
+      "When on, chat searches the web (Tavily) when needed and about one daily conversation among residents uses web results. You are asked to agree to the terms when turning it on. Each search uses 1 Tavily credit. The default for new worlds is set under Dollhouse on the Settings screen.",
+    webSearchTerms: "Read the web search terms",
     webSearchUnavailable:
       "A Tavily API key is not configured, so web search will not run even when enabled.",
     imageModelHeading: "Image model for looks",
@@ -640,22 +646,40 @@ export const hakoniwa = {
       custom: "Day {{day}}, {{events}} events.",
     },
   },
-  intro: {
-    title: "Getting started",
-    lead: "The residents live as they please and keep stirring up small events. You are the unseen writer who rewrites the world with rules and transforms the residents.",
-    stepRules: "Turn on one rule to change how the world works",
-    stepClick:
-      'Click a resident in the room to hear a word from them (on the Residents tab, "Chat" lets you talk at length, and you can transform them too)',
-    stepAdvance: 'Press "Advance the day" and three events happen that day',
-    noteAchievements:
-      "Your observation records are on the Achievements screen under AI Dollhouse.",
-    noteDissonance:
-      "The more you rewrite, the more the residents start to notice the world changing.",
+  opening: {
+    label: "Opening",
+    welcomeHeading: "Welcome",
+    welcome:
+      'Life in "{{world}}" begins. The {{count}} residents are {{names}}.',
+    presenceHeading: "You and the residents",
+    presenceKnown:
+      "The residents know you. They answer when you talk to them, and they chat among themselves about the looks you gave them.",
+    presenceKnownNamed:
+      "The residents know you as {{name}}. They answer when you talk to them, and they chat among themselves about the looks you gave them.",
+    presenceHidden:
+      "The residents cannot see you. Your words reach them as a mysterious voice, and your touch as an invisible hand.",
+    presenceHiddenDissonance:
+      "As world strangeness grows, the residents start looking for the source of the voice.",
+    presenceHiddenOff:
+      "This world does not use world strangeness, so the voice stays a mystery.",
+    rulesHeading: "Rewrite the world with rules",
+    rules:
+      "Turn on a rule on the Rules tab and the world works differently from that day on. The residents take it as plain common sense. You can also write your own rules.",
+    residentsHeading: "Get involved with the residents",
+    residents:
+      'Click a resident in the room to hear a word from them. On the Residents tab, "Chat" lets you talk at length, or ask them to change clothes and their look changes on the spot. You can also order events to happen.',
+    dayHeading: "How a day goes",
+    day: 'When you are ready, press "Advance the day" at the bottom right. Three events happen that day and play out in the room, followed by a recap of the day.',
+    dayTheme:
+      "The progress of your experiment theme also appears in the recap.",
+    dayAchievements:
+      "Your observation records are on the Achievements screen under Dollhouse.",
+    next: "Next",
+    skip: "Skip",
     openRules: "Look at the rules",
-    advance: "Advance the day now",
-    fold: "Fold",
-    open: "Open",
-    dismiss: "Close the guide",
+    openResidents: "Talk with a resident",
+    start: "Begin",
+    replay: "Replay the opening",
   },
   ruleReaction: {
     title: "Rule changed: {{rule}}",

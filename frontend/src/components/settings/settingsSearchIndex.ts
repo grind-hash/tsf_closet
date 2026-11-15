@@ -20,6 +20,7 @@ export const SETTINGS_CATEGORIES = [
   { id: "speech", titleKey: "settings.speech.sectionTitle" },
   { id: "notify", titleKey: "settings.notifySection" },
   { id: "experimental", titleKey: "settings.experimentalSection" },
+  { id: "hakoniwa", titleKey: "settings.hakoniwaSection" },
   { id: "avatar", titleKey: "settings.avatar.sectionTitle" },
   { id: "live2d", titleKey: "settings.live2d.sectionTitle" },
   { id: "data", titleKey: "settings.dataSection" },
@@ -312,6 +313,43 @@ export const SETTINGS_ITEMS = [
     searchKeys: [
       "settings.experimentalHakoniwa",
       "settings.experimentalHakoniwaDesc",
+    ],
+  },
+  // AI箱庭: 新しい世界の既定と開幕(世界ごとの設定は各世界の「設定」タブ)
+  {
+    id: "hakoniwaWebSearch",
+    category: "hakoniwa",
+    searchKeys: [
+      "settings.hakoniwaWebSearch",
+      "settings.hakoniwaWebSearchDesc",
+    ],
+    keywords: ["Tavily"],
+  },
+  {
+    id: "hakoniwaDefaults",
+    category: "hakoniwa",
+    searchKeys: [
+      "settings.hakoniwaPlayerName",
+      "settings.hakoniwaPlayerNameDesc",
+      "settings.hakoniwaPresence",
+      "settings.hakoniwaPresenceKnown",
+      "settings.hakoniwaPresenceKnownDesc",
+      "settings.hakoniwaPresenceHidden",
+      "settings.hakoniwaPresenceHiddenDesc",
+      "settings.hakoniwaDissonance",
+      "settings.hakoniwaDissonanceDesc",
+    ],
+  },
+  {
+    id: "hakoniwaOpening",
+    category: "hakoniwa",
+    searchKeys: [
+      "settings.hakoniwaOpening",
+      "settings.hakoniwaOpeningDesc",
+      "settings.hakoniwaOpeningGuide",
+      "settings.hakoniwaOpeningGuideFirst",
+      "settings.hakoniwaOpeningGuideAlways",
+      "settings.hakoniwaOpeningGuideNever",
     ],
   },
   {

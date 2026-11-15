@@ -538,6 +538,11 @@ def _world_summary(world: HakoniwaWorld, language: str) -> dict[str, Any]:
         "created_at": world.created_at.isoformat() if world.created_at else None,
         "updated_at": world.updated_at.isoformat() if world.updated_at else None,
         "residents": previews,
+        # 一覧の絞り込み(住民とあなた・住民)に使う。顔は先頭の数人だけだが、名前は全員ぶん
+        "player_presence": story.player_presence(state),
+        "resident_names": [
+            logic.resident_name(resident, language) for resident in state["residents"]
+        ],
     }
 
 
@@ -701,6 +706,8 @@ class HakoniwaService:
         *,
         dissonance_enabled: bool = True,
         player_presence: str = "known",
+        player_name: str = "",
+        web_search_enabled: bool = False,
         custom_residents: list[dict[str, Any]] | None = None,
         experiment_theme: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -743,6 +750,9 @@ class HakoniwaService:
                 player_presence=story.validate_player_presence(player_presence),
             )
             state["experiment_theme"] = theme
+            # 設定画面の既定(あなたの名前・Web検索)。世界の設定タブで変えられる
+            state["player_name"] = play.validate_player_name(player_name)
+            state["web_search_enabled"] = bool(web_search_enabled)
         except HakoniwaError:
             delete_world_images(world_id)
             raise

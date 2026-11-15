@@ -119,6 +119,14 @@ class HakoniwaCreateRequest(HakoniwaLanguageRequest):
         "known",
         description="住民とあなた。known=顔なじみ(最初から知られている) / hidden=見えない存在",
     )
+    player_name: str = Field(
+        "",
+        max_length=HAKONIWA_PLAYER_NAME_MAX,
+        description="住民がプレイヤーを呼ぶ名前(設定画面の既定。空なら名前で呼ばない)",
+    )
+    web_search_enabled: bool = Field(
+        False, description="この世界でWeb検索を使うか(設定画面の既定)"
+    )
     custom_residents: list[HakoniwaRandomResident] = Field(
         default_factory=list,
         max_length=HAKONIWA_MAX_RESIDENTS,
@@ -663,6 +671,13 @@ class HakoniwaWorldSummary(BaseModel):
     created_at: str | None
     updated_at: str | None
     residents: list[HakoniwaResidentPreview]
+    player_presence: Literal["known", "hidden"] = Field(
+        "known", description="住民とあなた(一覧の絞り込みに使う)"
+    )
+    resident_names: list[str] = Field(
+        default_factory=list,
+        description="住民全員の名前(一覧の住民での絞り込みに使う。顔は先頭の数人だけ)",
+    )
 
 
 class HakoniwaWorldListResponse(BaseModel):

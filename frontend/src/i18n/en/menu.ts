@@ -17,7 +17,7 @@ export const menu = {
   characterChatDesc: "Talk one-on-one with a character outside the scenario",
   salon: "Salon Management",
   salonDesc: "Dress up customers and run a salon in seasons of 4 or 12 weeks",
-  hakoniwa: "AI Dollhouse",
+  hakoniwa: "Dollhouse",
   hakoniwaDesc:
     "Slot rules into a boarding house and watch its residents live day by day",
   endings: "Endings",

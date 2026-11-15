@@ -76,6 +76,8 @@ async function mockHakoniwa(
     furnishedRooms?: boolean;
     /** 送られた本文を記録する(世界の作成・設定) */
     recorded?: { create?: Record<string, unknown>; settings: unknown[] };
+    /** 世界を作った直後の開幕を流す(既定は流さない: 開幕が画面を覆うため) */
+    opening?: boolean;
   } = {},
 ) {
   // おまかせの住民の候補(組むたびに先頭から使う)
@@ -226,13 +228,20 @@ async function mockHakoniwa(
     status: "used" as const,
     sources: [{ title: "科学の記事", url: "https://example.com/news" }],
   };
-  await page.addInitScript((flag) => {
-    localStorage.setItem("novelai_api_key_consent", "true");
-    localStorage.setItem(
-      "app_settings",
-      JSON.stringify({ experimentalHakoniwaEnabled: flag, language: "ja" }),
-    );
-  }, enabled);
+  await page.addInitScript(
+    ({ flag, opening }) => {
+      localStorage.setItem("novelai_api_key_consent", "true");
+      localStorage.setItem(
+        "app_settings",
+        JSON.stringify({
+          experimentalHakoniwaEnabled: flag,
+          language: "ja",
+          hakoniwaPreferences: { openingEnabled: opening },
+        }),
+      );
+    },
+    { flag: enabled, opening: options.opening ?? false },
+  );
   // API をすべて捕捉し、実サーバーや課金される生成処理へ到達させない。
   await page.route(/\/(api\/|health|novelai\/)/, async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -665,7 +674,7 @@ async function mockHakoniwa(
               {
                 achievement_id: "hakoniwa_dress_all",
                 name: "ドレスの観客",
-                description: "AI箱庭で、ある世界の住民全員のドレス姿を見た",
+                description: "箱庭で、ある世界の住民全員のドレス姿を見た",
                 icon: "♢",
                 category: "hakoniwa",
               },
@@ -729,7 +738,12 @@ for (const configured of [true, false]) {
         ),
       ).toBeVisible();
     }
+    // ON にするときは、設定画面と同じ利用条件への同意を確かめる
     await toggle.click();
+    const terms = page.getByTestId("hakoniwa-world-web-search-terms");
+    await expect(terms).toContainText("Web検索機能の利用について");
+    await expect(toggle).not.toBeChecked();
+    await terms.getByRole("button", { name: "同意して有効にする" }).click();
     await expect(toggle).toBeChecked();
     await expect(toggle).toBeEnabled();
     expect(recorded.settings.at(-1)).toMatchObject({
@@ -1307,26 +1321,34 @@ test("明日の介入・世界のメモ・立ち絵に触れる・箱庭の中�
   );
 });
 
-test("はじまりの案内と、掟を切り替えた直後の住民の反応", async ({ page }) => {
-  await mockHakoniwa(page, true, 0, { reactions: true });
+test("開幕と、掟を切り替えた直後の住民の反応", async ({ page }) => {
+  await mockHakoniwa(page, true, 0, { reactions: true, opening: true });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/hakoniwa");
   await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
-  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
 
-  // 1日目・出来事0件の世界には、右パネルのタブの上に案内が出る
-  const intro = page.getByTestId("hakoniwa-intro");
-  await expect(intro).toContainText("見えない書き手です");
-  await expect(intro).toContainText("書き換えを重ねるほど");
-  await intro.getByRole("button", { name: "掟を見てみる" }).click();
+  // 作った直後に開幕が流れる。はじめての世界は遊び方の説明つき(5幕)
+  const opening = page.getByTestId("hakoniwa-opening");
+  await expect(opening).toContainText("ようこそ");
+  await expect(opening).toContainText("1 / 5");
+  await expect(opening).toContainText("高瀬 葵");
+  await opening.getByRole("button", { name: "次へ" }).click();
+  await expect(opening).toContainText("住民たちは、あなたを知っています");
+  // 窓の外をクリックしても送れる
+  await opening.click({ position: { x: 20, y: 20 } });
+  await expect(opening).toContainText("掟で世界を書き換える");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await expect(opening).toContainText("5 / 5");
+  // 最後の幕には「1日進める」を置かず、掟と住民へ案内する
+  await expect(opening.getByRole("button", { name: /1日進める/ })).toHaveCount(
+    0,
+  );
+  await opening.getByRole("button", { name: "掟を見てみる" }).click();
+  await expect(opening).toHaveCount(0);
   await expect(
     page.getByRole("tab", { name: "掟", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
-  await intro.getByRole("button", { name: "畳む" }).click();
-  const strip = page.getByRole("region", { name: "はじまりの案内" });
-  await expect(strip).toBeVisible();
-  await strip.getByRole("button", { name: "開く" }).click();
-  await expect(page.getByTestId("hakoniwa-intro")).toBeVisible();
 
   // 掟を切り替えると、反応が一時の場面として部屋で再生される
   await page.getByRole("checkbox", { name: "ドレスの掟を有効にする" }).click();
@@ -1335,9 +1357,9 @@ test("はじまりの案内と、掟を切り替えた直後の住民の反応",
     "掟の切り替え: ドレスの掟",
   );
   await expect(caption).toContainText("「ドレスの掟」が有効になった。");
-  // 再生中は案内の「さっそく1日進める」も押せない
+  // 再生中は「1日進める」を押せない
   await expect(
-    page.getByRole("button", { name: "さっそく1日進める" }),
+    page.getByRole("button", { name: "1日進める", exact: true }),
   ).toBeDisabled();
   await caption.getByRole("button", { name: "次へ" }).click();
   await expect(page.locator(".hakoniwa-bubble")).toContainText(
@@ -1354,18 +1376,21 @@ test("はじまりの案内と、掟を切り替えた直後の住民の反応",
   await page.getByRole("tab", { name: "年代記", exact: true }).click();
   await expect(page.locator(".hakoniwa-event")).toHaveCount(0);
 
-  // 帯の ✕ で閉じると、その世界では出さない
+  // 設定タブから、説明つきの開幕をいつでも見返せる(Esc で閉じる)
+  await page.getByRole("tab", { name: "設定", exact: true }).click();
   await page
-    .getByTestId("hakoniwa-intro")
-    .getByRole("button", { name: "畳む" })
+    .getByRole("button", { name: "はじまりの説明をもう一度見る" })
     .click();
-  await strip.getByRole("button", { name: "案内を閉じる" }).click();
-  await expect(strip).toHaveCount(0);
-  await expect(page.getByTestId("hakoniwa-intro")).toHaveCount(0);
+  await expect(opening).toContainText("1 / 5");
+  await page.keyboard.press("Escape");
+  await expect(opening).toHaveCount(0);
+
+  // 2つ目の世界からは、顔ぶれと「住民とあなた」だけの短い開幕になる
   await page.getByRole("button", { name: /世界の一覧へ/ }).click();
   await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
-  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
-  await expect(page.getByTestId("hakoniwa-intro")).toHaveCount(0);
+  await expect(opening).toContainText("1 / 2");
+  await opening.getByRole("button", { name: "スキップ" }).click();
+  await expect(opening).toHaveCount(0);
 });
 
 test("おまかせの住民・実験テーマ・立ち絵のまとめて生成", async ({ page }) => {
@@ -1443,17 +1468,25 @@ test("おまかせの住民・実験テーマ・立ち絵のまとめて生成",
   });
 });
 
-test("観察記録: 達成の通知と、実績画面の「AI箱庭」の絞り込み", async ({
+test("観察記録: 達成の通知と、実績画面の「箱庭」の絞り込み", async ({
   page,
 }) => {
-  await mockHakoniwa(page, true, 0, { achievements: true });
+  await mockHakoniwa(page, true, 0, { achievements: true, opening: true });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/hakoniwa");
   await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
   await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
-  await expect(page.getByTestId("hakoniwa-intro")).toContainText(
-    "観察の記録は「実績」画面の「AI箱庭」で見られます。",
+  // 観察の記録の見方は、開幕の最後の幕(1日の流れ)で案内する
+  const opening = page.getByTestId("hakoniwa-opening");
+  await expect(opening).toContainText("1 / 5");
+  for (let index = 0; index < 4; index += 1) {
+    await opening.getByRole("button", { name: "次へ" }).click();
+  }
+  await expect(opening).toContainText(
+    "観察の記録は「実績」画面の「箱庭」で見られます。",
   );
+  await opening.getByRole("button", { name: "はじめる" }).click();
+  await expect(opening).toHaveCount(0);
 
   await page.getByRole("tab", { name: "掟", exact: true }).click();
   await page.getByRole("checkbox", { name: "ドレスの掟を有効にする" }).click();
@@ -1463,7 +1496,7 @@ test("観察記録: 達成の通知と、実績画面の「AI箱庭」の絞り�
 
   await page.goto("/achievements");
   const chip = page.locator(".achievements-screen__filter-btn", {
-    hasText: "AI箱庭",
+    hasText: "箱庭",
   });
   await expect(chip).toBeVisible();
   await expect(page.locator(".achievements-screen__progress-text")).toHaveText(
@@ -1474,7 +1507,7 @@ test("観察記録: 達成の通知と、実績画面の「AI箱庭」の絞り�
   await expect(page.locator(".achievement-card")).toContainText("ドレスの観客");
 });
 
-test("AI箱庭を使わない設定では、実績画面に AI箱庭の記録を出さない", async ({
+test("箱庭を使わない設定では、実績画面に 箱庭の記録を出さない", async ({
   page,
 }) => {
   await mockHakoniwa(page, false);
@@ -1483,7 +1516,7 @@ test("AI箱庭を使わない設定では、実績画面に AI箱庭の記録を
     "0 / 1 (0%)",
   );
   await expect(
-    page.locator(".achievements-screen__filter-btn", { hasText: "AI箱庭" }),
+    page.locator(".achievements-screen__filter-btn", { hasText: "箱庭" }),
   ).toHaveCount(0);
   await expect(page.getByText("ドレスの観客")).toHaveCount(0);
 });

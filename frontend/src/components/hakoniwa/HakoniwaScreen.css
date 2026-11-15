@@ -350,6 +350,70 @@
 
 /* --- 一覧と作成 --- */
 
+/* つくった世界の見出しと件数 */
+.hakoniwa-worlds-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.hakoniwa-worlds-header__count {
+  color: var(--hk-muted);
+  font-size: 0.85rem;
+}
+
+/* つくった世界の絞り込み(住民とあなた・住民)。件数つきのチップを折り返して並べる */
+.hakoniwa-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.hakoniwa-filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.hakoniwa-filters__label {
+  min-width: 7em;
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+}
+
+.hakoniwa-filters__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hk-text);
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.hakoniwa-filters__chip.is-active {
+  border-color: var(--hk-accent);
+  background: var(--hk-accent);
+  color: var(--hk-on-accent, #fff);
+}
+
+.hakoniwa-filters__chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.hakoniwa-filters__count {
+  color: inherit;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
 .hakoniwa-worlds {
   display: flex;
   flex-direction: column;
@@ -404,7 +468,32 @@
 
 .hakoniwa-worlds__actions {
   display: flex;
+  flex-shrink: 0;
   gap: 8px;
+}
+
+/* 狭い画面では顔と名前を上の段、操作を下の段に置く(名前の列が潰れないように) */
+@media (max-width: 640px) {
+  .hakoniwa-worlds__item {
+    flex-wrap: wrap;
+  }
+
+  .hakoniwa-worlds__text {
+    flex: 1 1 0;
+  }
+
+  .hakoniwa-worlds__actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+
+  .hakoniwa-worlds__actions .hakoniwa-button {
+    white-space: nowrap;
+  }
+
+  .hakoniwa-filters__label {
+    flex-basis: 100%;
+  }
 }
 
 .hakoniwa-roster {
@@ -2096,6 +2185,18 @@
 
 /* --- 設定 --- */
 
+/* 項目の下の補助操作(利用条件を読むなど)。リンクのように見せる */
+.hakoniwa-link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--hk-accent-strong);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .hakoniwa-settings__section {
   display: flex;
   flex-direction: column;
@@ -2595,66 +2696,49 @@
   list-style: none;
 }
 
-/* --- はじまりの案内(1日目・出来事0件の世界だけ。右パネルのタブの上) --- */
+/* --- 開幕(世界を作った直後・設定タブから見返す)。ADV と同じ窓で、住民を横一列に並べる --- */
 
-.hakoniwa-intro {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 6px;
-  box-sizing: border-box;
-  max-height: 50%;
-  margin: 10px 12px 0;
-  padding: 10px 14px 12px;
-  border: 1px solid var(--hk-accent);
-  border-radius: 12px;
-  background: var(--hk-surface-2);
+.hakoniwa-opening {
+  cursor: pointer;
 }
 
-.hakoniwa-intro__body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.hakoniwa-intro p {
-  margin: 6px 0;
-  line-height: 1.6;
-}
-
-.hakoniwa-intro__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--hk-accent-strong);
-}
-
-.hakoniwa-intro__steps {
-  margin: 6px 0;
-  padding-left: 1.4em;
-  line-height: 1.6;
-}
-
-.hakoniwa-intro__actions {
-  display: flex;
+/* 最後の幕はボタンが3つ並ぶ。狭い画面では文字を折らずにボタンごと折り返す */
+.hakoniwa-opening .hakoniwa-adv__controls {
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
-.hakoniwa-intro--strip {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 12px;
+.hakoniwa-opening .hakoniwa-adv__controls .hakoniwa-button {
+  white-space: nowrap;
 }
 
-.hakoniwa-intro__label {
-  color: var(--hk-accent-strong);
+.hakoniwa-opening__lineup {
+  position: absolute;
+  inset: 6% 3% 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1%;
+  pointer-events: none;
+}
+
+.hakoniwa-opening__lineup img {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(94% / max(var(--hk-lineup-count, 1), 3));
+  height: 80%;
+  object-fit: contain;
+  object-position: bottom;
+}
+
+/* 縦長の画面では、ADV の立ち絵と同じく窓の上に並べる */
+@media (max-width: 640px) {
+  .hakoniwa-opening__lineup {
+    inset: 14% 2% 30%;
+  }
+
+  .hakoniwa-opening__lineup img {
+    height: 100%;
+  }
 }
 
 /* --- おまかせの住民と実験テーマ(作成画面・設定タブ) --- */

@@ -17,7 +17,7 @@ import HakoniwaChat from "./HakoniwaChat";
 import HakoniwaChronicle from "./HakoniwaChronicle";
 import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 import HakoniwaFurnitureTab from "./HakoniwaFurnitureTab";
-import HakoniwaIntro from "./HakoniwaIntro";
+import HakoniwaOpening, { HakoniwaOpeningLauncher } from "./HakoniwaOpening";
 import HakoniwaResidentsTab from "./HakoniwaResidentsTab";
 import HakoniwaRulesTab from "./HakoniwaRulesTab";
 import HakoniwaSettingsTab from "./HakoniwaSettingsTab";
@@ -57,6 +57,7 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
     cancelUsage,
     setIntervention,
     advEventId,
+    closeOpening,
   } = useHakoniwa();
   // ふだんは箱庭の曲、出来事を見せている間(ADV・部屋での再生)は出来事を作るときに選んだ曲。
   // 曲が無い(選ばれなかった・定型文の出来事)ときはふだんの曲。曲を置くまでは既定の曲が鳴る
@@ -76,8 +77,11 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
 
   useEffect(() => {
     void openWorld(worldId);
-    return () => closeWorld();
-  }, [worldId, openWorld, closeWorld]);
+    return () => {
+      closeWorld();
+      closeOpening();
+    };
+  }, [worldId, openWorld, closeWorld, closeOpening]);
 
   // 前に開いていたタブを復元し、そのタブにフォーカスを置く
   useEffect(() => {
@@ -254,7 +258,6 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
           </section>
 
           <aside className="hakoniwa-world__panel">
-            <HakoniwaIntro />
             <div
               className="hakoniwa-tabs"
               role="tablist"
@@ -303,6 +306,9 @@ export default function HakoniwaWorldView({ worldId }: { worldId: string }) {
       </div>
       <HakoniwaAdv bgm={bgm} />
       <HakoniwaChat />
+      {/* 開幕の合図は小さな部品で受け、世界の画面全体を設定の変化で描き直さない */}
+      <HakoniwaOpeningLauncher worldReady={shown !== null} />
+      <HakoniwaOpening />
       <ConfirmDialog
         open={usageConfirmOpen}
         title={t("hakoniwa.usage.title")}

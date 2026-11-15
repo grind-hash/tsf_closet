@@ -121,6 +121,9 @@ export interface HakoniwaCreateInput {
   dissonanceEnabled: boolean;
   /** 住民とあなた(顔なじみ / 見えない存在) */
   playerPresence: HakoniwaPlayerPresence;
+  /** 設定画面の既定: 住民があなたを呼ぶ名前と、Web検索を使うか */
+  playerName: string;
+  webSearchEnabled: boolean;
   /** おまかせの住民(作成画面で組んだ定義) */
   customResidents: HakoniwaRandomResident[];
   /** 実験テーマ(テーマ無しは null) */
@@ -152,6 +155,11 @@ export interface HakoniwaEventProgress {
 }
 
 /** 右パネルのタブ */
+/** 開幕の表示。guide は遊び方の説明の幕(掟・関わり方・1日の流れ)も出すか */
+export interface HakoniwaOpeningState {
+  guide: boolean;
+}
+
 export type HakoniwaPanelTab =
   | "chronicle"
   | "residents"
@@ -249,6 +257,13 @@ interface HakoniwaContextValue {
   selectResident: (residentId: string | null) => void;
   panelTab: HakoniwaPanelTab;
   setPanelTab: (tab: HakoniwaPanelTab) => void;
+  /**
+   * 開幕(世界を作った直後、または設定タブから見返す)。guide は遊び方の説明の幕も出すか。
+   * 閉じていれば null
+   */
+  opening: HakoniwaOpeningState | null;
+  openOpening: (guide: boolean) => void;
+  closeOpening: () => void;
   error: string | null;
   clearError: () => void;
   /** V5 の利用上限を使い切った状態で画像を生成する前の確認 */
@@ -445,6 +460,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [panelTab, setPanelTab] = useState<HakoniwaPanelTab>("chronicle");
+  const [opening, setOpening] = useState<HakoniwaOpeningState | null>(null);
   const [viewAreaId, setViewAreaId] = useState("living");
   const [digestPending, setDigestPending] = useState(false);
   const [digestVisible, setDigestVisible] = useState(false);
@@ -586,6 +602,8 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
           language,
           dissonance_enabled: input.dissonanceEnabled,
           player_presence: input.playerPresence,
+          player_name: input.playerName,
+          web_search_enabled: input.webSearchEnabled,
           custom_residents: input.customResidents,
           experiment_theme: input.theme,
         });
@@ -1699,6 +1717,12 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
 
   const clearError = useCallback(() => setError(null), []);
 
+  const openOpening = useCallback(
+    (guide: boolean) => setOpening({ guide }),
+    [],
+  );
+  const closeOpening = useCallback(() => setOpening(null), []);
+
   const value = useMemo<HakoniwaContextValue>(
     () => ({
       catalog,
@@ -1712,6 +1736,9 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       selectResident,
       panelTab,
       setPanelTab,
+      opening,
+      openOpening,
+      closeOpening,
       error,
       clearError,
       usageConfirmOpen: pendingUsageTask !== null,
@@ -1792,6 +1819,9 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       selectedResidentId,
       selectResident,
       panelTab,
+      opening,
+      openOpening,
+      closeOpening,
       error,
       clearError,
       pendingUsageTask,
