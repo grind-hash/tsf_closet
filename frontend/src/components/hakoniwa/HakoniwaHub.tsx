@@ -12,6 +12,7 @@ import { useHakoniwa } from "../../contexts/HakoniwaContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { getHakoniwaWorldPath } from "../../routes";
 import { mediaUrl } from "../../utils/adventureFormat";
+import { readStorageFlag, writeStorageFlag } from "../../utils/storage";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import HakoniwaCharacterAdder, {
@@ -36,6 +37,8 @@ const PRESENCE_FILTERS: HakoniwaWorldFilter["presence"][] = [
   "known",
   "hidden",
 ];
+/** 作成画面の「高度な設定」を開いているか(ブラウザに覚える) */
+const ADVANCED_OPEN_KEY = "hakoniwa.createAdvancedOpen";
 const WORLD_NAME_MAX = 50;
 const MIN_RESIDENTS = 2;
 const MAX_RESIDENTS = 10;
@@ -58,6 +61,15 @@ export default function HakoniwaHub() {
   const defaults = settingsState.hakoniwaPreferences;
   const nameId = useId();
   const dissonanceId = useId();
+  const advancedId = useId();
+  const [advancedOpen, setAdvancedOpen] = useState(() =>
+    readStorageFlag("local", ADVANCED_OPEN_KEY),
+  );
+  const toggleAdvanced = () => {
+    const next = !advancedOpen;
+    setAdvancedOpen(next);
+    writeStorageFlag("local", ADVANCED_OPEN_KEY, next);
+  };
   const [dissonanceEnabled, setDissonanceEnabled] = useState(
     defaults.dissonanceEnabled,
   );
@@ -94,6 +106,23 @@ export default function HakoniwaHub() {
   const chosenPresets = presetIds ?? presets.map((preset) => preset.id);
   const fixedCount = chosenPresets.length + characters.length;
   const count = fixedCount + randomResidents.length;
+  // 高度な設定を閉じているときに見出しへ出す、選んでいる内容
+  const chosenTheme = normalizeTheme(theme);
+  const advancedSummary = [
+    randomResidents.length > 0
+      ? t("hakoniwa.hub.advancedRandom", { count: randomResidents.length })
+      : null,
+    chosenTheme
+      ? t("hakoniwa.hub.advancedTheme", {
+          name:
+            chosenTheme.text || !chosenTheme.preset_id
+              ? t("hakoniwa.theme.custom")
+              : t(`hakoniwa.theme.presets.${chosenTheme.preset_id}.name`),
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(t("hakoniwa.panel.listJoin"));
   // おまかせの住民と名前を重ねない(選んだプリセットとキャラクター)
   const takenNames = [
     ...presets
@@ -237,19 +266,6 @@ export default function HakoniwaHub() {
             disabled={count >= MAX_RESIDENTS}
           />
 
-          <h3>{t("hakoniwa.random.heading")}</h3>
-          <p className="hakoniwa-note">{t("hakoniwa.random.lead")}</p>
-          <HakoniwaRandomRoster
-            residents={randomResidents}
-            onChange={setRandomResidents}
-            excludeNames={takenNames}
-            available={MAX_RESIDENTS - fixedCount}
-          />
-
-          <div className="hakoniwa-create__option">
-            <HakoniwaThemePicker value={theme} onChange={setTheme} />
-          </div>
-
           <div className="hakoniwa-create__option">
             <HakoniwaPresencePicker
               value={playerPresence}
@@ -272,6 +288,48 @@ export default function HakoniwaHub() {
             </label>
             <p className="hakoniwa-note">{t("hakoniwa.hub.dissonanceNote")}</p>
           </div>
+
+          {/* 高度な設定: おまかせの住民と実験テーマ。開閉はブラウザに覚え、閉じていても選んだ内容は見出しに出す */}
+          <section className="hakoniwa-advanced">
+            <button
+              type="button"
+              className="hakoniwa-advanced__header"
+              aria-expanded={advancedOpen}
+              aria-controls={advancedId}
+              onClick={toggleAdvanced}
+            >
+              <span className="hakoniwa-advanced__chevron" aria-hidden>
+                {advancedOpen ? "▾" : "▸"}
+              </span>
+              <span className="hakoniwa-advanced__title">
+                {t("hakoniwa.hub.advancedHeading")}
+              </span>
+              {!advancedOpen && advancedSummary && (
+                <span className="hakoniwa-advanced__summary">
+                  {advancedSummary}
+                </span>
+              )}
+            </button>
+            {/* 閉じても中身は残す(組んだ住民・選んだテーマ・人数の選択を失わない) */}
+            <div
+              id={advancedId}
+              className="hakoniwa-advanced__body"
+              hidden={!advancedOpen}
+            >
+              <h3>{t("hakoniwa.random.heading")}</h3>
+              <p className="hakoniwa-note">{t("hakoniwa.random.lead")}</p>
+              <HakoniwaRandomRoster
+                residents={randomResidents}
+                onChange={setRandomResidents}
+                excludeNames={takenNames}
+                available={MAX_RESIDENTS - fixedCount}
+              />
+
+              <div className="hakoniwa-create__option">
+                <HakoniwaThemePicker value={theme} onChange={setTheme} />
+              </div>
+            </div>
+          </section>
 
           <div className="hakoniwa-create">
             <span

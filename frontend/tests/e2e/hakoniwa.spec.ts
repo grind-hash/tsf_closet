@@ -1401,17 +1401,19 @@ test("おまかせの住民・実験テーマ・立ち絵のまとめて生成",
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/hakoniwa");
 
-  // 人数を選んで組み、1人を入れ替え、1人を外す
+  // おまかせの住民と実験テーマは「高度な設定」の中(既定は閉じている)
+  const advanced = page.getByRole("button", { name: /^高度な設定/ });
+  await expect(advanced).toHaveAttribute("aria-expanded", "false");
+  await advanced.click();
+
+  // 人数を選んで組み、1人を再生成し、1人を外す
   await page.getByLabel("人数").selectOption("2");
   await page.getByRole("button", { name: "おまかせで組む" }).click();
   const items = page.locator(".hakoniwa-random__item");
   await expect(items).toHaveCount(2);
   await expect(items.nth(0)).toContainText("藤原 楓");
   await expect(items.nth(1)).toContainText("森 紬");
-  await items
-    .nth(0)
-    .getByRole("button", { name: "この住民を入れ替える" })
-    .click();
+  await items.nth(0).getByRole("button", { name: "再生成する" }).click();
   await expect(items.nth(0)).toContainText("水野 澪");
   await items.nth(1).getByRole("button", { name: "外す" }).click();
   await expect(items).toHaveCount(1);
@@ -1422,6 +1424,12 @@ test("おまかせの住民・実験テーマ・立ち絵のまとめて生成",
   await expect(
     page.getByText("ドレスの掟を7日間続けて、装いの変化を観察します。"),
   ).toBeVisible();
+  // 閉じても、選んだ内容は見出しに出る
+  await advanced.click();
+  await expect(advanced).toHaveAttribute("aria-expanded", "false");
+  await expect(advanced).toContainText(
+    "おまかせの住民 1人、実験テーマ: ドレスの掟の1週間",
+  );
 
   await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
   await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);

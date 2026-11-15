@@ -1,5 +1,4 @@
 import {
-  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
   useEffect,
@@ -135,7 +134,7 @@ export function HakoniwaOpeningLauncher({
 
 /**
  * 開幕。世界を作った直後(設定画面で流さないこともできる)と、設定タブの「もう一度見る」で出す。
- * ADV と同じ窓で1幕ずつ送る。クリック・Enter・Space で次へ、スキップ・Esc で閉じる。
+ * 庭の背景の中央に、部屋の字幕と同じ見た目の説明を1幕ずつ出す。クリック・Enter・Space で次へ、スキップ・Esc で閉じる。
  * 最後の幕には「1日進める」を置かず、掟や住民へ案内する(何も決めずに1日を進めないように)。
  */
 export default function HakoniwaOpening() {
@@ -167,9 +166,12 @@ function OpeningView({
     [world.residents],
   );
   const transparent = useTransparentImages(urls, ALPHA_OPTIONS);
-  const living =
-    world.areas.find((area) => area.id === "living") ?? world.areas[0];
-  const backgroundUrl = hakoniwaMediaUrl(living?.background_url);
+  // 背景は星屑荘の庭(穏やかな屋外)。無ければリビング
+  const backdrop =
+    world.areas.find((area) => area.id === "garden") ??
+    world.areas.find((area) => area.id === "living") ??
+    world.areas[0];
+  const backgroundUrl = hakoniwaMediaUrl(backdrop?.background_url);
 
   // 幕が替わるたびに「次へ」へフォーカスを置き、Enter で送れるようにする
   useEffect(() => {
@@ -213,7 +215,7 @@ function OpeningView({
 
   return (
     <div
-      className="hakoniwa-adv hakoniwa-opening"
+      className="hakoniwa-opening"
       role="dialog"
       aria-modal="true"
       aria-label={t("hakoniwa.opening.label")}
@@ -223,36 +225,53 @@ function OpeningView({
       data-testid="hakoniwa-opening"
     >
       {backgroundUrl && (
-        <img className="hakoniwa-adv__background" src={backgroundUrl} alt="" />
+        <img
+          className="hakoniwa-opening__background"
+          src={backgroundUrl}
+          alt=""
+        />
       )}
-      <div
-        className="hakoniwa-opening__lineup"
-        style={{ "--hk-lineup-count": world.residents.length } as CSSProperties}
-      >
-        {world.residents.map((resident, index) => {
-          const src = urls[index];
-          const shown = src ? (transparent[src] ?? src) : null;
-          return shown ? (
-            <img key={resident.id} src={shown} alt={resident.name} />
-          ) : null;
-        })}
-      </div>
-      <div className="hakoniwa-adv__window hakoniwa-opening__window">
-        <div className="hakoniwa-adv__meta">
-          <span className="hakoniwa-adv__speaker">{current.heading}</span>
-          <span className="hakoniwa-adv__progress">
+      <div className="hakoniwa-opening__veil" aria-hidden />
+      {/* 幕ごとに作り直して、ふわっと出す(動きを減らす設定では出さない) */}
+      <section key={current.key} className="hakoniwa-opening__card">
+        <div className="hakoniwa-opening__head">
+          <span className="hakoniwa-opening__title">{current.heading}</span>
+          <span className="hakoniwa-opening__progress">
             {step + 1} / {scenes.length}
           </span>
         </div>
-        <div className="hakoniwa-adv__body">
-          <p className="hakoniwa-adv__text is-narration">{current.text}</p>
-          {current.notes.map((note) => (
-            <p key={note} className="hakoniwa-note">
-              {note}
-            </p>
-          ))}
-        </div>
-        <div className="hakoniwa-adv__controls">
+        {current.key === "welcome" && (
+          <div className="hakoniwa-opening__faces">
+            {world.residents.map((resident, index) => {
+              const src = urls[index];
+              const shown = src ? (transparent[src] ?? src) : null;
+              return shown ? (
+                <img
+                  key={resident.id}
+                  className="hakoniwa-opening__face"
+                  src={shown}
+                  alt={resident.name}
+                  title={resident.name}
+                />
+              ) : (
+                <span
+                  key={resident.id}
+                  className="hakoniwa-opening__face hakoniwa-opening__face--empty"
+                  title={resident.name}
+                >
+                  {Array.from(resident.name)[0] ?? "?"}
+                </span>
+              );
+            })}
+          </div>
+        )}
+        <p className="hakoniwa-opening__text">{current.text}</p>
+        {current.notes.map((note) => (
+          <p key={note} className="hakoniwa-note">
+            {note}
+          </p>
+        ))}
+        <div className="hakoniwa-opening__actions">
           {isLast ? (
             <>
               <button
@@ -298,7 +317,7 @@ function OpeningView({
             </>
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

@@ -16,6 +16,9 @@ export const hakoniwa = {
   loading: "読み込んでいます…",
   back: "世界の一覧へ",
   hub: {
+    advancedHeading: "高度な設定",
+    advancedRandom: "おまかせの住民 {{count}}人",
+    advancedTheme: "実験テーマ: {{name}}",
     worldsHeading: "つくった世界",
     worldsCount: "{{count}}件",
     empty:
@@ -570,14 +573,14 @@ export const hakoniwa = {
   random: {
     heading: "おまかせの住民",
     addressStyle: "ほかの住民の呼び方: {{style}}",
-    lead: "人数を選ぶと、名前・性格・見た目の違う住民をおまかせで組みます。気に入らない住民は1人ずつ入れ替えられます。",
+    lead: "人数を選ぶと、名前・性格・見た目の違う住民をおまかせで組みます。気に入らない住民は1人ずつ再生成できます。",
     countLabel: "人数",
     countOption: "{{count}}人",
     roll: "おまかせで組む",
     reroll: "組み直す",
     rolling: "組んでいます…",
-    replace: "この住民を入れ替える",
-    replacing: "入れ替えています…",
+    replace: "再生成する",
+    replacing: "再生成しています…",
     remove: "外す",
     full: "住民は10人までです。ほかの住民を外すと、おまかせの住民を組めます。",
     note: "テキスト生成で住民を考えます（使えないときは、用意した組み合わせから作ります）。立ち絵は、世界を作ったあと住民タブの「立ち絵の無い住民の姿をまとめて生成」で作れます。",
