@@ -127,7 +127,7 @@ def _near_close_pair(state: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _dissonance_near(state: dict[str, Any]) -> dict[str, Any] | None:
-    if not story.dissonance_enabled(state) or state.get("dissonance_acknowledged"):
+    if not story.dissonance_enabled(state) or story.player_known(state):
         return None
     upcoming = story.next_dissonance_stage(story.dissonance_value(state))
     if upcoming is None or upcoming["remaining"] > DISSONANCE_NEAR_STAGE:
@@ -217,7 +217,7 @@ def _dissonance(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]
         "to": end,
         "from_stage": story.dissonance_stage(start),
         "to_stage": story.dissonance_stage(end),
-        "acknowledged": bool(after.get("dissonance_acknowledged")),
+        "acknowledged": story.player_known(after),
         "next_stage": upcoming["stage"] if upcoming else None,
         "remaining": upcoming["remaining"] if upcoming else None,
     }

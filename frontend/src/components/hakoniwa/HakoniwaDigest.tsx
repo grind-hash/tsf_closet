@@ -151,6 +151,10 @@ export default function HakoniwaDigest({ variant }: HakoniwaDigestProps) {
         if (theme.dissonance_enabled === false) {
           return t("hakoniwa.theme.progress.dissonanceOff");
         }
+        // 顔なじみの世界は最初から知られているので、対面は起きない
+        if (!theme.acknowledged && theme.player_presence === "known") {
+          return t("hakoniwa.theme.progress.dissonanceKnown");
+        }
         return t(
           theme.acknowledged
             ? "hakoniwa.theme.progress.dissonanceDone"

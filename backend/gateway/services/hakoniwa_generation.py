@@ -82,6 +82,7 @@ from .hakoniwa_prompts import (
     rule_look_tags_prompts,
     scene_tags_prompts,
     touch_prompts,
+    transform_impression_prompts,
     transform_reaction_prompts,
     transform_tags_prompts,
 )
@@ -1213,6 +1214,31 @@ async def judge_player_impression(
     except Exception as error:
         logger.warning(
             "Hakoniwa player impression failed: %s: %s", type(error).__name__, error
+        )
+        return 0
+    return _parse_impression(raw)
+
+
+async def judge_transform_impression(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    history: list[dict[str, Any]],
+    instruction: str,
+    language: str,
+    *,
+    novelai_model: str | None,
+) -> int:
+    """会話の中での変身で動く、住民のプレイヤーへの好感度(±3)。失敗したら 0。"""
+    system_prompt, user_prompt = transform_impression_prompts(
+        state, resident, history, instruction, language
+    )
+    try:
+        raw = await _generate_text(
+            system_prompt, user_prompt, novelai_model=novelai_model, max_tokens=200
+        )
+    except Exception as error:
+        logger.warning(
+            "Hakoniwa transform impression failed: %s: %s", type(error).__name__, error
         )
         return 0
     return _parse_impression(raw)

@@ -133,6 +133,7 @@ async def create_world(request: HakoniwaCreateRequest) -> HakoniwaWorldResponse:
             [item.model_dump() for item in request.characters],
             request.language,
             dissonance_enabled=request.dissonance_enabled,
+            player_presence=request.player_presence,
             custom_residents=[item.model_dump() for item in request.custom_residents],
             experiment_theme=(
                 request.experiment_theme.model_dump()
@@ -205,6 +206,7 @@ async def update_settings(
             image_model=request.image_model,
             web_search_enabled=request.web_search_enabled,
             dissonance_enabled=request.dissonance_enabled,
+            player_presence=request.player_presence,
             world_memo=request.world_memo,
             experiment_theme=(
                 request.experiment_theme.model_dump()

@@ -5,6 +5,7 @@
 ここでは種類と参照(住民 id・数値)だけを状態に残す。
 
 状態に足す項目:
+    player_presence (known | hidden),
     dissonance_enabled, dissonance, dissonance_last_change_day, dissonance_acknowledged,
     world_adaptation: {姿キー: {kind, stage, progress, since_day}},
     memories: {住民 id: [{day, kind, weight, partner_id?, change?, title?, delta?,
@@ -49,11 +50,14 @@ from ..consts.hakoniwa_story import (
     MEMORY_WEIGHT_MAJOR,
     MEMORY_WEIGHT_MINOR,
     MEMORY_WEIGHT_NOTABLE,
+    PLAYER_PRESENCE_DEFAULT,
+    PLAYER_PRESENCES,
     REMNANT_BASE_DAYS,
     REMNANT_HABIT_VARIANTS,
     WORLD_ADAPTATION_DAILY_PROGRESS,
     WORLD_ADAPTATION_MAX_STAGE,
 )
+from .hakoniwa_errors import HakoniwaError
 
 ADAPTATION_KINDS = ("swap", "transform")
 ARC_KINDS = ("investigation", "swap", "transform", "bond")
@@ -139,6 +143,11 @@ def current_transformation(
 def normalize_story(source: dict[str, Any], normalized: dict[str, Any]) -> None:
     """読み込んだ状態の物語の項目を、正規化中の状態 normalized へ写す。"""
     ids = {resident["id"] for resident in normalized["residents"]}
+    # 値の無い既存の世界は顔なじみ(会話はこれまでもプレイヤーを知っている前提だった)
+    presence = source.get("player_presence")
+    normalized["player_presence"] = (
+        presence if presence in PLAYER_PRESENCES else PLAYER_PRESENCE_DEFAULT
+    )
     normalized["dissonance_enabled"] = source.get("dissonance_enabled") is not False
     normalized["dissonance"] = int(
         _clamp(_int(source.get("dissonance")), DISSONANCE_MIN, DISSONANCE_MAX)
@@ -174,8 +183,11 @@ def normalize_story(source: dict[str, Any], normalized: dict[str, Any]) -> None:
             resident["remnant"] = None
 
 
-def initial_story_state(*, dissonance_enabled: bool = True) -> dict[str, Any]:
+def initial_story_state(
+    *, dissonance_enabled: bool = True, player_presence: str = PLAYER_PRESENCE_DEFAULT
+) -> dict[str, Any]:
     return {
+        "player_presence": validate_player_presence(player_presence),
         "dissonance_enabled": bool(dissonance_enabled),
         "dissonance": 0,
         "dissonance_last_change_day": None,
@@ -184,6 +196,27 @@ def initial_story_state(*, dissonance_enabled: bool = True) -> dict[str, Any]:
         "memories": {},
         "story_arcs": [],
     }
+
+
+# --- 住民とあなた ---
+
+
+def validate_player_presence(value: Any) -> str:
+    if value not in PLAYER_PRESENCES:
+        raise HakoniwaError("invalid_player_presence", "選べない立ち位置です")
+    return str(value)
+
+
+def player_presence(state: dict[str, Any]) -> str:
+    value = state.get("player_presence")
+    return value if value in PLAYER_PRESENCES else PLAYER_PRESENCE_DEFAULT
+
+
+def player_known(state: dict[str, Any]) -> bool:
+    """住民がプレイヤーを知っているか(顔なじみの世界、または見えない存在が公認済み)。"""
+    return player_presence(state) == "known" or bool(
+        state.get("dissonance_acknowledged")
+    )
 
 
 # --- 世界の違和感 ---
@@ -213,10 +246,10 @@ def next_dissonance_stage(value: int) -> dict[str, Any] | None:
 
 
 def investigation_active(state: dict[str, Any]) -> bool:
-    """調べ役の寄せと調査の弧が働くか(違和感が有効・公認前・探り合い以上)。"""
+    """調べ役の寄せと調査の弧が働くか(違和感が有効・住民がプレイヤーを知らない・探り合い以上)。"""
     return (
         dissonance_enabled(state)
-        and not state.get("dissonance_acknowledged")
+        and not player_known(state)
         and dissonance_stage(dissonance_value(state)) in DISSONANCE_INVESTIGATION_STAGES
     )
 
@@ -268,9 +301,10 @@ def decay_dissonance(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def confrontation_pending(state: dict[str, Any]) -> bool:
+    """対面が起きるか。顔なじみの世界は最初から知られているので起きない。"""
     return (
         dissonance_enabled(state)
-        and not state.get("dissonance_acknowledged")
+        and not player_known(state)
         and len(state.get("residents", [])) >= 2
         and dissonance_value(state) >= DISSONANCE_CONFRONTATION_THRESHOLD
     )

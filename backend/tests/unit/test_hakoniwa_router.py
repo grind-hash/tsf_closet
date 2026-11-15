@@ -63,10 +63,10 @@ def client(isolated_db, monkeypatch, tmp_path, llm_outputs) -> TestClient:
     return TestClient(app)
 
 
-def _create(client: TestClient, presets=PRESETS) -> dict:
+def _create(client: TestClient, presets=PRESETS, **extra) -> dict:
     response = client.post(
         "/api/hakoniwa/worlds",
-        json={"name": "星屑荘", "preset_ids": presets, "language": "ja"},
+        json={"name": "星屑荘", "preset_ids": presets, "language": "ja", **extra},
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -585,7 +585,9 @@ def test_scene_image_is_generated_with_fallback_tags(
 
 
 def test_dissonance_toggle_and_confrontation_on_rule_changes(client: TestClient):
-    world = _create(client)
+    # 対面は、住民がプレイヤーを知らない「見えない存在」の世界で起きる
+    world = _create(client, player_presence="hidden")
+    assert world["player_presence"] == "hidden"
     wid = world["id"]
     assert world["dissonance"] == {
         "enabled": True,
@@ -1041,7 +1043,14 @@ def test_chat_moves_player_affinity_and_marks_the_reply(
     ] == [3, None, None]
 
 
-def test_chat_reply_transform_confirmation_and_clear(client: TestClient, llm_outputs):
+def test_chat_reply_transform_confirmation_and_clear(
+    client: TestClient, llm_outputs, monkeypatch
+):
+    # 変身の採点は画像の生成と並列に走るので、スタブの出力の取り合いを避けて固定する
+    async def judge(*args, **kwargs):
+        return 0
+
+    monkeypatch.setattr(service_module, "judge_transform_impression", judge)
     world = _create(client, ["aoi", "ren"])
     wid = world["id"]
     path = f"/api/hakoniwa/worlds/{wid}/residents/aoi/chat"
@@ -1812,3 +1821,56 @@ def test_event_look_plan_can_be_empty_or_fail(client: TestClient, llm_outputs: l
 
     missing = client.post(f"/api/hakoniwa/worlds/{wid}/events/nope/looks/plan", json={})
     assert missing.status_code == 404
+
+
+def test_chat_transform_follows_whether_residents_know_the_player(
+    client: TestClient, llm_outputs, monkeypatch
+):
+    calls = []
+
+    async def judge(state, resident, history, instruction, language, *, novelai_model):
+        calls.append(instruction)
+        return 2
+
+    monkeypatch.setattr(service_module, "judge_transform_impression", judge)
+
+    # 顔なじみ: 本人はプレイヤーの仕業と分かるので、望んだ姿なら好感度が動き、違和感は少しだけ
+    known = _create(client, ["aoi", "ren"])
+    assert known["player_presence"] == "known"
+    assert known["dissonance"]["acknowledged"] is True
+    llm_outputs.append("1girl, brown hair, maid outfit")
+    done = client.post(
+        f"/api/hakoniwa/worlds/{known['id']}/residents/aoi/chat",
+        json={"message": "メイド服に着替えて", "language": "ja"},
+    ).json()
+    assert done["alteration"]["executed"] is True
+    assert done["reply"]["kind"] == "alteration_reaction"
+    assert done["reply"]["affinity_delta"] == 2
+    assert done["world"]["dissonance"]["value"] == 3
+    assert calls == ["メイド服に着替えて"]
+
+    # 見えない存在: 誰の仕業か分からないので好感度は動かず、ほかの変身と同じだけ溜まる
+    hidden = _create(client, ["aoi", "ren"], player_presence="hidden")
+    assert hidden["dissonance"]["acknowledged"] is False
+    llm_outputs.append("1girl, brown hair, maid outfit")
+    done = client.post(
+        f"/api/hakoniwa/worlds/{hidden['id']}/residents/aoi/chat",
+        json={"message": "メイド服に着替えて", "language": "ja"},
+    ).json()
+    assert done["alteration"]["executed"] is True
+    assert done["reply"]["affinity_delta"] is None
+    assert done["world"]["dissonance"]["value"] == 10
+    assert calls == ["メイド服に着替えて"]
+
+    # 設定タブから切り替えられる
+    switched = client.patch(
+        f"/api/hakoniwa/worlds/{hidden['id']}/settings",
+        json={"player_presence": "known"},
+    ).json()
+    assert switched["player_presence"] == "known"
+    assert switched["dissonance"]["acknowledged"] is True
+    rejected = client.patch(
+        f"/api/hakoniwa/worlds/{hidden['id']}/settings",
+        json={"player_presence": "ghost"},
+    )
+    assert rejected.status_code == 422

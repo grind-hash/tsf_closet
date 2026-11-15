@@ -93,6 +93,7 @@ from .hakoniwa_generation import (
     generate_touch_reaction,
     generate_transform_reaction,
     judge_player_impression,
+    judge_transform_impression,
     needs_tag_expansion,
     plan_event_looks,
     plan_memo_look,
@@ -301,7 +302,8 @@ def _dissonance_view(state: dict[str, Any]) -> dict[str, Any]:
         "enabled": story.dissonance_enabled(state),
         "value": value,
         "stage": story.dissonance_stage(value),
-        "acknowledged": bool(state.get("dissonance_acknowledged")),
+        # 住民がプレイヤーを知っているか(顔なじみの世界、または対面を経た公認)
+        "acknowledged": story.player_known(state),
         "next_stage": upcoming["stage"] if upcoming else None,
         "remaining": upcoming["remaining"] if upcoming else None,
     }
@@ -467,6 +469,7 @@ def _world_view(
         "memo_look_planned": logic.memo_look_planned(state),
         "world_memo": play.world_memo(state),
         "player_name": play.player_name(state),
+        "player_presence": story.player_presence(state),
         "experiment_theme": play.experiment_theme(state),
         "intervention": {
             "selected": state.get("intervention") or "watch",
@@ -546,6 +549,17 @@ def _source_base_tags(resident: dict[str, Any]) -> str:
     if resident.get("source_base_tags"):
         return str(resident["source_base_tags"])
     return DEFAULT_BASE_TAGS[logic.resident_gender(resident)]
+
+
+def _move_player_affinity(
+    state: dict[str, Any], resident_id: str, delta: int
+) -> tuple[dict[str, Any], int]:
+    """プレイヤーへの好感度を動かし、上限・下限で切ったあとに実際に動いた量を返す。"""
+    if not delta:
+        return state, 0
+    before = play.player_affinity(logic.find_resident(state, resident_id))
+    state = play.adjust_player_affinity(state, resident_id, delta)
+    return state, play.player_affinity(logic.find_resident(state, resident_id)) - before
 
 
 def _resident_line(events: list[dict[str, Any]], resident_id: str) -> str:
@@ -686,6 +700,7 @@ class HakoniwaService:
         language: str | None = None,
         *,
         dissonance_enabled: bool = True,
+        player_presence: str = "known",
         custom_residents: list[dict[str, Any]] | None = None,
         experiment_theme: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -723,7 +738,9 @@ class HakoniwaService:
                 _random_resident_entry(item, lang) for item in custom_residents or []
             )
             state = logic.new_world_state(
-                residents, dissonance_enabled=dissonance_enabled
+                residents,
+                dissonance_enabled=dissonance_enabled,
+                player_presence=story.validate_player_presence(player_presence),
             )
             state["experiment_theme"] = theme
         except HakoniwaError:
@@ -801,6 +818,7 @@ class HakoniwaService:
         *,
         image_model: str | None = None,
         dissonance_enabled: bool | None = None,
+        player_presence: str | None = None,
         web_search_enabled: bool | None = None,
         world_memo: str | None = None,
         experiment_theme: dict[str, Any] | None = None,
@@ -812,6 +830,11 @@ class HakoniwaService:
         None の項目は変えない。実験テーマは {preset_id, text}。どちらも空ならテーマ無しにする。
         """
         memo = play.validate_world_memo(world_memo) if world_memo is not None else None
+        presence = (
+            story.validate_player_presence(player_presence)
+            if player_presence is not None
+            else None
+        )
         name = (
             play.validate_player_name(player_name) if player_name is not None else None
         )
@@ -837,6 +860,8 @@ class HakoniwaService:
                 updated["image_model"] = image_model
             if dissonance_enabled is not None:
                 updated["dissonance_enabled"] = bool(dissonance_enabled)
+            if presence is not None:
+                updated["player_presence"] = presence
             if web_search_enabled is not None:
                 updated["web_search_enabled"] = web_search_enabled
             if memo is not None:
@@ -2208,6 +2233,24 @@ class HakoniwaService:
                 entries.append(reply)
             elif action == "transform":
                 instruction = alteration["instruction"] or text
+                # 住民がプレイヤーを知っていれば(顔なじみ・公認後)、本人はプレイヤーの仕業と
+                # 分かるので違和感は少しだけ。望んだ姿かどうかで好感度も動く(画像の生成と並列)。
+                # 知らなければ原因の分からない書き換えなので、ほかの変身と同じだけ溜める
+                known = story.player_known(state)
+                impression = (
+                    asyncio.create_task(
+                        judge_transform_impression(
+                            state,
+                            resident,
+                            play.chat_history(state, resident_id),
+                            instruction,
+                            lang,
+                            novelai_model=novelai_model,
+                        )
+                    )
+                    if known
+                    else None
+                )
                 try:
                     state, new_events = await self._apply_transform(
                         world_id,
@@ -2216,7 +2259,11 @@ class HakoniwaService:
                         instruction,
                         lang,
                         user_settings,
-                        dissonance_gain=DISSONANCE_CHAT_TRANSFORM_GAIN,
+                        dissonance_gain=(
+                            DISSONANCE_CHAT_TRANSFORM_GAIN
+                            if known
+                            else DISSONANCE_TRANSFORM_GAIN
+                        ),
                     )
                 except HakoniwaError as error:
                     reply = {
@@ -2242,7 +2289,16 @@ class HakoniwaService:
                         or CHAT_TRANSFORM_FALLBACK[key],
                         "kind": "alteration_reaction",
                     }
+                    if impression is not None:
+                        state, moved = _move_player_affinity(
+                            state, resident_id, await impression
+                        )
+                        if moved:
+                            reply["affinity_delta"] = moved
                     entries.append(reply)
+                finally:
+                    if impression is not None and not impression.done():
+                        impression.cancel()
             else:
                 history = play.chat_history(state, resident_id)
                 # 返事と、発言でプレイヤーへの好感度がどう動くかの採点は並列に呼ぶ
@@ -2272,17 +2328,9 @@ class HakoniwaService:
                     "source": generated["source"],
                     "web_search": generated.get("web_search"),
                 }
-                if affinity_delta:
-                    before = play.player_affinity(resident)
-                    state = play.adjust_player_affinity(
-                        state, resident_id, affinity_delta
-                    )
-                    moved = (
-                        play.player_affinity(logic.find_resident(state, resident_id))
-                        - before
-                    )
-                    if moved:
-                        reply["affinity_delta"] = moved
+                state, moved = _move_player_affinity(state, resident_id, affinity_delta)
+                if moved:
+                    reply["affinity_delta"] = moved
                 entries.append(reply)
             state = play.append_chat(state, resident_id, entries)
             view = await self._store_view(world_id, state, lang, user_settings)

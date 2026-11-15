@@ -204,7 +204,7 @@ def available_interventions(state: dict[str, Any]) -> list[str]:
         support = "nudge"
     stirring = (
         story.dissonance_enabled(state)
-        and not state.get("dissonance_acknowledged")
+        and not story.player_known(state)
         and story.dissonance_stage(story.dissonance_value(state)) != "stillness"
     )
     return ["watch", support, "dissonance_push" if stirring else "rewrite"]
@@ -494,6 +494,8 @@ def theme_progress(state: dict[str, Any]) -> dict[str, Any] | None:
         progress["dissonance"] = value
         progress["dissonance_stage"] = story.dissonance_stage(value)
         progress["acknowledged"] = bool(state.get("dissonance_acknowledged"))
+        # 顔なじみの世界は最初から知られているので、対面は起きない
+        progress["player_presence"] = story.player_presence(state)
         progress["remaining"] = max(0, DISSONANCE_CONFRONTATION_THRESHOLD - value)
         progress["dissonance_enabled"] = story.dissonance_enabled(state)
     elif preset_id == "transform":

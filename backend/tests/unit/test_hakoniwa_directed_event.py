@@ -196,9 +196,12 @@ def test_directed_prompt_allows_a_man_with_a_transformed_former_man():
 
 
 def _investigating_state():
-    """九条 薫(調べ役)が妖艶な女性の姿に変身し、違和感が探り合いの段階にある世界。"""
+    """九条 薫(調べ役)が妖艶な女性の姿に変身し、違和感が探り合いの段階にある世界。
+
+    調査は住民がプレイヤーを知らない「見えない存在」の世界で起きる。
+    """
     state = logic.set_transformation(
-        _state(),
+        {**_state(), "player_presence": "hidden"},
         "ritsu",
         {
             "description": "妖艶な美女にして",

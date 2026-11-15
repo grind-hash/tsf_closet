@@ -94,6 +94,12 @@ export type HakoniwaDissonanceStage =
   | "probing"
   | "confrontation";
 
+/**
+ * 住民とあなた。known は顔なじみ(最初から知られている)、hidden は見えない存在
+ * (会話は謎の声で、世界の違和感が育って対面を迎えると顔なじみと同じになる)
+ */
+export type HakoniwaPlayerPresence = "known" | "hidden";
+
 export interface HakoniwaDissonance {
   enabled: boolean;
   value: number;
@@ -170,6 +176,8 @@ export interface HakoniwaThemeProgress {
   acknowledged?: boolean;
   remaining?: number;
   dissonance_enabled?: boolean;
+  /** 住民とあなた(顔なじみの世界では対面が起きない) */
+  player_presence?: HakoniwaPlayerPresence;
   transform_count?: number;
   transformed_now?: number;
 }
@@ -518,6 +526,8 @@ export interface HakoniwaWorld {
   world_memo: string;
   /** 住民がプレイヤーを呼ぶときの名前(空なら名前で呼ばない) */
   player_name?: string;
+  /** 住民とあなた(known: 顔なじみ / hidden: 見えない存在) */
+  player_presence?: HakoniwaPlayerPresence;
   /** この応答で新しく達成した観察記録(実績)。通知に使う */
   new_achievements?: HakoniwaAchievementUnlocked[];
   /** 実験テーマ(テーマ無しは null) */
@@ -673,6 +683,7 @@ export function createHakoniwaWorld(body: {
   characters: HakoniwaCharacterEntry[];
   language: string;
   dissonance_enabled: boolean;
+  player_presence: HakoniwaPlayerPresence;
   custom_residents?: HakoniwaRandomResident[];
   experiment_theme?: HakoniwaTheme | null;
 }): Promise<HakoniwaWorld> {
@@ -731,6 +742,7 @@ export function updateHakoniwaSettings(
     web_search_enabled?: boolean;
     image_model?: string;
     dissonance_enabled?: boolean;
+    player_presence?: HakoniwaPlayerPresence;
     world_memo?: string;
     /** 両方空でテーマ無し */
     experiment_theme?: HakoniwaTheme;

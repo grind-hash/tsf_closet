@@ -46,6 +46,7 @@ from ..consts.hakoniwa_play import (
 )
 from ..consts.hakoniwa_story import CONFRONTATION_SYSTEM
 from . import hakoniwa_play as play
+from . import hakoniwa_story as story
 from . import hakoniwa_story_text as story_text
 from .hakoniwa_logic import (
     active_combo,
@@ -574,7 +575,9 @@ def player_talk_text(
 
     台詞は出力と同じ JSON の形で渡す(「」で渡すと出力の JSON にも書き写して壊れる)。
     """
-    player = play.player_name(state) or "Player"
+    known = story.player_known(state)
+    # 住民がプレイヤーを知らなければ、会話は謎の声とのやり取りとして渡す
+    player = (play.player_name(state) or "Player") if known else "(the voice)"
     blocks = []
     for resident in group:
         entries = play.recent_chat_for_events(state, resident["id"])
@@ -592,12 +595,24 @@ def player_talk_text(
             )
             for entry in entries
         )
-        blocks.append(f"{name} talking with the player:\n{lines}")
+        blocks.append(
+            f"{name} talking with the player:\n{lines}"
+            if known
+            else f"{name} hearing a mysterious voice:\n{lines}"
+        )
     if not blocks:
         return ""
-    return (
-        "\n\nRecent talks with the player (what was actually said face to face; the "
+    heading = (
+        "Recent talks with the player (what was actually said face to face; the "
         "player is the one who watches over and rewrites this world):\n"
+        if known
+        else "Recent talks with a mysterious voice (it is the player, but the "
+        "residents cannot see them and do not know who or what they are; they may "
+        "mention the voice to each other):\n"
+    )
+    return (
+        "\n\n"
+        + heading
         + "\n".join(blocks)
         + "\n(Keep each resident's feelings consistent with these talks: if they said "
         "they like or accept their current look, do not make them complain about it or "
@@ -1272,12 +1287,20 @@ def event_user_prompt(
     )
 
 
+def _player_subject(state: dict[str, Any], *, touch: bool = False) -> str:
+    """一言・タッチの主語(住民にとってのプレイヤー)。文頭なので先頭を大文字にする。"""
+    text = story_text.player_presence_text(state, touch=touch)
+    return text[0].upper() + text[1:]
+
+
 def greeting_prompts(
     state: dict[str, Any], resident: dict[str, Any], language: str, *, nsfw: bool
 ) -> tuple[str, str]:
     system_prompt = (
         f"{WORLD_BRIEF}\n"
-        "You are this resident of the miniature world. The player has just said hello. "
+        "You are this resident of the miniature world. "
+        f"{_player_subject(state)} has just said hello to you."
+        f"{story_text.unseen_player_stance(state)} "
         "Reply with one short line in character (1-2 sentences, at most 60 Japanese "
         "characters or 30 English words). Output only the spoken words: no narration, "
         "headings, quotation marks or explanations. If rules are active, always reflect "
@@ -1432,8 +1455,9 @@ def touch_prompts(
         hints.append("Your mood is not good, so the reaction tends to be prickly.")
     system_prompt = (
         f"{world_brief(state)}\n"
-        "You are this resident of the miniature world. The player (the one who watches "
-        "over and rewrites this world) has just touched you. Reply with one line of "
+        "You are this resident of the miniature world. "
+        f"{_player_subject(state, touch=True)} has just touched you."
+        f"{story_text.unseen_player_stance(state)} Reply with one line of "
         "dialogue in character (1-2 sentences, at most 80 Japanese characters or 40 "
         "English words). Output only the spoken words: no narration, headings, "
         "quotation marks or explanations. If rules are active, reflect their premise.\n"
@@ -1500,6 +1524,43 @@ def player_impression_prompts(
     return system_prompt, user_prompt
 
 
+def transform_impression_prompts(
+    state: dict[str, Any],
+    resident: dict[str, Any],
+    history: list[dict[str, Any]],
+    instruction: str,
+    language: str,
+) -> tuple[str, str]:
+    """会話の中でプレイヤーに姿を変えられた住民の、プレイヤーへの好感度の動きを採点させる。
+
+    本人が会話で望んだ服をかなえると上がり、嫌がる姿にすると下がる(顔なじみ・公認後だけ使う)。
+    """
+    limit = PLAYER_AFFINITY_TALK_DELTA_LIMIT
+    system_prompt = (
+        "You judge how having their look changed by the player changes a resident's "
+        "feelings toward the player in a life-simulation game. The resident knows the "
+        "player did it. Consider the resident's personality, current feelings toward "
+        "the player, and what they said in the recent conversation, especially any "
+        "wish about clothes or looks. Output only one JSON object: "
+        f'{{"delta": an integer from -{limit} to {limit}}}, with no explanation.\n'
+        f"+{limit}: exactly what they wished for (for example, the outfit they said "
+        "they wanted to try), or something that truly delights them.\n"
+        "+2: a look they would welcome and feel pleased in.\n"
+        "+1: mildly pleasant, or a fun surprise they can enjoy.\n"
+        "0: neutral, or mixed feelings.\n"
+        "-1 or -2: a look they dislike, find embarrassing in an unwelcome way, or "
+        "feel was forced on them.\n"
+        f"-{limit}: a look they would hate or find humiliating."
+    )
+    user_prompt = (
+        f"{resident_profile_text(state, resident, language)}\n\n"
+        "Recent conversation:\n"
+        f"{_chat_history_text(history, resident_name(resident, language), 6)}\n\n"
+        f"The player has just changed their look on the spot: {instruction}"
+    )
+    return system_prompt, user_prompt
+
+
 # 会話で検索した資料を使うときだけ足す(資料を一言で流さず、具体的に語らせる)
 CHAT_REFERENCE_DEPTH = (
     "\nWhen you use the references, pick one or two concrete points from them and "
@@ -1527,8 +1588,9 @@ def chat_reply_prompts(
     )
     system_prompt = (
         f"{world_brief(state)}\n"
-        "You are this resident of the miniature world, talking freely with the player "
-        "(the one who watches over and rewrites this world). Reply to the player's "
+        "You are this resident of the miniature world, talking freely with "
+        f"{story_text.player_presence_text(state)}."
+        f"{story_text.unseen_player_stance(state)} Reply to the player's "
         "latest message in character. Length: usually three to six sentences, up to "
         "about eight when you talk about your feelings or a topic you have something "
         f"to say about (at most {limit} characters). Do not stop at a single remark or "
@@ -1720,6 +1782,20 @@ def appearance_tags_prompts(
     return system_prompt, f"Appearance description: {description}"
 
 
+def _transform_cause_text(state: dict[str, Any], language: str) -> str:
+    """変身の原因を住民がどう受け止めるか(顔なじみ・公認後はプレイヤーの仕業と分かる)。"""
+    if story.player_known(state):
+        return (
+            "The residents know the player did it, and the transformed resident may "
+            "speak to the player about it. "
+            f"{story_text.player_address_rule(state, language)}\n"
+        )
+    return (
+        "Nobody there knows who or what caused it; to them it is an inexplicable "
+        "phenomenon.\n"
+    )
+
+
 def transform_reaction_prompts(
     state: dict[str, Any],
     target: dict[str, Any],
@@ -1759,6 +1835,7 @@ def transform_reaction_prompts(
             "residents. Depict honest reactions to the changed look such as surprise, "
             "embarrassment or admiration. Narration must not contain dialogue in "
             "quotation marks.\n"
+            f"{_transform_cause_text(state, language)}"
         )
     system_prompt = (
         f"{WORLD_BRIEF}\n"
@@ -1837,7 +1914,7 @@ def confrontation_prompts(
         "Narration must not contain dialogue in quotation marks. Speakers and "
         "participants must be written exactly as the names given.\n"
         f"{gender_address_rules(language)}\n"
-        f"{story_text.player_address_rule(state, language)}\n"
+        f"{story_text.player_address_rule(state, language, revealing=True)}\n"
         f"{NO_MALE_ROMANCE_RULE}\n"
         f"{content_rule(nsfw)}\n"
         "Output only one JSON object in this format, with no preface or code fence:\n"

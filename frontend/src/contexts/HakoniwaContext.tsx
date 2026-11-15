@@ -49,6 +49,7 @@ import {
   type HakoniwaDirectedEventInput,
   type HakoniwaEvent,
   type HakoniwaInterventionChoice,
+  type HakoniwaPlayerPresence,
   type HakoniwaRandomResident,
   type HakoniwaResidentChange,
   type HakoniwaResidentInput,
@@ -118,6 +119,8 @@ export interface HakoniwaCreateInput {
   presetIds: string[];
   characters: HakoniwaCharacterEntry[];
   dissonanceEnabled: boolean;
+  /** 住民とあなた(顔なじみ / 見えない存在) */
+  playerPresence: HakoniwaPlayerPresence;
   /** おまかせの住民(作成画面で組んだ定義) */
   customResidents: HakoniwaRandomResident[];
   /** 実験テーマ(テーマ無しは null) */
@@ -344,6 +347,8 @@ interface HakoniwaContextValue {
   setImageModel: (imageModel: string) => Promise<void>;
   /** 世界の違和感(住民が書き換えに気づいていく)を使うか */
   setDissonanceEnabled: (enabled: boolean) => Promise<void>;
+  /** 住民とあなた(顔なじみ / 見えない存在) */
+  setPlayerPresence: (presence: HakoniwaPlayerPresence) => Promise<void>;
   /** この世界のチャットと日次の出来事でWeb検索を使うか */
   setWebSearchEnabled: (enabled: boolean) => Promise<void>;
   /** 世界のメモ(全生成に最優先の指示として載せる) */
@@ -580,6 +585,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
           characters: input.characters,
           language,
           dissonance_enabled: input.dissonanceEnabled,
+          player_presence: input.playerPresence,
           custom_residents: input.customResidents,
           experiment_theme: input.theme,
         });
@@ -1660,6 +1666,21 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     [applyWorld, language, run, worldId],
   );
 
+  const setPlayerPresence = useCallback(
+    async (presence: HakoniwaPlayerPresence) => {
+      if (!worldId) return;
+      const updated = await run("settings", () =>
+        updateHakoniwaSettings(
+          worldId,
+          { player_presence: presence },
+          language,
+        ),
+      );
+      if (updated) applyWorld(updated);
+    },
+    [applyWorld, language, run, worldId],
+  );
+
   const finishPlayback = useCallback(() => {
     setPlaybackQueue((current) => current.slice(1));
   }, []);
@@ -1733,6 +1754,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       setFavorite,
       setImageModel,
       setDissonanceEnabled,
+      setPlayerPresence,
       setWebSearchEnabled,
       setWorldMemo,
       setPlayerName,
@@ -1812,6 +1834,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       setFavorite,
       setImageModel,
       setDissonanceEnabled,
+      setPlayerPresence,
       setWebSearchEnabled,
       setWorldMemo,
       setPlayerName,

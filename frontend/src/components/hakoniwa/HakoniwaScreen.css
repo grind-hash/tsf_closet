@@ -525,6 +525,27 @@
   margin: 4px 0 0;
 }
 
+/* 住民とあなた(顔なじみ / 見えない存在)。見出しと選択をトグルと同じく左右に並べる */
+.hakoniwa-presence {
+  width: 100%;
+}
+
+.hakoniwa-presence__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.hakoniwa-presence .hakoniwa-note {
+  margin: 4px 0 0;
+}
+
+.hakoniwa-presence .hakoniwa-note + .hakoniwa-note {
+  margin-top: 2px;
+}
+
 /* --- 世界の画面 --- */
 
 .hakoniwa-world {

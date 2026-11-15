@@ -11,6 +11,7 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { ROUTES } from "../../routes";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import HakoniwaPresencePicker from "./HakoniwaPresencePicker";
 import {
   LookControls,
   type LookRequest,
@@ -40,6 +41,7 @@ export default function HakoniwaSettingsTab() {
     busy,
     setImageModel,
     setDissonanceEnabled,
+    setPlayerPresence,
     setWebSearchEnabled,
     setWorldMemo,
     setPlayerName,
@@ -232,6 +234,16 @@ export default function HakoniwaSettingsTab() {
             {t("hakoniwa.theme.save")}
           </button>
         </div>
+      </section>
+
+      <section className="hakoniwa-settings__section">
+        <HakoniwaPresencePicker
+          value={world.player_presence ?? "known"}
+          onChange={(presence) => void setPlayerPresence(presence)}
+          dissonanceEnabled={world.dissonance.enabled}
+          disabled={busy !== null}
+          extraNote={t("hakoniwa.presence.switchNote")}
+        />
       </section>
 
       <section className="hakoniwa-settings__section">

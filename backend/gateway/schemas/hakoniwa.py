@@ -115,6 +115,10 @@ class HakoniwaCreateRequest(HakoniwaLanguageRequest):
     dissonance_enabled: bool = Field(
         True, description="世界の違和感(住民が書き換えに気づいていく)を使うか"
     )
+    player_presence: Literal["known", "hidden"] = Field(
+        "known",
+        description="住民とあなた。known=顔なじみ(最初から知られている) / hidden=見えない存在",
+    )
     custom_residents: list[HakoniwaRandomResident] = Field(
         default_factory=list,
         max_length=HAKONIWA_MAX_RESIDENTS,
@@ -134,6 +138,9 @@ class HakoniwaSettingsRequest(HakoniwaLanguageRequest):
     )
     dissonance_enabled: bool | None = Field(
         None, description="世界の違和感を使うか。未指定は変更しない"
+    )
+    player_presence: Literal["known", "hidden"] | None = Field(
+        None, description="住民とあなた(known / hidden)。未指定は変更しない"
     )
     world_memo: str | None = Field(
         None,
@@ -387,7 +394,10 @@ class HakoniwaDissonance(BaseModel):
     stage: str = Field(
         ..., description="stillness / stirring / probing / confrontation"
     )
-    acknowledged: bool = Field(..., description="対面を経て書き手の存在を公認した")
+    acknowledged: bool = Field(
+        ...,
+        description="住民が書き手(プレイヤー)を知っている(顔なじみの世界、または対面を経た公認)",
+    )
     next_stage: str | None = None
     remaining: int | None = Field(None, description="次の段階までの残り")
 
@@ -628,6 +638,9 @@ class HakoniwaWorldResponse(BaseModel):
     world_memo: str = Field("", description="世界のメモ")
     player_name: str = Field(
         "", description="住民がプレイヤーを呼ぶときの名前(空なら名前で呼ばない)"
+    )
+    player_presence: Literal["known", "hidden"] = Field(
+        "known", description="住民とあなた(known=顔なじみ / hidden=見えない存在)"
     )
     experiment_theme: HakoniwaThemeInput | None = Field(
         None, description="実験テーマ(テーマ無しは null)"

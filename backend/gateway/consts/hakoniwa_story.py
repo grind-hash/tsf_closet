@@ -6,6 +6,12 @@
 
 from __future__ import annotations
 
+# --- 住民とあなた(住民がプレイヤーを知っているか) ---
+# known: 顔なじみ。最初から知られている(公認の状態から始める)。
+# hidden: 見えない存在。会話は謎の声で、違和感が育って対面(公認)を迎えると known と同じになる
+PLAYER_PRESENCES = ("known", "hidden")
+PLAYER_PRESENCE_DEFAULT = "known"
+
 # --- 世界の違和感 ---
 # 掟の切り替えや変身といった「書き換え」で溜まり、書き換えの無い日は少し静まる。
 # 到達点に達すると一度だけ住民が書き手へ呼びかけ(対面)、その後は「公認」になる。
@@ -295,9 +301,10 @@ PLAYER_DIRECT_TALK = (
 
 DISSONANCE_CONTEXT = {
     "acknowledged": (
-        "Premise: the residents openly know that the rules and looks of this world are "
-        "rewritten by an unseen being who watches over them (the player). Everyday "
-        "talk may naturally include signs of that being, expectations of the next "
+        "Premise: the residents openly know the player, the one who watches over them "
+        "and talks with them, and know that the rules and looks of this world are the "
+        "player's doing. Everyday talk may naturally mention the player: what the "
+        "player said to them, a look the player gave them, expectations of the next "
         "rewrite, or complaints."
     ),
     "stirring": (
@@ -311,6 +318,43 @@ DISSONANCE_CONTEXT = {
         "to witness the moment of a rewrite. The mood is curiosity, deduction and a "
         "little expectation, like solving a mystery together: they are not frightened, "
         "do not feel threatened, and the story never turns into horror."
+    ),
+}
+
+# 顔なじみで違和感を使わない世界: プレイヤーは知っているが、掟は常識のまま
+PLAYER_KNOWN_CONTEXT = (
+    "Premise: the residents know the player as the one who watches over them, talks "
+    "with them and can change their looks on the spot. They may mention the player "
+    "naturally (for example, a look the player gave them). The world's rules feel "
+    "like plain common sense to them, not the player's doing."
+)
+
+# 見えない存在(公認前)の一言・タッチ・会話: 住民にはプレイヤーが見えず、正体も知らない
+UNSEEN_PLAYER_VOICE = (
+    "a voice coming from nowhere (it is the player, but you cannot see them and do "
+    "not know who or what they are)"
+)
+UNSEEN_PLAYER_TOUCH = (
+    "something invisible (it is the player, but you cannot see them and do not know "
+    "who or what they are)"
+)
+# 違和感の段階(違和感を使わない世界は "off")ごとの、謎の声への受け止め方
+UNSEEN_PLAYER_STANCE = {
+    "stillness": (
+        "This is strange and new to you: doubt your ears or senses, look around for "
+        "the source, and respond hesitantly."
+    ),
+    "stirring": (
+        "You have noticed this presence before: react like 'this again...?', still "
+        "puzzled, and respond to it."
+    ),
+    "probing": (
+        "You suspect this presence may be the one rewriting this world: respond, and "
+        "ask who or what it is and what it wants, with curiosity rather than fear."
+    ),
+    "off": (
+        "You have grown a little used to this mysterious presence, but you never learn "
+        "who or what it is."
     ),
 }
 

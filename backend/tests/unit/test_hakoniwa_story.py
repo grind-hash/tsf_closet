@@ -12,6 +12,8 @@ from gateway.services.hakoniwa_prompts import event_user_prompt
 
 
 def _world(preset_ids=("aoi", "shiori", "tamako", "ren", "ritsu"), **kwargs):
+    # 違和感の物語(調査・対面)は、住民がプレイヤーを知らない「見えない存在」の世界で進む
+    kwargs.setdefault("player_presence", "hidden")
     return logic.new_world_state(
         [logic.preset_resident(pid) for pid in preset_ids], **kwargs
     )
@@ -410,3 +412,28 @@ def test_normalize_keeps_story_state():
     legacy = logic.normalize_state({"residents": state["residents"], "day": 2})
     assert legacy["dissonance_enabled"] is True
     assert legacy["memories"] == {}
+
+
+def test_player_presence_decides_whether_the_mystery_runs():
+    import pytest
+
+    from gateway.services.hakoniwa_errors import HakoniwaError
+
+    hidden = {**_world(), "dissonance": 85}
+    assert not story.player_known(hidden)
+    assert story.investigation_active(hidden)
+    assert story.confrontation_pending(hidden)
+    assert story.player_known({**hidden, "dissonance_acknowledged": True})
+
+    known = _world(player_presence="known")
+    known = {**known, "dissonance": 85}
+    assert story.player_known(known)
+    assert not story.investigation_active(known)
+    assert not story.confrontation_pending(known)
+
+    # 値の無い既存の世界は顔なじみ(会話はこれまでもプレイヤーを知っている前提だった)
+    legacy = logic.normalize_state({"residents": hidden["residents"], "day": 2})
+    assert legacy["player_presence"] == "known"
+    assert logic.normalize_state(hidden)["player_presence"] == "hidden"
+    with pytest.raises(HakoniwaError):
+        story.validate_player_presence("ghost")

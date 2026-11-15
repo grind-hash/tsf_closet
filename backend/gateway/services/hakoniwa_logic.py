@@ -946,11 +946,15 @@ def custom_resident(
 
 
 def new_world_state(
-    residents: list[dict[str, Any]], *, dissonance_enabled: bool = True
+    residents: list[dict[str, Any]],
+    *,
+    dissonance_enabled: bool = True,
+    player_presence: str = "known",
 ) -> dict[str, Any]:
     """住民の一覧から新しい世界を作る。プリセット同士は初期の好感度、他は 0 で結ぶ。
 
     dissonance_enabled は「世界の違和感」を使うか(世界ごと、既定 ON)。
+    player_presence は住民がプレイヤーを知っているか(known: 顔なじみ / hidden: 見えない存在)。
     """
     if len(residents) < HAKONIWA_MIN_RESIDENTS:
         raise HakoniwaError(
@@ -983,7 +987,9 @@ def new_world_state(
         "events": [],
         "furniture_layout": empty_furniture_layout(),
         "last_digest": None,
-        **story.initial_story_state(dissonance_enabled=dissonance_enabled),
+        **story.initial_story_state(
+            dissonance_enabled=dissonance_enabled, player_presence=player_presence
+        ),
         **play.initial_play_state(),
     }
 

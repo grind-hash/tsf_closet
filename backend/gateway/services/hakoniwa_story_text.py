@@ -22,7 +22,11 @@ from ..consts.hakoniwa_story import (
     PLAYER_ADDRESS_UNNAMED,
     PLAYER_ADDRESS_WORDS,
     PLAYER_DIRECT_TALK,
+    PLAYER_KNOWN_CONTEXT,
     REMNANT_TEXTS,
+    UNSEEN_PLAYER_STANCE,
+    UNSEEN_PLAYER_TOUCH,
+    UNSEEN_PLAYER_VOICE,
     WORLD_ADAPTATION_STAGE_GUIDANCE,
     WORLD_ADAPTATION_STAGE_NAMES,
 )
@@ -314,17 +318,23 @@ def arc_focus_text(
 
 
 def player_address_rule(
-    state: dict[str, Any], language: str, *, direct: bool = False
+    state: dict[str, Any],
+    language: str,
+    *,
+    direct: bool = False,
+    revealing: bool = False,
 ) -> str:
     """住民がプレイヤーをどう呼ぶか。
 
     名前(世界の設定)があればその名前で、無ければ肩書きを作らずに話させる。
+    住民がプレイヤーを知らない(見えない存在の公認前)ときは、名前を知らないので
+    名前でも呼ばせない。revealing は対面(正体を知る瞬間)で、知らなくても名前で呼ばせる。
     direct は一言・タッチ・会話のように住民がプレイヤーへ直接話す場面で、
     話している相手が同居人ではないことも添える(同居人の呼び方一覧に引きずられて、
     同居人へ挨拶してしまうのを防ぐ)。
     """
     words = PLAYER_ADDRESS_WORDS[_lang(language)]
-    name = play.player_name(state)
+    name = play.player_name(state) if revealing or story.player_known(state) else ""
     if name:
         rule = PLAYER_ADDRESS_NAMED.format(
             name=name,
@@ -339,23 +349,56 @@ def player_address_rule(
 
 
 def acknowledged_player_rule(state: dict[str, Any], language: str) -> str:
-    """公認のあと(住民がプレイヤーの存在を知っている)の出来事に添える、プレイヤーの呼び方。"""
-    if not story.dissonance_enabled(state) or not state.get("dissonance_acknowledged"):
+    """住民がプレイヤーを知っている(顔なじみ・公認後)出来事に添える、プレイヤーの呼び方。"""
+    if not story.player_known(state):
         return ""
     return " " + player_address_rule(state, language)
 
 
 def dissonance_context_text(state: dict[str, Any]) -> str:
+    """住民とプレイヤー・世界の書き換えとの関係の前提文。
+
+    顔なじみ・公認後は、プレイヤーを知っている前提(違和感を使わない世界では、掟は
+    プレイヤーの仕業と思わない)。見えない存在の公認前は、違和感の段階ごとの前提。
+    """
+    if story.player_known(state):
+        if story.dissonance_enabled(state):
+            return "\n" + DISSONANCE_CONTEXT["acknowledged"]
+        return "\n" + PLAYER_KNOWN_CONTEXT
     if not story.dissonance_enabled(state):
         return ""
-    if state.get("dissonance_acknowledged"):
-        return "\n" + DISSONANCE_CONTEXT["acknowledged"]
     stage = story.dissonance_stage(story.dissonance_value(state))
     if stage == "stirring":
         return "\n" + DISSONANCE_CONTEXT["stirring"]
     if stage in ("probing", "confrontation"):
         return "\n" + DISSONANCE_CONTEXT["probing"]
     return ""
+
+
+def unseen_stance_key(state: dict[str, Any]) -> str:
+    """見えない存在(公認前)への住民の受け止め方の段階。違和感を使わない世界は off。"""
+    if not story.dissonance_enabled(state):
+        return "off"
+    stage = story.dissonance_stage(story.dissonance_value(state))
+    return "probing" if stage == "confrontation" else stage
+
+
+def player_presence_text(state: dict[str, Any], *, touch: bool = False) -> str:
+    """一言・タッチ・会話で、住民にとってプレイヤーが何者か。
+
+    顔なじみ・公認後は「見守り書き換える者」として知っている。見えない存在の公認前は
+    姿の見えない謎の声(タッチは見えない何か)で、違和感の段階に応じて受け止めさせる。
+    """
+    if story.player_known(state):
+        return "the player (the one who watches over and rewrites this world)"
+    return UNSEEN_PLAYER_TOUCH if touch else UNSEEN_PLAYER_VOICE
+
+
+def unseen_player_stance(state: dict[str, Any]) -> str:
+    """見えない存在(公認前)への受け止め方の指示。住民がプレイヤーを知っていれば空。"""
+    if story.player_known(state):
+        return ""
+    return f" {UNSEEN_PLAYER_STANCE[unseen_stance_key(state)]}"
 
 
 def investigation_focus_text(

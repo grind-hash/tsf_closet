@@ -75,9 +75,9 @@ def test_direct_talk_addresses_the_player_not_a_housemate():
         assert "has no name in this world" not in prompt
 
 
-def test_player_address_in_events_only_after_acknowledgement():
-    # 出来事: 住民がプレイヤーの存在を知ったあと(公認)だけ、呼び方を添える
-    state = {**_world(), "player_name": "ユウ"}
+def test_player_address_in_events_only_when_residents_know_the_player():
+    # 出来事: 住民がプレイヤーを知っている(顔なじみ・公認後)ときだけ、呼び方を添える
+    state = {**_world(), "player_name": "ユウ", "player_presence": "hidden"}
     group = tuple(state["residents"])
     assert "How to call the player" not in event_user_prompt(
         state, group, "ja", nsfw=False
@@ -88,9 +88,18 @@ def test_player_address_in_events_only_after_acknowledgement():
     assert 'the residents know the player as "ユウ"' in text
     assert "is the player, not a housemate" not in text
 
-    off = {**acknowledged, "dissonance_enabled": False}
+    # 顔なじみの世界は最初から知っている。違和感を使わなくても呼び方は添える
+    known = {**state, "player_presence": "known"}
+    assert 'the residents know the player as "ユウ"' in event_user_prompt(
+        known, group, "ja", nsfw=False
+    )
+    known_off = {**known, "dissonance_enabled": False}
+    assert 'the residents know the player as "ユウ"' in event_user_prompt(
+        known_off, group, "ja", nsfw=False
+    )
+    hidden_off = {**state, "dissonance_enabled": False}
     assert "How to call the player" not in event_user_prompt(
-        off, group, "ja", nsfw=False
+        hidden_off, group, "ja", nsfw=False
     )
 
     # 対面の出来事は、公認の前でもプレイヤーへ呼びかけるので必ず添える
@@ -113,7 +122,7 @@ def test_synergy_text_and_card_view():
 
 
 def test_intervention_choices_follow_the_world():
-    state = _world()
+    state = {**_world(), "player_presence": "hidden"}
     assert play.available_interventions(state) == ["watch", "nudge", "rewrite"]
 
     transformed = logic.set_transformation(
@@ -124,6 +133,11 @@ def test_intervention_choices_follow_the_world():
     assert play.available_interventions(stirring)[2] == "dissonance_push"
     assert (
         play.available_interventions({**stirring, "dissonance_enabled": False})[2]
+        == "rewrite"
+    )
+    # 顔なじみの世界は最初から知られているので、違和感を煽る介入は出さない
+    assert (
+        play.available_interventions({**stirring, "player_presence": "known"})[2]
         == "rewrite"
     )
 
@@ -408,3 +422,77 @@ def test_chat_reply_does_not_pretend_and_classifier_reads_plain_forms():
     system, _ = alteration_prompts("マフラーを装備する", "高瀬 葵", "the usual look")
     assert "「〜を装備する」" in system
     assert "hats, scarves" in system
+
+
+def test_unseen_player_is_a_voice_until_the_residents_know_them():
+    from gateway.services.hakoniwa_prompts import transform_reaction_prompts
+
+    state = {**_world(), "player_name": "はっしゅ", "player_presence": "hidden"}
+    aoi = logic.find_resident(state, "aoi")
+
+    system, _ = chat_reply_prompts(state, aoi, [], "やあ", "ja", nsfw=False)
+    assert "a voice coming from nowhere" in system
+    assert "doubt your ears" in system
+    # 名前を知らないので、名前では呼ばせない
+    assert "はっしゅ" not in system
+    probing, _ = chat_reply_prompts(
+        {**state, "dissonance": 60}, aoi, [], "やあ", "ja", nsfw=False
+    )
+    assert "ask who or what it is" in probing
+    greeting, _ = greeting_prompts(
+        {**state, "dissonance_enabled": False}, aoi, "ja", nsfw=False
+    )
+    assert "A voice coming from nowhere" in greeting
+    assert "grown a little used" in greeting
+    touch, _ = touch_prompts(state, aoi, "head", "ja", nsfw=False)
+    assert "Something invisible" in touch
+    reaction, _ = transform_reaction_prompts(
+        state, aoi, "メイド服", [], "ja", nsfw=False
+    )
+    assert "inexplicable phenomenon" in reaction
+
+    for known in (
+        {**state, "player_presence": "known"},
+        {**state, "dissonance_acknowledged": True},
+    ):
+        system, _ = chat_reply_prompts(known, aoi, [], "やあ", "ja", nsfw=False)
+        assert "the one who watches over and rewrites this world" in system
+        assert "voice coming from nowhere" not in system
+        assert "はっしゅ" in system
+        reaction, _ = transform_reaction_prompts(
+            known, aoi, "メイド服", [], "ja", nsfw=False
+        )
+        assert "The residents know the player did it" in reaction
+
+
+def test_event_premise_and_talks_follow_player_presence():
+    state = {**_world(), "player_name": "はっしゅ"}
+    group = tuple(state["residents"])
+    known = event_user_prompt(state, group, "ja", nsfw=False)
+    assert "openly know the player" in known
+    known_off = event_user_prompt(
+        {**state, "dissonance_enabled": False}, group, "ja", nsfw=False
+    )
+    assert "not the player's doing" in known_off
+
+    hidden = {**state, "player_presence": "hidden"}
+    assert "Premise" not in event_user_prompt(hidden, group, "ja", nsfw=False)
+    hidden = play.append_chat(hidden, "aoi", [{"role": "player", "text": "こんにちは"}])
+    text = event_user_prompt(hidden, group, "ja", nsfw=False)
+    assert "高瀬 葵 hearing a mysterious voice:" in text
+    assert '{"speaker": "(the voice)", "text": "こんにちは"}' in text
+
+
+def test_transform_impression_reads_wishes_from_the_talk():
+    from gateway.services.hakoniwa_prompts import transform_impression_prompts
+
+    state = _world()
+    aoi = logic.find_resident(state, "aoi")
+    history = [{"role": "resident", "text": "ニットを着てみたいな"}]
+    system, user = transform_impression_prompts(
+        state, aoi, history, "ニットに着替える", "ja"
+    )
+    assert "exactly what they wished for" in system
+    assert '{"delta": an integer from -3 to 3}' in system
+    assert "高瀬 葵: ニットを着てみたいな" in user
+    assert "changed their look on the spot: ニットに着替える" in user

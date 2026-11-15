@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
+  type HakoniwaPlayerPresence,
   type HakoniwaRandomResident,
   type HakoniwaTheme,
   type HakoniwaWorldSummary,
@@ -17,6 +18,7 @@ import HakoniwaCharacterAdder, {
 } from "./HakoniwaCharacterAdder";
 import HakoniwaErrorBanner from "./HakoniwaErrorBanner";
 import HakoniwaPortrait from "./HakoniwaPortrait";
+import HakoniwaPresencePicker from "./HakoniwaPresencePicker";
 import HakoniwaRandomRoster from "./HakoniwaRandomRoster";
 import HakoniwaThemePicker, { normalizeTheme } from "./HakoniwaThemePicker";
 
@@ -40,6 +42,9 @@ export default function HakoniwaHub() {
   const nameId = useId();
   const dissonanceId = useId();
   const [dissonanceEnabled, setDissonanceEnabled] = useState(true);
+  // 住民とあなた。既定は顔なじみ(見えない存在は選んだ人だけが遊ぶ新しい遊び方)
+  const [playerPresence, setPlayerPresence] =
+    useState<HakoniwaPlayerPresence>("known");
   const [name, setName] = useState("");
   const [presetIds, setPresetIds] = useState<string[] | null>(null);
   const [characters, setCharacters] = useState<HakoniwaPickedCharacter[]>([]);
@@ -89,6 +94,7 @@ export default function HakoniwaHub() {
         gender: item.gender,
       })),
       dissonanceEnabled,
+      playerPresence,
       customResidents: randomResidents,
       theme: normalizeTheme(theme),
     });
@@ -267,6 +273,14 @@ export default function HakoniwaHub() {
 
           <div className="hakoniwa-create__option">
             <HakoniwaThemePicker value={theme} onChange={setTheme} />
+          </div>
+
+          <div className="hakoniwa-create__option">
+            <HakoniwaPresencePicker
+              value={playerPresence}
+              onChange={setPlayerPresence}
+              dissonanceEnabled={dissonanceEnabled}
+            />
           </div>
 
           <div className="hakoniwa-create__option">

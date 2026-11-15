@@ -124,6 +124,7 @@ export const guide = {
           "Besides the 5 residents of Stardust House, you can bring in characters you made on the Characters screen (those with a portrait) or residents you write yourself.",
           '"Random residents" puts together residents with different names, personalities and looks (swap them out one by one; uses text generation). "Generate looks for residents without a portrait" on the Residents tab draws missing portraits one at a time.',
           "Pick an experiment theme (keep the swap going, a week of the dress rule, grow the strangeness to a confrontation, transformation experiment, free experiment, or write your own) and its progress appears in the recap. A theme you write also gently shapes events and conversations.",
+          '"You and the residents" (also on the Settings tab): with Familiar face (default) they know you, and a look you give them in chat raises their feelings toward you if they wanted it, or lowers them if not. With Unseen presence you are a mysterious voice and an invisible hand; as world strangeness grows they look for you, and after the confrontation it works like Familiar face.',
           "On day 1 of a new world, a getting-started guide appears (you can fold or close it).",
           "Whatever you write in the world memo on the Settings tab becomes this world’s common sense (what everyone believes has always been true) and applies right away to every generation, ahead of the rules. If it changes how every resident looks, saving it generates a memo look for every resident, one at a time (the same memo is not checked again).",
         ],
@@ -147,7 +148,7 @@ export const guide = {
           "Press a portrait to enlarge it and touch the head, chest or below the waist. The reaction depends on how they feel about you: a resident who likes you welcomes it, one who dislikes you pushes you away (the mood shifts a little and nothing goes into the chronicle).",
           'Residents remember transformations, swaps and events that moved a relationship a lot ("Remembers" under "Profile"), and may bring them up later.',
           'When editing a resident, choose how they call the other residents (given name, family name, with or without an honorific); event and chat lines use it. Random residents get a style that fits their personality, and much older housemates get an honorific. "Relationships" under "Profile" shows what each resident calls the others.',
-          'Enter a name under "Your name" on the Settings tab and the residents call you by it in one-liners, chat and touch (and in events too, once they know you exist). If it is left empty, they speak to you as "you", without a name or a title.',
+          'Enter a name under "Your name" on the Settings tab and, once the residents know you (Familiar face, or Unseen presence after the confrontation), they call you by it in one-liners, chat, touch and events. If it is left empty, they speak to you as "you", without a name or a title.',
         ],
       },
       {
@@ -210,7 +211,7 @@ export const guide = {
       {
         heading: "World strangeness and records",
         items: [
-          'In worlds that use "world strangeness" (set when creating the world or on the Settings tab; on by default), switching rules and transforming residents makes them notice the rewrites (stillness → stirring → probing), and at 80 they call out to the writer once. Transforming someone during a conversation adds only a little, since they know it was you. The stage and value appear in the top bar.',
+          'In worlds that use "world strangeness" (on by default, also on the Settings tab), rule switches and transformations make residents notice the rewrites (stillness → stirring → probing); at 80 they call out to the writer once (Unseen presence worlds only, which also get investigations). A transformation in chat adds only a little once they know you. The top bar shows the stage and value.',
           "What you observe in the dollhouse (days, events, rules, transformations, dresses, swaps, strangeness and more, 17 records) is counted across all worlds and recorded under AI Dollhouse on the Achievements screen.",
         ],
       },

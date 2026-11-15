@@ -39,7 +39,7 @@ export const hakoniwa = {
     rosterCount: "{{count}} residents (2–10)",
     dissonanceLabel: "World strangeness",
     dissonanceNote:
-      "As you switch rules and transform residents, they begin to notice that someone is rewriting their world, start investigating, and finally call out to the writer. You can change this later on the Settings tab.",
+      "As you switch rules and transform residents, they begin to notice that their world is being rewritten. In an Unseen presence world, they start investigating and finally call out to the writer. You can change this later on the Settings tab.",
     create: "Create a world with these residents",
     creating: "Creating the world…",
   },
@@ -502,9 +502,26 @@ export const hakoniwa = {
     memoLookCheck: "Check whether it changes looks",
     dissonanceToggle: "Use world strangeness",
     dissonanceNote:
-      "Switching rules and transforming residents builds up world strangeness, and the residents gradually notice the rewrites (stillness → stirring → probing → confrontation). At 80, the residents call out to the writer once. When off, the value stops and no investigation or confrontation events happen.",
+      "Switching rules and transforming residents builds up world strangeness, and the residents gradually notice the rewrites (stillness → stirring → probing → confrontation). At 80, the residents call out to the writer once. Investigation and confrontation happen only in Unseen presence worlds. When off, the value stops and no investigation or confrontation events happen.",
     deleteHeading: "This world",
     deleteWorld: "Delete this world",
+  },
+  presence: {
+    label: "You and the residents",
+    options: {
+      known: "Familiar face",
+      hidden: "Unseen presence",
+    },
+    notes: {
+      known:
+        "The residents know you from the start. When you change someone's look in a conversation, their feelings toward you rise if it is a look they wanted and fall if they dislike it, and they talk about you among themselves. No investigation or confrontation happens.",
+      hidden:
+        "The residents cannot see you: your words reach them as a mysterious voice and your touch as an invisible hand. As world strangeness grows they start looking for the voice, and after the confrontation it works like Familiar face.",
+    },
+    hiddenWithoutDissonance:
+      "This world does not use world strangeness, so they never get closer to the voice and it stays a mystery.",
+    switchNote:
+      "Switching applies to conversations and events from now on (past conversations and the chronicle stay as they are).",
   },
   intervention: {
     label: "Tomorrow's intervention",
@@ -612,6 +629,8 @@ export const hakoniwa = {
         "Days with the dress rule on: {{days}} / goal {{target}}. {{remaining}} to go.",
       dissonanceOff:
         "This world does not use world strangeness, so this theme does not progress (switch it on the Settings tab).",
+      dissonanceKnown:
+        "The residents of this world know you from the start, so no confrontation happens and this theme does not progress (switch it under You and the residents on the Settings tab).",
       dissonanceDone:
         "World strangeness: {{value}} ({{stage}}). The residents know about the writer.",
       dissonance:
