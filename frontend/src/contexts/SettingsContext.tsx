@@ -82,6 +82,8 @@ export interface HakoniwaPreferences {
   openingGuide: HakoniwaOpeningGuide;
   /** 遊び方の説明つきの開幕を見終えたか(「最初の世界だけ」の判定に使う) */
   openingGuideSeen: boolean;
+  /** おまかせの住民がいる世界を作った直後に、その住民の立ち絵とドレス姿を順に生成するか */
+  randomPortraits: boolean;
 }
 
 export const DEFAULT_HAKONIWA_PREFERENCES: HakoniwaPreferences = {
@@ -92,6 +94,7 @@ export const DEFAULT_HAKONIWA_PREFERENCES: HakoniwaPreferences = {
   openingEnabled: true,
   openingGuide: "first",
   openingGuideSeen: false,
+  randomPortraits: true,
 };
 
 /** 保存値を読み込むときに、欠けた項目や壊れた値を既定に戻す */
@@ -124,6 +127,7 @@ export function normalizeHakoniwaPreferences(
         ? saved.openingGuide
         : base.openingGuide,
     openingGuideSeen: bool(saved.openingGuideSeen, base.openingGuideSeen),
+    randomPortraits: bool(saved.randomPortraits, base.randomPortraits),
   };
 }
 

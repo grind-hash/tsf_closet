@@ -31,6 +31,7 @@ from ..consts.hakoniwa import (
     HAKONIWA_PRESET_RESIDENTS,
     HAKONIWA_ROOM_BACKGROUND_URL,
     HAKONIWA_RULE_CARDS,
+    HAKONIWA_RULE_MAP,
     HAKONIWA_WORLD_NAME_MAX,
     area_background_url,
     event_location,
@@ -131,6 +132,18 @@ DEFAULT_DRESS_INSTRUCTION = (
     "Keep the face, hair and body as they are."
 )
 
+# 変身の上にドレスの掟を重ねるときの指示(衣装の指定があればその服にする)
+_DRESS_LAYER_INSTRUCTION = (
+    "The rule of dresses is active, so change the outfit into an elegant formal "
+    "dress{detail}. Keep the face, hair and body of the current look as they are."
+)
+
+
+def _dress_layer_instruction(resident: dict[str, Any]) -> str:
+    detail = str(resident.get("dress_text") or "").strip()
+    return _DRESS_LAYER_INSTRUCTION.format(detail=f": {detail}" if detail else "")
+
+
 # 住民の改変で姿も変えるときに、タグの変換へ渡す指示(改変の文は事実なので、姿への言い換えを頼む)
 _REALITY_LOOK_INSTRUCTION = (
     "Change the look and outfit to what fits this new fact about the character, "
@@ -186,6 +199,34 @@ def _transformation_view(world_id: str, entry: dict[str, Any] | None) -> dict | 
     }
 
 
+def _layered_look_view(
+    state: dict[str, Any], resident: dict[str, Any], language: str
+) -> dict[str, Any] | None:
+    """変身の上に重ねる掟の姿(変身より後に有効にした掟)と、それが生成済みか。無ければ None。"""
+    body = logic.body_of(state, resident)
+    layers = logic.due_layers(state, body)
+    if not layers:
+        return None
+    layer = layers[0]
+    lang = "ja" if language == "ja" else "en"
+    dress_name = HAKONIWA_RULE_MAP["dress"]["text"][lang]["name"]
+    if layer["kind"] == "combo":
+        combo = logic.active_combo(state) or {"rule_ids": [], "includes_dress": False}
+        names = [
+            str((logic.custom_rule(state, rule_id) or {}).get("name") or "")
+            for rule_id in combo["rule_ids"]
+        ] + ([dress_name] if combo["includes_dress"] else [])
+    elif layer["kind"] == "rule":
+        names = [str((logic.custom_rule(state, layer["key"]) or {}).get("name") or "")]
+    else:
+        names = [dress_name]
+    return {
+        "kind": layer["kind"],
+        "names": [name for name in names if name],
+        "ready": logic.layered_look_ready(state, body, layer),
+    }
+
+
 def _resident_view(
     world_id: str, state: dict[str, Any], resident: dict[str, Any], language: str
 ) -> dict[str, Any]:
@@ -224,6 +265,7 @@ def _resident_view(
             for item in logic.body_of(state, resident).get("transformation_history")
             or []
         ],
+        "layered_look": _layered_look_view(state, resident, language),
         "realities": [dict(item) for item in logic.realities(resident)],
         "swapped_with": logic.swap_partner_id(state, resident["id"]),
         "current_area": resident.get("current_area") or DEFAULT_AREA_ID,
@@ -1236,13 +1278,15 @@ class HakoniwaService:
     ) -> tuple[dict[str, Any], int, int]:
         """住民ごとに掟の姿・複合の姿を作る。NovelAI の 429 を避けるため1人ずつ順に呼ぶ。
 
+        住民(体)が変身していて、この掟を変身より後に有効にしたなら、変身後の姿を土台に
+        作って変身の上に重ねる(kind="dress" はこの重ねる姿だけ)。
+
         regenerate でなければ、今の見た目(タグと体の性別)でまだ生成していない住民だけ。
         resident_id を渡すとその住民だけ(画面は1人ずつ呼び、そのたびに保存して進み具合を出す)。
         body_gender は掟が定める体の性別で、None なら住民それぞれの性別のまま。
         戻り値は (状態, 生成した人数, 失敗した人数)。
         """
-        field = logic.look_image_field(kind)
-        instruction = rule_look_instruction(
+        rule_instruction = rule_look_instruction(
             source_tags, dress=dress, body_gender=body_gender
         )
         novelai_model = user_settings.get("novelai_text_model")
@@ -1253,25 +1297,41 @@ class HakoniwaService:
             if not residents:
                 raise HakoniwaError("resident_not_found", "住民が見つかりません")
         for resident in residents:
-            entry = (resident.get(field) or {}).get(key) or {}
+            # 変身より後に有効にした掟の姿は、変身後の姿を土台にして変身の上に重ねる
+            layered = logic.is_due_layer(state, resident, kind, key)
+            if kind == "dress" and not layered:
+                # 変身していない住民のドレス姿は、住民の「ドレス姿を生成」で作る
+                continue
+            entry = logic.look_entry_for(state, resident, kind, key)
             if (
                 not regenerate
                 and entry.get("image")
                 and logic.look_entry_is_current(entry, source_tags, body_gender)
             ):
                 continue
-            gender = logic.resident_gender(resident)
-            # 掟の姿は、世界のメモの姿(いまのメモで生成済み)があればその上に重ねる
-            memo_tags = (
-                logic.current_memo_look_tags(state, resident)
-                if kind != "memo" and not dress
-                else ""
-            )
-            base = (
-                memo_tags
-                or (str(resident.get("dress_tags") or "") if dress else "")
-                or str(resident.get("base_tags") or _source_base_tags(resident))
-            )
+            if layered:
+                transformation = resident.get("transformation") or {}
+                base = str(transformation.get("tags") or "")
+                gender = logic.tags_gender(base) or logic.resident_gender(resident)
+                instruction = (
+                    _dress_layer_instruction(resident)
+                    if kind == "dress"
+                    else rule_instruction
+                )
+            else:
+                gender = logic.resident_gender(resident)
+                # 掟の姿は、世界のメモの姿(いまのメモで生成済み)があればその上に重ねる
+                memo_tags = (
+                    logic.current_memo_look_tags(state, resident)
+                    if kind != "memo" and not dress
+                    else ""
+                )
+                base = (
+                    memo_tags
+                    or (str(resident.get("dress_tags") or "") if dress else "")
+                    or str(resident.get("base_tags") or _source_base_tags(resident))
+                )
+                instruction = rule_instruction
             tags = await convert_change_to_tags(
                 instruction, base, novelai_model=novelai_model
             )
@@ -1290,17 +1350,20 @@ class HakoniwaService:
                 failed += 1
                 continue
             filename = save_image(world_id, f"{kind}_{resident['id']}", data)
-            state = logic.set_look_image(
-                state,
-                resident["id"],
-                kind=kind,
-                key=key,
-                entry={
-                    "image": filename,
-                    "tags": tags,
-                    "source_tags": source_tags,
-                    "source_body": body_gender,
-                },
+            look_entry = {
+                "image": filename,
+                "tags": tags,
+                "source_tags": source_tags,
+                "source_body": body_gender,
+            }
+            state = (
+                logic.set_layered_look_image(
+                    state, resident["id"], kind=kind, key=key, entry=look_entry
+                )
+                if layered
+                else logic.set_look_image(
+                    state, resident["id"], kind=kind, key=key, entry=look_entry
+                )
             )
             generated += 1
             if entry.get("image") and entry["image"] != filename:
@@ -1465,6 +1528,42 @@ class HakoniwaService:
                 dress=False,
                 regenerate=regenerate,
                 resident_id=resident_id,
+            )
+            return await self._finish_look(
+                world_id, state, lang, user_settings, tracker, generated, failed
+            )
+
+    async def generate_layered_look(
+        self, world_id: str, resident_id: str, language: str | None = None
+    ) -> dict[str, Any]:
+        """住民の変身の上に、変身より後に有効にした掟の姿(複合の姿・掟の姿・ドレス)を重ねる。
+
+        重ねるのは、表示の優先順でいちばん上の姿。入れ替わり中は本人がいま入っている体。
+        """
+        lang, user_settings = await self._context(language)
+        async with self._world_locks[world_id]:
+            async with async_session_factory() as db:
+                state = _load_state(await self._load(db, world_id))
+            body = logic.body_of(state, logic.find_resident(state, resident_id))
+            layers = logic.due_layers(state, body)
+            if not layers:
+                raise HakoniwaError(
+                    "no_layered_look", "変身の上に重ねる掟の姿はありません"
+                )
+            layer = layers[0]
+            source = logic.layer_source(state, layer)
+            tracker = begin_cost_tracking()
+            state, generated, failed = await self._generate_look_images(
+                world_id,
+                state,
+                user_settings,
+                kind=layer["kind"],
+                key=layer["key"],
+                source_tags=source["source_tags"],
+                body_gender=source["body_gender"],
+                dress=source["dress"],
+                regenerate=True,
+                resident_id=body["id"],
             )
             return await self._finish_look(
                 world_id, state, lang, user_settings, tracker, generated, failed

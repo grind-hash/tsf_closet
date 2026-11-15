@@ -310,6 +310,15 @@ export interface HakoniwaTransformation {
   kind?: string | null;
 }
 
+/** 変身より後に有効にした掟の姿(変身の上に重ねる) */
+export interface HakoniwaLayeredLook {
+  kind: "combo" | "rule" | "dress";
+  /** その姿を決めている掟の名前 */
+  names: string[];
+  /** 今の掟の見た目で、変身に重ねた姿を生成済みか */
+  ready: boolean;
+}
+
 /** 住民の改変: その住民についての世界の常識 */
 export interface HakoniwaReality {
   id: string;
@@ -346,6 +355,8 @@ export interface HakoniwaResident {
   player_affinity?: number;
   transformation: HakoniwaTransformation | null;
   transformation_history: HakoniwaTransformation[];
+  /** 変身の上に重ねる掟の姿(無ければ null。古い応答では無い) */
+  layered_look?: HakoniwaLayeredLook | null;
   /** 住民の改変(古い順) */
   realities?: HakoniwaReality[];
   swapped_with: string | null;
@@ -847,6 +858,18 @@ export function generateHakoniwaComboLook(
       language,
       resident_id: residentId ?? null,
     }),
+  );
+}
+
+/** 変身より後に有効にした掟の姿を、その住民の変身の上に重ねて生成する */
+export function generateHakoniwaLayeredLook(
+  worldId: string,
+  residentId: string,
+  language: string,
+): Promise<HakoniwaLookResult> {
+  return requestJson<HakoniwaLookResult>(
+    `${WORLDS}/${worldId}/residents/${encodeURIComponent(residentId)}/layered-look`,
+    jsonInit("POST", { language }),
   );
 }
 

@@ -276,8 +276,12 @@ def own_body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
     """
     transformation = resident.get("transformation") or {}
     if transformation:
-        return tags_gender(str(transformation.get("tags") or "")) or resident_gender(
-            resident
+        # 変身より後に有効にした掟が体の性別を定めていれば、そちらが勝つ
+        layers = due_layers(state, resident)
+        return (
+            (layer_source(state, layers[0])["body_gender"] if layers else None)
+            or tags_gender(str(transformation.get("tags") or ""))
+            or resident_gender(resident)
         )
     return (
         active_look_body_gender(state)
@@ -326,7 +330,10 @@ def is_male_in_feminine_form(state: dict[str, Any], resident: dict[str, Any]) ->
     if kind == "dress":
         return True
     if kind == "transform":
-        return is_feminine_transformation(state, resident)
+        layer = transform_layer(state, resident)
+        return is_feminine_transformation(state, resident) or (
+            layer is not None and layer_is_feminine(state, layer)
+        )
     if kind in ("combo", "rule"):
         return has_feminine_marker(look_rules_tags(state, kind))
     if kind == "memo":
@@ -489,12 +496,12 @@ def look_entry_is_current(entry: dict[str, Any], tags: str, body: str | None) ->
 
 
 def _look_status(
-    state: dict[str, Any], field: str, key: str, tags: str, body: str | None
+    state: dict[str, Any], kind: str, key: str, tags: str, body: str | None
 ) -> dict[str, Any]:
     ready = stale = 0
     pending: list[str] = []
     for resident in state["residents"]:
-        entry = (resident.get(field) or {}).get(key)
+        entry = look_entry_for(state, resident, kind, key)
         if not entry or not entry.get("image"):
             pending.append(resident["id"])
             continue
@@ -515,13 +522,13 @@ def rule_look_status(state: dict[str, Any], rule_id: str) -> dict[str, Any]:
     """掟の姿の生成状況。ready は今の見た目で生成済み、stale は見た目を変える前の姿。"""
     rule = custom_rule(state, rule_id)
     tags = str((rule or {}).get("appearance_tags") or "")
-    return _look_status(state, "rule_images", rule_id, tags, rule_body_gender(rule))
+    return _look_status(state, "rule", rule_id, tags, rule_body_gender(rule))
 
 
 def combo_look_status(state: dict[str, Any], combo: dict[str, Any]) -> dict[str, Any]:
     return _look_status(
         state,
-        "combo_images",
+        "combo",
         combo["digest"],
         combo_tags(state, combo["rule_ids"]),
         look_body_gender(state, combo["rule_ids"]),
@@ -590,9 +597,7 @@ def memo_look_status(state: dict[str, Any]) -> dict[str, Any] | None:
     look = active_memo_look(state)
     if look is None:
         return None
-    return _look_status(
-        state, "memo_images", MEMO_LOOK_KEY, look["tags"], look["body_gender"]
-    )
+    return _look_status(state, "memo", MEMO_LOOK_KEY, look["tags"], look["body_gender"])
 
 
 def current_memo_look_tags(state: dict[str, Any], resident: dict[str, Any]) -> str:
@@ -632,6 +637,178 @@ def set_look_image(
     return new_state
 
 
+# --- 変身の上に重ねる掟の姿 ---
+# 掟と変身は「あとから行ったほうが上」。掟を有効にした順番(state["rule_seq"])と変身した順番
+# (transformation["seq"])を同じ通し番号(state["look_seq"])で振り、変身より後に有効にした掟の
+# 姿は、変身後の姿を土台に作って変身の上に重ねる。重ねた姿の画像は変身の記録の looks に持つ
+# (変身を解けば一緒に消え、履歴から戻せば一緒に戻る)。番号の無い古い記録は 0 として扱い、
+# 同じ番号なら変身が上(これまでの表示と同じ)。
+
+DRESS_LAYER_KEY = "dress"
+
+
+def next_look_seq(state: dict[str, Any]) -> int:
+    """掟の有効化・変身に振る次の通し番号(state を書き換える)。"""
+    seq = int(state.get("look_seq") or 0) + 1
+    state["look_seq"] = seq
+    return seq
+
+
+def rule_activation_seq(state: dict[str, Any], rule_id: str) -> int:
+    return int((state.get("rule_seq") or {}).get(rule_id) or 0)
+
+
+def transform_layers(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """変身の上に重ねうる掟の姿(表示の優先順: 複合の姿 → 掟の姿(後の掟から) → ドレス)。
+
+    seq はその姿を決めた掟のうち、最後に有効にしたものの番号。
+    """
+    layers: list[dict[str, Any]] = []
+    combo = active_combo(state)
+    if combo is not None:
+        ids = [*combo["rule_ids"], *(["dress"] if combo["includes_dress"] else [])]
+        layers.append(
+            {
+                "kind": "combo",
+                "key": combo["digest"],
+                "seq": max(rule_activation_seq(state, rule_id) for rule_id in ids),
+            }
+        )
+    layers.extend(
+        {"kind": "rule", "key": rule_id, "seq": rule_activation_seq(state, rule_id)}
+        for rule_id in reversed(look_rule_ids(state))
+    )
+    if "dress" in state.get("active_rules", []):
+        layers.append(
+            {
+                "kind": "dress",
+                "key": DRESS_LAYER_KEY,
+                "seq": rule_activation_seq(state, "dress"),
+            }
+        )
+    return layers
+
+
+def due_layers(state: dict[str, Any], body: dict[str, Any]) -> list[dict[str, Any]]:
+    """体の変身の上に重ねる掟の姿(変身より後に有効にした掟、表示の優先順)。
+
+    body は体のエントリ(入れ替わり中は相手のエントリ)。変身していなければ空。
+    """
+    transformation = body.get("transformation") or {}
+    if not transformation:
+        return []
+    seq = int(transformation.get("seq") or 0)
+    return [layer for layer in transform_layers(state) if layer["seq"] > seq]
+
+
+def transform_layer(
+    state: dict[str, Any], resident: dict[str, Any]
+) -> dict[str, Any] | None:
+    """住民がいまいる体の変身に重ねる掟の姿(文章に使う。画像の有無は見ない)。"""
+    layers = due_layers(state, body_of(state, resident))
+    return layers[0] if layers else None
+
+
+def layer_source(state: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
+    """重ねる姿を決めている見た目 {source_tags, body_gender, dress}。
+
+    生成済みの姿が今の掟で作ったものかを確かめるのにも使う(ドレスは固定の印)。
+    """
+    if layer["kind"] == "combo":
+        combo = active_combo(state) or {"rule_ids": [], "includes_dress": False}
+        return {
+            "source_tags": combo_tags(state, combo["rule_ids"]),
+            "body_gender": look_body_gender(state, combo["rule_ids"]),
+            "dress": bool(combo["includes_dress"]),
+        }
+    if layer["kind"] == "rule":
+        rule = custom_rule(state, layer["key"])
+        return {
+            "source_tags": str((rule or {}).get("appearance_tags") or ""),
+            "body_gender": rule_body_gender(rule),
+            "dress": False,
+        }
+    return {"source_tags": DRESS_LAYER_KEY, "body_gender": None, "dress": True}
+
+
+def layer_is_feminine(state: dict[str, Any], layer: dict[str, Any]) -> bool:
+    if layer["kind"] == "dress":
+        return True
+    source = layer_source(state, layer)
+    return source["body_gender"] == "female" or has_feminine_marker(
+        source["source_tags"]
+    )
+
+
+def _layer_look_key(kind: str, key: str) -> str:
+    return f"{kind}:{key}"
+
+
+def is_due_layer(
+    state: dict[str, Any], body: dict[str, Any], kind: str, key: str
+) -> bool:
+    return any(
+        layer["kind"] == kind and layer["key"] == key
+        for layer in due_layers(state, body)
+    )
+
+
+def layered_look_entry(body: dict[str, Any], kind: str, key: str) -> dict[str, Any]:
+    """体の変身に重ねた姿の記録(無ければ空)。"""
+    looks = (body.get("transformation") or {}).get("looks") or {}
+    return dict(looks.get(_layer_look_key(kind, key)) or {})
+
+
+def look_entry_for(
+    state: dict[str, Any], body: dict[str, Any], kind: str, key: str
+) -> dict[str, Any]:
+    """体の掟の姿・複合の姿・メモの姿の記録。変身より後に有効にした掟なら、変身に重ねた姿の記録。"""
+    if is_due_layer(state, body, kind, key):
+        return layered_look_entry(body, kind, key)
+    if kind == "dress":
+        return {}
+    return dict((body.get(look_image_field(kind)) or {}).get(key) or {})
+
+
+def set_layered_look_image(
+    state: dict[str, Any],
+    body_id: str,
+    *,
+    kind: str,
+    key: str,
+    entry: dict[str, Any],
+) -> dict[str, Any]:
+    """体の変身に重ねた姿を設定する(履歴の同じ変身にも写し、履歴から戻したときも使えるようにする)。"""
+    new_state = deepcopy(state)
+    body = find_resident(new_state, body_id)
+    transformation = body.get("transformation")
+    if not transformation:
+        raise HakoniwaError("not_transformed", "変身していません")
+    value = {
+        "image": str(entry["image"]),
+        "tags": str(entry.get("tags") or ""),
+        "source_tags": str(entry.get("source_tags") or ""),
+        "source_body": rule_body_gender({"body_gender": entry.get("source_body")}),
+    }
+    look_key = _layer_look_key(kind, key)
+    transformation["looks"] = {**(transformation.get("looks") or {}), look_key: value}
+    for item in body.get("transformation_history") or []:
+        if item.get("image") == transformation.get("image"):
+            item["looks"] = {**(item.get("looks") or {}), look_key: dict(value)}
+    return new_state
+
+
+def layered_look_ready(
+    state: dict[str, Any], body: dict[str, Any], layer: dict[str, Any]
+) -> bool:
+    """重ねる姿が、今の掟の見た目で生成済みか。"""
+    entry = layered_look_entry(body, layer["kind"], layer["key"])
+    source = layer_source(state, layer)
+    return bool(entry.get("image")) and look_entry_is_current(
+        entry, source["source_tags"], source["body_gender"]
+    )
+
+
 # --- 表示する姿 ---
 
 
@@ -642,9 +819,22 @@ def own_look(state: dict[str, Any], resident: dict[str, Any]) -> dict[str, Any]:
     bundled: 同梱素材を使うか, tags?: その姿のタグ}。優先順位は 変身 → 複合の姿 →
     掟の姿(後から有効にした掟が勝つ) → 世界のメモの姿 → ドレス(掟が有効で画像あり) → 通常。
     複合の姿・掟の姿・メモの姿は、その住民の画像が生成済みのときだけ。
+    変身より後に有効にした掟の姿(複合の姿・掟の姿・ドレス)は、変身に重ねた画像が
+    生成済みならそちらを出す(layered=True)。
     """
     transformation = resident.get("transformation") or {}
     if transformation.get("image"):
+        for layer in due_layers(state, resident):
+            entry = layered_look_entry(resident, layer["kind"], layer["key"])
+            if entry.get("image"):
+                return {
+                    "kind": layer["kind"],
+                    "file": entry["image"],
+                    "bundled": False,
+                    "tags": str(entry.get("tags") or ""),
+                    "layered": True,
+                    **({"rule_id": layer["key"]} if layer["kind"] == "rule" else {}),
+                }
         return {
             "kind": "transform",
             "file": transformation["image"],
@@ -1042,6 +1232,15 @@ def normalize_state(state: dict[str, Any]) -> dict[str, Any]:
         "memo_look_planned_for": state.get("memo_look_planned_for")
         if isinstance(state.get("memo_look_planned_for"), str)
         else None,
+        "look_seq": _int_or_zero(state.get("look_seq")),
+        "rule_seq": {
+            str(key): _int_or_zero(value)
+            for key, value in (
+                state["rule_seq"].items()
+                if isinstance(state.get("rule_seq"), dict)
+                else []
+            )
+        },
     }
     for resident in state.get("residents") or []:
         entry = _base_resident(**resident)
@@ -1109,6 +1308,11 @@ def set_rule(
                 f"有効にできる掟は{HAKONIWA_MAX_ACTIVE_RULES}枚までです",
             )
         rules.append(card_id)
+        # 変身との前後を比べる番号(変身より後に有効にした掟の姿は変身の上に重ねる)
+        new_state["rule_seq"] = {
+            **(new_state.get("rule_seq") or {}),
+            card_id: next_look_seq(new_state),
+        }
         if card_id == "swap":
             ids = [resident["id"] for resident in new_state["residents"]]
             new_state["swap_pair"] = rng.sample(ids, 2)
@@ -1840,6 +2044,8 @@ def set_transformation(
         "tags": str(transformation["tags"]),
         "image": str(transformation["image"]),
         "day": int(transformation["day"]),
+        # 掟との前後を比べる番号(この変身より前に有効にした掟の姿は、変身が上になる)
+        "seq": next_look_seq(new_state),
     }
     reality = transformation.get("kind") == "reality"
     if reality:
@@ -1887,7 +2093,8 @@ def reapply_transformation(
     )
     if entry is None:
         raise HakoniwaError("transformation_not_found", "変身の履歴が見つかりません")
-    body["transformation"] = dict(entry)
+    # 履歴から戻すのも新しい変身として、それまでに有効にした掟の姿より上にする
+    body["transformation"] = {**entry, "seq": next_look_seq(new_state)}
     story.start_adaptation(person, "transform", int(new_state["day"]))
     return new_state
 

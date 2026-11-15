@@ -433,6 +433,12 @@ class HakoniwaTransformation(BaseModel):
     )
 
 
+class HakoniwaLayeredLook(BaseModel):
+    kind: str = Field(..., description="combo / rule / dress")
+    names: list[str] = Field(..., description="その姿を決めている掟の名前")
+    ready: bool = Field(..., description="今の掟の見た目で、変身に重ねた姿を生成済みか")
+
+
 class HakoniwaReality(BaseModel):
     id: str
     text: str = Field(..., description="その住民についての世界の常識")
@@ -469,6 +475,10 @@ class HakoniwaResident(BaseModel):
     )
     transformation: HakoniwaTransformation | None
     transformation_history: list[HakoniwaTransformation]
+    layered_look: HakoniwaLayeredLook | None = Field(
+        None,
+        description="変身より後に有効にした掟の姿(変身の上に重ねる)。無ければ null",
+    )
     realities: list[HakoniwaReality] = Field(
         default_factory=list, description="住民の改変(古い順)"
     )

@@ -17,15 +17,21 @@ import { useTransparentImages } from "../../hooks/useTransparentImages";
 const ALPHA_OPTIONS = { targetColor: null, threshold: 12, featherRadius: 1.8 };
 
 interface OpeningScene {
-  key: string;
+  key: "welcome" | "presence" | "rules" | "residents" | "day";
+  /** 小さな見出し(明朝・字間広め) */
   heading: string;
+  /** 大きな見出し(ようこその幕だけ) */
+  headline?: string;
+  /** 本文。改行(\n)ごとに1行 */
   text: string;
   notes: string[];
+  /** 背景にする場所(エリア id または場所 id) */
+  place: string;
 }
 
 /**
  * 幕の並び。顔ぶれと「住民とあなた」は毎回、遊び方(掟・関わり方・1日の流れ)は guide のときだけ。
- * 文は固定(LLM は呼ばない)。
+ * 文は固定(LLM は呼ばない)。背景は幕ごとに箱庭の場所を変える。
  */
 function useOpeningScenes(world: HakoniwaWorld, guide: boolean) {
   const { t } = useTranslation();
@@ -39,13 +45,14 @@ function useOpeningScenes(world: HakoniwaWorld, guide: boolean) {
   const scenes: OpeningScene[] = [
     {
       key: "welcome",
-      heading: t("hakoniwa.opening.welcomeHeading"),
+      heading: world.name,
+      headline: t("hakoniwa.opening.welcomeHeading"),
       text: t("hakoniwa.opening.welcome", {
-        world: world.name,
         names,
         count: world.residents.length,
       }),
       notes: [],
+      place: "garden",
     },
     {
       key: "presence",
@@ -62,6 +69,7 @@ function useOpeningScenes(world: HakoniwaWorld, guide: boolean) {
               ? t("hakoniwa.opening.presenceHiddenDissonance")
               : t("hakoniwa.opening.presenceHiddenOff"),
           ],
+      place: "living",
     },
   ];
   if (guide) {
@@ -71,12 +79,14 @@ function useOpeningScenes(world: HakoniwaWorld, guide: boolean) {
         heading: t("hakoniwa.opening.rulesHeading"),
         text: t("hakoniwa.opening.rules"),
         notes: [],
+        place: "study",
       },
       {
         key: "residents",
         heading: t("hakoniwa.opening.residentsHeading"),
         text: t("hakoniwa.opening.residents"),
         notes: [],
+        place: "kitchen",
       },
       {
         key: "day",
@@ -86,10 +96,21 @@ function useOpeningScenes(world: HakoniwaWorld, guide: boolean) {
           ...(world.experiment_theme ? [t("hakoniwa.opening.dayTheme")] : []),
           t("hakoniwa.opening.dayAchievements"),
         ],
+        place: "park",
       },
     );
   }
   return scenes;
+}
+
+/** 場所の背景(エリア → 場所の順に探し、無ければリビング) */
+function placeBackground(world: HakoniwaWorld, place: string): string | null {
+  const area = world.areas.find((item) => item.id === place);
+  const location = world.locations?.find((item) => item.id === place);
+  const living = world.areas.find((item) => item.id === "living");
+  return hakoniwaMediaUrl(
+    area?.background_url ?? location?.background_url ?? living?.background_url,
+  );
 }
 
 /** 世界の画面へ移るときに渡す合図。opening は作った直後で、開幕を流す */
@@ -133,9 +154,11 @@ export function HakoniwaOpeningLauncher({
 }
 
 /**
- * 開幕。世界を作った直後(設定画面で流さないこともできる)と、設定タブの「もう一度見る」で出す。
- * 庭の背景の中央に、部屋の字幕と同じ見た目の説明を1幕ずつ出す。クリック・Enter・Space で次へ、スキップ・Esc で閉じる。
- * 最後の幕には「1日進める」を置かず、掟や住民へ案内する(何も決めずに1日を進めないように)。
+ * 開幕(プロローグ)。世界を作った直後(設定画面で流さないこともできる)と、設定タブの
+ * 「もう一度見る」で出す。サロンの開業演出と同じく画面全体を使い、幕ごとに箱庭の場所の
+ * 背景をクロスフェードし、その上に枠のない文を中央に重ねる。クリック・Enter・Space で次へ、
+ * スキップ・Esc で閉じる。最後の幕には「1日進める」を置かず、掟や住民へ案内する
+ * (何も決めずに1日を進めないように)。
  */
 export default function HakoniwaOpening() {
   const { world, opening } = useHakoniwa();
@@ -151,7 +174,8 @@ function OpeningView({
   guide: boolean;
 }) {
   const { t } = useTranslation();
-  const { closeOpening, setPanelTab, selectResident } = useHakoniwa();
+  const { closeOpening, setPanelTab, selectResident, avatarBatch } =
+    useHakoniwa();
   const { state, setHakoniwaPreferences } = useSettings();
   const [step, setStep] = useState(0);
   const nextRef = useRef<HTMLButtonElement | null>(null);
@@ -166,12 +190,15 @@ function OpeningView({
     [world.residents],
   );
   const transparent = useTransparentImages(urls, ALPHA_OPTIONS);
-  // 背景は星屑荘の庭(穏やかな屋外)。無ければリビング
-  const backdrop =
-    world.areas.find((area) => area.id === "garden") ??
-    world.areas.find((area) => area.id === "living") ??
-    world.areas[0];
-  const backgroundUrl = hakoniwaMediaUrl(backdrop?.background_url);
+  // 背景は幕ごとの場所。同じ画像は1枚にまとめ、重ねたまま不透明度で切り替える
+  const backgrounds = [
+    ...new Set(
+      scenes
+        .map((scene) => placeBackground(world, scene.place))
+        .filter((url): url is string => Boolean(url)),
+    ),
+  ];
+  const currentBackground = placeBackground(world, current.place);
 
   // 幕が替わるたびに「次へ」へフォーカスを置き、Enter で送れるようにする
   useEffect(() => {
@@ -219,105 +246,107 @@ function OpeningView({
       role="dialog"
       aria-modal="true"
       aria-label={t("hakoniwa.opening.label")}
+      // 画面をクリックしてもフォーカスがダイアログの外へ出ず、キー操作を受け続ける
       tabIndex={-1}
       onClick={advance}
       onKeyDown={handleKeyDown}
       data-testid="hakoniwa-opening"
     >
-      {backgroundUrl && (
+      {backgrounds.map((url) => (
         <img
-          className="hakoniwa-opening__background"
-          src={backgroundUrl}
+          key={url}
+          className={`hakoniwa-opening__background${
+            url === currentBackground ? " is-active" : ""
+          }`}
+          src={url}
           alt=""
         />
-      )}
+      ))}
+      {/* 文の読みやすさのための、やわらかな陰り(真っ黒にはしない) */}
       <div className="hakoniwa-opening__veil" aria-hidden />
-      {/* 幕ごとに作り直して、ふわっと出す(動きを減らす設定では出さない) */}
-      <section key={current.key} className="hakoniwa-opening__card">
-        <div className="hakoniwa-opening__head">
-          <span className="hakoniwa-opening__title">{current.heading}</span>
-          <span className="hakoniwa-opening__progress">
-            {step + 1} / {scenes.length}
-          </span>
-        </div>
-        {current.key === "welcome" && (
-          <div className="hakoniwa-opening__faces">
-            {world.residents.map((resident, index) => {
-              const src = urls[index];
-              const shown = src ? (transparent[src] ?? src) : null;
-              return shown ? (
-                <img
-                  key={resident.id}
-                  className="hakoniwa-opening__face"
-                  src={shown}
-                  alt={resident.name}
-                  title={resident.name}
-                />
-              ) : (
-                <span
-                  key={resident.id}
-                  className="hakoniwa-opening__face hakoniwa-opening__face--empty"
-                  title={resident.name}
-                >
-                  {Array.from(resident.name)[0] ?? "?"}
-                </span>
-              );
-            })}
-          </div>
-        )}
-        <p className="hakoniwa-opening__text">{current.text}</p>
-        {current.notes.map((note) => (
-          <p key={note} className="hakoniwa-note">
-            {note}
-          </p>
-        ))}
-        <div className="hakoniwa-opening__actions">
-          {isLast ? (
-            <>
-              <button
-                type="button"
-                className="hakoniwa-button hakoniwa-button--ghost"
-                onClick={stop(() => goTo("rules"))}
-              >
-                {t("hakoniwa.opening.openRules")}
-              </button>
-              <button
-                type="button"
-                className="hakoniwa-button hakoniwa-button--ghost"
-                onClick={stop(() => goTo("residents"))}
-              >
-                {t("hakoniwa.opening.openResidents")}
-              </button>
-              <button
-                ref={nextRef}
-                type="button"
-                className="hakoniwa-button hakoniwa-button--primary"
-                onClick={stop(close)}
-              >
-                {t("hakoniwa.opening.start")}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="hakoniwa-button hakoniwa-button--ghost"
-                onClick={stop(close)}
-              >
-                {t("hakoniwa.opening.skip")}
-              </button>
-              <button
-                ref={nextRef}
-                type="button"
-                className="hakoniwa-button hakoniwa-button--primary"
-                onClick={stop(advance)}
-              >
-                {t("hakoniwa.opening.next")}
-              </button>
-            </>
-          )}
-        </div>
-      </section>
+
+      {/* 住民はようこその幕だけ、庭に並んで立つ。透過前の画像(背景つき)は出さない */}
+      <div
+        className={`hakoniwa-opening__lineup${
+          current.key === "welcome" ? " is-active" : ""
+        }`}
+        aria-hidden
+      >
+        {world.residents.map((resident, index) => {
+          const src = urls[index];
+          const shown = src ? transparent[src] : undefined;
+          return shown ? <img key={resident.id} src={shown} alt="" /> : null;
+        })}
+      </div>
+
+      <button
+        type="button"
+        className="hakoniwa-opening__skip"
+        onClick={stop(close)}
+      >
+        {t("hakoniwa.opening.skip")}
+      </button>
+
+      {/* 文は幕ごとに重ね、今の幕だけを見せる(前の幕はフェードアウト、次の幕はフェードイン) */}
+      {scenes.map((scene, index) => {
+        const active = index === step;
+        return (
+          <section
+            key={scene.key}
+            className={`hakoniwa-opening__caption hakoniwa-opening__caption--${scene.key}${
+              active ? " is-active" : ""
+            }`}
+            aria-hidden={!active}
+            inert={!active}
+            aria-live={active ? "polite" : undefined}
+          >
+            <p className="hakoniwa-opening__eyebrow">{scene.heading}</p>
+            <span className="hakoniwa-opening__rule" aria-hidden />
+            {scene.headline && (
+              <p className="hakoniwa-opening__headline">{scene.headline}</p>
+            )}
+            <p className="hakoniwa-opening__text">{scene.text}</p>
+            {scene.notes.map((note) => (
+              <p key={note} className="hakoniwa-opening__note">
+                {note}
+              </p>
+            ))}
+            {index === scenes.length - 1 && (
+              <div className="hakoniwa-opening__links">
+                <button type="button" onClick={stop(() => goTo("rules"))}>
+                  {t("hakoniwa.opening.openRules")}
+                </button>
+                <button type="button" onClick={stop(() => goTo("residents"))}>
+                  {t("hakoniwa.opening.openResidents")}
+                </button>
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      {/* 作った直後に、おまかせの住民の立ち絵を描いている進み具合 */}
+      {avatarBatch && (
+        <p className="hakoniwa-opening__status" role="status">
+          <span className="hakoniwa-spinner" aria-hidden />
+          {t("hakoniwa.opening.portraits", {
+            done: avatarBatch.done,
+            total: avatarBatch.total,
+          })}
+        </p>
+      )}
+      <p className="hakoniwa-opening__progress" aria-hidden>
+        {step + 1} / {scenes.length}
+      </p>
+      <button
+        ref={nextRef}
+        type="button"
+        className="hakoniwa-opening__next"
+        onClick={stop(advance)}
+      >
+        {isLast ? t("hakoniwa.opening.start") : t("hakoniwa.opening.next")}
+        {!isLast && <span aria-hidden>▼</span>}
+      </button>
     </div>
   );
 }

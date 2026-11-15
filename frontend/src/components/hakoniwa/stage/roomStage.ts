@@ -48,6 +48,11 @@ export interface StageResident {
   name: string;
   /** 表示する画像(背景を透過済みの URL)。無ければ頭文字の仮の姿 */
   imageUrl: string | null;
+  /**
+   * 立ち絵の背景を透過している最中か。そのあいだは今の姿のまま(まだ何も出していなければ
+   * 隠しておく)にし、仮の姿は立ち絵が無いか読めないときだけ出す
+   */
+  loading?: boolean;
 }
 
 /** 部屋に置く家具(スロットの位置に足元を合わせて描く) */
@@ -115,6 +120,8 @@ interface Agent {
   highlight: Phaser.GameObjects.Ellipse;
   selRing: Phaser.GameObjects.Ellipse;
   url: string | null | undefined;
+  /** 姿(立ち絵か仮の姿)を一度でも出したか。出すまでは隠しておき、出すときにふわっと見せる */
+  shown: boolean;
   /** 立ち絵の高さを AVATAR_H に合わせる縮尺(歩き・呼吸の伸び縮みはこれに掛ける) */
   baseScale: number;
   position: Point;
@@ -328,6 +335,25 @@ class RoomStage {
     return key;
   }
 
+  /** 姿が決まった住民を見せる(初めてのときだけ。動きを減らす設定ではフェードしない) */
+  private reveal(agent: Agent): void {
+    if (agent.shown) return;
+    agent.shown = true;
+    agent.container.setVisible(true);
+    const scene = this.scene;
+    if (!scene || !this.motionEnabled) {
+      agent.container.setAlpha(1);
+      return;
+    }
+    agent.container.setAlpha(0);
+    scene.tweens.add({
+      targets: agent.container,
+      alpha: 1,
+      duration: 450,
+      ease: "Sine.easeOut",
+    });
+  }
+
   private applyTexture(agent: Agent, key: string): void {
     const scene = this.scene as Phaser.Scene;
     agent.sprite.setTexture(key);
@@ -375,7 +401,8 @@ class RoomStage {
       sprite,
       nameText,
     ]);
-    container.setDepth(start.y);
+    // 姿が決まるまでは隠しておく(開いた直後に頭文字の仮の姿が一瞬見えないように)
+    container.setDepth(start.y).setVisible(false);
     const agent: Agent = {
       id: resident.id,
       name: resident.name,
@@ -385,6 +412,7 @@ class RoomStage {
       highlight,
       selRing,
       url: undefined,
+      shown: false,
       baseScale: 1,
       position: start,
       target: null,
@@ -479,17 +507,21 @@ class RoomStage {
         agent.name = resident.name;
         agent.nameText.setText(resident.name);
       }
+      // 透過を待つあいだは今の姿のまま(初めてなら隠したまま)にする
+      if (resident.loading) return;
       if (agent.url === resident.imageUrl) return;
       agent.url = resident.imageUrl;
       const url = resident.imageUrl;
       if (!url) {
         this.applyTexture(agent, this.placeholderKey(resident));
+        this.reveal(agent);
         this.collectTextures();
         return;
       }
       this.ensureTexture(url, (key) => {
         if (agent.url !== url || !agent.container.active) return;
         this.applyTexture(agent, key ?? this.placeholderKey(resident));
+        this.reveal(agent);
         this.collectTextures();
       });
     });

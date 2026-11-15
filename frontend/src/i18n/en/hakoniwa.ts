@@ -324,6 +324,13 @@ export const hakoniwa = {
     transforming: "Generating the new look…",
     currentTransform: "Current transformation: {{description}}",
     clearTransform: "Change back",
+    layeredName: "“{{name}}”",
+    layeredPending:
+      "The look from {{names}}, enabled after this transformation, can be layered on top of it (generates one image).",
+    layeredReady:
+      "The look from {{names}} is layered on top of the transformation. Turning the rule off shows the transformation again.",
+    layeredGenerate: "Layer the rule's look",
+    layeredRegenerate: "Redraw the layered look",
     historyHeading: "Past transformations",
     reapply: "Use this look",
     eventHeading: "Start an event",
@@ -588,10 +595,15 @@ export const hakoniwa = {
     reroll: "Put together again",
     rolling: "Putting them together...",
     replace: "Regenerate",
+    portraitsLabel: "Also generate portraits and dress looks after creating",
+    portraitsOn:
+      "Once the world is created, they are generated one resident at a time during the opening ({{count}} images).",
+    portraitsOff:
+      "The residents start without portraits. You can generate them later from the Residents tab or each resident's Looks & edit tab.",
     replacing: "Regenerating...",
     remove: "Remove",
     full: "Up to 10 residents. Remove other residents to add random ones.",
-    note: 'Residents are written with text generation (when it is not available, they are built from prepared combinations). After creating the world, generate their portraits with "Generate looks for residents without a portrait" on the Residents tab.',
+    note: "Residents are written with text generation (when it is not available, they are built from prepared combinations).",
   },
   theme: {
     label: "Experiment theme",
@@ -651,28 +663,29 @@ export const hakoniwa = {
   },
   opening: {
     label: "Opening",
+    portraits: "Drawing the residents' portraits ({{done}} / {{total}})",
     welcomeHeading: "Welcome",
     welcome:
-      'Life in "{{world}}" begins. The {{count}} residents are {{names}}.',
+      "In this small boarding house, life begins for {{count}} residents.\n{{names}}",
     presenceHeading: "You and the residents",
     presenceKnown:
-      "The residents know you. They answer when you talk to them, and they chat among themselves about the looks you gave them.",
+      "The residents know you.\nThey answer when you talk to them, and gossip among themselves about the looks you gave them.",
     presenceKnownNamed:
-      "The residents know you as {{name}}. They answer when you talk to them, and they chat among themselves about the looks you gave them.",
+      "The residents know you as {{name}}.\nThey answer when you talk to them, and gossip among themselves about the looks you gave them.",
     presenceHidden:
-      "The residents cannot see you. Your words reach them as a mysterious voice, and your touch as an invisible hand.",
+      "The residents cannot see you.\nYour words reach them as a mysterious voice, and your touch as an invisible hand.",
     presenceHiddenDissonance:
       "As world strangeness grows, the residents start looking for the source of the voice.",
     presenceHiddenOff:
       "This world does not use world strangeness, so the voice stays a mystery.",
     rulesHeading: "Rewrite the world with rules",
     rules:
-      "Turn on a rule on the Rules tab and the world works differently from that day on. The residents take it as plain common sense. You can also write your own rules.",
+      "Turn on a rule on the Rules tab and what is normal in the world changes from that day on.\nThe residents take it as plain common sense.\nYou can also write your own rules.",
     residentsHeading: "Get involved with the residents",
     residents:
-      'Click a resident in the room to hear a word from them. On the Residents tab, "Chat" lets you talk at length, or ask them to change clothes and their look changes on the spot. You can also order events to happen.',
+      'Click a resident in the room to hear a word from them.\nOn the Residents tab, "Chat" lets you talk at length, or ask them to change clothes and their look changes on the spot.\nYou can also order events to happen.',
     dayHeading: "How a day goes",
-    day: 'When you are ready, press "Advance the day" at the bottom right. Three events happen that day and play out in the room, followed by a recap of the day.',
+    day: 'When you are ready, press "Advance the day" at the bottom right.\nThree events happen that day and play out in the room, followed by a recap of the day.',
     dayTheme:
       "The progress of your experiment theme also appears in the recap.",
     dayAchievements:

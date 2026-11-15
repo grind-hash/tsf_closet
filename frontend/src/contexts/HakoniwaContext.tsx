@@ -37,6 +37,7 @@ import {
   fetchHakoniwaWorlds,
   generateHakoniwaAvatar,
   generateHakoniwaComboLook,
+  generateHakoniwaLayeredLook,
   generateHakoniwaMemoLook,
   generateHakoniwaRandomResidents,
   generateHakoniwaRuleLook,
@@ -128,6 +129,30 @@ export interface HakoniwaCreateInput {
   customResidents: HakoniwaRandomResident[];
   /** 実験テーマ(テーマ無しは null) */
   theme: HakoniwaTheme | null;
+  /** 作った直後に、おまかせの住民の立ち絵とドレス姿を順に生成するか */
+  generatePortraits?: boolean;
+}
+
+/** 作った直後に生成する、おまかせの住民の姿(住民ごとに通常の姿 → ドレス姿) */
+interface HakoniwaPortraitPlan {
+  worldId: string;
+  jobs: { residentId: string; variants: ("base" | "dress")[] }[];
+}
+
+/** おまかせの住民(作成時は source が custom の住民)のうち、まだ無い姿 */
+function randomPortraitJobs(
+  world: HakoniwaWorld,
+): HakoniwaPortraitPlan["jobs"] {
+  return world.residents
+    .filter((resident) => resident.source === "custom")
+    .map((resident) => ({
+      residentId: resident.id,
+      variants: [
+        ...(resident.avatar_url ? [] : (["base"] as const)),
+        ...(resident.dress_avatar_url ? [] : (["dress"] as const)),
+      ],
+    }))
+    .filter((job) => job.variants.length > 0);
 }
 
 /** 立ち絵の無い住民をまとめて生成している進み具合 */
@@ -358,6 +383,8 @@ interface HakoniwaContextValue {
   clearTransform: (residentId: string) => Promise<void>;
   reapplyTransform: (residentId: string, image: string) => Promise<void>;
   generateAvatar: (residentId: string, variant: "base" | "dress") => void;
+  /** 変身より後に有効にした掟の姿を、その住民の変身の上に重ねて生成する */
+  generateLayeredLook: (residentId: string) => void;
   setFavorite: (eventId: string, favorite: boolean) => Promise<void>;
   setImageModel: (imageModel: string) => Promise<void>;
   /** 世界の違和感(住民が書き換えに気づいていく)を使うか */
@@ -469,6 +496,9 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const [advFollowUps, setAdvFollowUps] = useState<HakoniwaEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pendingUsageTask, setPendingUsageTask] = useState<(() => void) | null>(
+    null,
+  );
+  const [portraitPlan, setPortraitPlan] = useState<HakoniwaPortraitPlan | null>(
     null,
   );
   const greetingKey = useRef(0);
@@ -609,6 +639,10 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
         });
         announceAchievements(created);
         setWorld(created);
+        if (input.generatePortraits) {
+          const jobs = randomPortraitJobs(created);
+          if (jobs.length > 0) setPortraitPlan({ worldId: created.id, jobs });
+        }
         setWorlds((current) => [
           {
             id: created.id,
@@ -1250,6 +1284,32 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const generateLayeredLook = useCallback(
+    (residentId: string) => {
+      if (!worldId) return;
+      guardImageGeneration(() => {
+        void (async () => {
+          const result = await run("avatar", () =>
+            generateHakoniwaLayeredLook(worldId, residentId, language),
+          );
+          if (!result) return;
+          applyWorld(result.world);
+          recordCost(result.cost_usd);
+          refreshUsage();
+        })();
+      });
+    },
+    [
+      applyWorld,
+      guardImageGeneration,
+      language,
+      recordCost,
+      refreshUsage,
+      run,
+      worldId,
+    ],
+  );
+
   const randomResidents = useCallback(
     async (count: number, excludeNames: string[]) => {
       const result = await run("random", () =>
@@ -1282,6 +1342,63 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   const [avatarBatch, setAvatarBatch] = useState<HakoniwaAvatarBatch | null>(
     null,
   );
+
+  /**
+   * 作った直後の、おまかせの住民の立ち絵とドレス姿。開幕のあいだに1人ずつ(画像は1枚ずつ)
+   * 生成し、そのたびに世界を映す(開幕の庭にも、できた住民から加わる)。別の世界を開いたら
+   * 止める(残りは住民タブの「まとめて生成」や住民の「姿・編集」から作れる)。一覧へ戻った
+   * だけなら続け、保存された姿は開き直したときに映る。
+   */
+  const runPortraitPlan = useCallback(
+    async (plan: HakoniwaPortraitPlan) => {
+      const total = plan.jobs.length;
+      const isOpen = () => currentWorldIdRef.current === plan.worldId;
+      let latest: HakoniwaWorld | null = null;
+      setAvatarBatch({ done: 0, total });
+      setError(null);
+      try {
+        // 画像生成は並列にしない(NovelAI は同時に呼ぶと 429 になる)
+        for (const [index, job] of plan.jobs.entries()) {
+          for (const variant of job.variants) {
+            const current = currentWorldIdRef.current;
+            if (current !== null && current !== plan.worldId) return;
+            // 世界の読み込みなどで外れても、生成中の表示を保つ
+            setBusy("avatar");
+            const result = await generateHakoniwaAvatar(
+              plan.worldId,
+              job.residentId,
+              variant,
+              language,
+            );
+            latest = result.world;
+            if (isOpen()) applyWorld(result.world);
+            recordCost(result.cost_usd);
+          }
+          setAvatarBatch({ done: index + 1, total });
+        }
+      } catch (caught) {
+        setError(errorText(caught));
+      } finally {
+        // 開き直しの読み込みが途中の結果より後に届いても、最後の姿を映す
+        if (latest && isOpen()) applyWorld(latest);
+        setBusy(null);
+        setAvatarBatch(null);
+        refreshUsage();
+      }
+    },
+    [applyWorld, errorText, language, recordCost, refreshUsage],
+  );
+
+  // 作った世界が開いてから始める(Anlas の確認は、作った世界の画像モデルで判断する)
+  useEffect(() => {
+    if (!portraitPlan || worldId !== portraitPlan.worldId) return;
+    const plan = portraitPlan;
+    setPortraitPlan(null);
+    guardImageGeneration(() => {
+      void runPortraitPlan(plan);
+    });
+  }, [guardImageGeneration, portraitPlan, runPortraitPlan, worldId]);
+
   const generateMissingAvatars = useCallback(() => {
     if (!worldId || !world) return;
     const targets = world.residents
@@ -1778,6 +1895,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       clearTransform,
       reapplyTransform,
       generateAvatar,
+      generateLayeredLook,
       setFavorite,
       setImageModel,
       setDissonanceEnabled,
@@ -1861,6 +1979,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       clearTransform,
       reapplyTransform,
       generateAvatar,
+      generateLayeredLook,
       setFavorite,
       setImageModel,
       setDissonanceEnabled,

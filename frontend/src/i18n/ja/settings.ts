@@ -85,9 +85,12 @@ export const settings = {
   hakoniwaDissonance: "世界の違和感を使う",
   hakoniwaDissonanceDesc:
     "掟の切り替えや変身で、住民たちが世界の書き換えに気づいていきます（調査と対面は「見えない存在」の世界だけ）。世界を作る画面でも切り替えられます。",
+  hakoniwaRandomPortraits: "おまかせの住民の立ち絵を続けて生成する",
+  hakoniwaRandomPortraitsDesc:
+    "おまかせの住民がいる世界を作ったら、開幕のあいだに、その住民の立ち絵とドレス姿を1人ずつ生成します（1人2枚）。世界を作る画面の「高度な設定」でも切り替えられます。",
   hakoniwaOpening: "世界を作ったときに開幕を流す",
   hakoniwaOpeningDesc:
-    "世界を作った直後に、住民の顔ぶれと「住民とあなた」を、ADVの窓で1幕ずつ紹介します（クリックで送り、スキップできます）。各世界の「設定」タブからいつでも見返せます。",
+    "世界を作った直後に、画面全体を使った開幕で、住民の顔ぶれと「住民とあなた」を1幕ずつ紹介します（クリックで送り、スキップできます）。各世界の「設定」タブからいつでも見返せます。",
   hakoniwaOpeningGuide: "開幕で遊び方の説明も見せる",
   hakoniwaOpeningGuideFirst: "最初の世界だけ",
   hakoniwaOpeningGuideFirstDesc:

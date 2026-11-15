@@ -71,6 +71,7 @@ export default function HakoniwaResidentPanel({
     clearTransform,
     reapplyTransform,
     generateAvatar,
+    generateLayeredLook,
     removeResident,
     selectResident,
     playbackQueue,
@@ -388,6 +389,39 @@ export default function HakoniwaResidentPanel({
               disabled={locked}
             >
               {t("hakoniwa.panel.clearTransform")}
+            </button>
+          </div>
+        )}
+        {resident.transformation && resident.layered_look && (
+          <div
+            className="hakoniwa-resident__current"
+            data-testid="hakoniwa-layered-look"
+          >
+            <p>
+              {t(
+                resident.layered_look.ready
+                  ? "hakoniwa.panel.layeredReady"
+                  : "hakoniwa.panel.layeredPending",
+                {
+                  names: resident.layered_look.names
+                    .map((name) => t("hakoniwa.panel.layeredName", { name }))
+                    .join(t("hakoniwa.panel.listJoin")),
+                },
+              )}
+            </p>
+            <button
+              type="button"
+              className={`hakoniwa-button${
+                resident.layered_look.ready ? "" : " hakoniwa-button--primary"
+              }`}
+              onClick={() => generateLayeredLook(resident.id)}
+              disabled={locked}
+            >
+              {t(
+                resident.layered_look.ready
+                  ? "hakoniwa.panel.layeredRegenerate"
+                  : "hakoniwa.panel.layeredGenerate",
+              )}
             </button>
           </div>
         )}

@@ -338,6 +338,8 @@ export const SETTINGS_ITEMS = [
       "settings.hakoniwaPresenceHiddenDesc",
       "settings.hakoniwaDissonance",
       "settings.hakoniwaDissonanceDesc",
+      "settings.hakoniwaRandomPortraits",
+      "settings.hakoniwaRandomPortraitsDesc",
     ],
   },
   {

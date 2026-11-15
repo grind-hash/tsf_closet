@@ -94,10 +94,13 @@ export default function HakoniwaStage() {
     () =>
       residents.map((resident, index) => {
         const src = urls[index];
+        const processed = src ? transparent[src] : undefined;
         return {
           id: resident.id,
           name: resident.name,
-          imageUrl: src ? (transparent[src] ?? null) : null,
+          imageUrl: processed ?? null,
+          // 透過が済むまでは仮の姿を出さない(失敗しても元の画像で済むので待ち続けない)
+          loading: Boolean(src) && processed === undefined,
         };
       }),
     [residents, transparent, urls],

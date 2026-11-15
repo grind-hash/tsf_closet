@@ -101,7 +101,7 @@ export function HakoniwaWebSearchSetting() {
   );
 }
 
-/** 新しい世界の既定: あなたの名前・住民とあなた・世界の違和感 */
+/** 新しい世界の既定: あなたの名前・住民とあなた・世界の違和感・おまかせの住民の立ち絵 */
 export function HakoniwaDefaultsSetting() {
   const { t } = useTranslation();
   const { state, setHakoniwaPreferences } = useSettings();
@@ -170,6 +170,16 @@ export function HakoniwaDefaultsSetting() {
           checked={preferences.dissonanceEnabled}
           onChange={(dissonanceEnabled) =>
             setHakoniwaPreferences({ dissonanceEnabled })
+          }
+        />
+      </div>
+      <div className="settings-screen__item">
+        <Toggle
+          label={t("settings.hakoniwaRandomPortraits")}
+          description={t("settings.hakoniwaRandomPortraitsDesc")}
+          checked={preferences.randomPortraits}
+          onChange={(randomPortraits) =>
+            setHakoniwaPreferences({ randomPortraits })
           }
         />
       </div>

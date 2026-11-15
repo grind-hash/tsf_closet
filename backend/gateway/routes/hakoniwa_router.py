@@ -358,6 +358,25 @@ async def generate_combo_look(
 
 
 @router.post(
+    "/worlds/{world_id}/residents/{resident_id}/layered-look",
+    response_model=HakoniwaLookResponse,
+    summary="変身の上に掟の姿を重ねる",
+    description=(
+        "変身より後に有効にした掟の姿(複合の姿・掟の姿・ドレス)を、変身後の姿を土台に"
+        "その住民1人ぶん生成する"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def generate_layered_look(
+    world_id: str, resident_id: str, request: HakoniwaLanguageRequest
+) -> HakoniwaLookResponse:
+    result = await _call(
+        hakoniwa_service.generate_layered_look(world_id, resident_id, request.language)
+    )
+    return HakoniwaLookResponse(**result)
+
+
+@router.post(
     "/worlds/{world_id}/memo-look/plan",
     response_model=HakoniwaMemoLookPlanResponse,
     summary="世界のメモが姿に関わるかを確かめる",

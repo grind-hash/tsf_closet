@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
+from unittest.mock import ANY
 
 import pytest
 from fastapi import FastAPI
@@ -1893,3 +1894,52 @@ def test_world_list_carries_presence_and_all_resident_names(client: TestClient):
     summary = body["worlds"][0]
     assert summary["player_presence"] == "hidden"
     assert summary["resident_names"] == ["高瀬 葵", "苑田 蓮"]
+
+
+def test_layered_look_builds_rule_looks_on_the_transformed_look(
+    client: TestClient, llm_outputs, monkeypatch
+):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    path = f"/api/hakoniwa/worlds/{wid}"
+    llm_outputs.append("1girl, long black hair, knit sweater")
+    client.post(f"{path}/residents/ren/transform", json={"instruction": "ニットに"})
+    dressed = client.put(f"{path}/rules/dress", json={"active": True}).json()
+    ren = next(r for r in dressed["world"]["residents"] if r["id"] == "ren")
+    assert ren["layered_look"] == {"kind": "dress", "names": [ANY], "ready": False}
+    assert ren["display_kind"] == "transform"
+
+    captured: list[tuple[str, str]] = []
+
+    async def convert(instruction, base_tags, *, novelai_model):
+        captured.append((instruction, base_tags))
+        return base_tags + ", formal dress"
+
+    monkeypatch.setattr(service_module, "convert_change_to_tags", convert)
+    layered = client.post(f"{path}/residents/ren/layered-look", json={}).json()
+    assert layered["generated"] == 1
+    # 土台は変身後の姿のタグ
+    assert captured[-1][1] == "1girl, long black hair, knit sweater"
+    assert "dress" in captured[-1][0]
+    ren = next(r for r in layered["world"]["residents"] if r["id"] == "ren")
+    assert ren["display_kind"] == "dress"
+    assert ren["transformation"] is not None
+    assert ren["layered_look"]["ready"] is True
+    assert ren["body_gender"] == "female"
+
+    # 見た目の掟を足すと複合の姿が上になり、掟の画面から作ると変身の上に重ねる
+    rule = _custom_rule(client, wid, appearance_tags="maid outfit")
+    combo_world = client.get(path).json()
+    ren = next(r for r in combo_world["residents"] if r["id"] == "ren")
+    assert ren["layered_look"]["kind"] == "combo"
+    assert "ren" in combo_world["combo_look"]["pending"]
+    combo = client.post(f"{path}/combo-look", json={"resident_id": "ren"}).json()
+    assert captured[-1][1] == "1girl, long black hair, knit sweater"
+    ren = next(r for r in combo["world"]["residents"] if r["id"] == "ren")
+    assert ren["display_kind"] == "combo"
+    assert "ren" not in combo["world"]["combo_look"]["pending"]
+    assert rule["id"]
+
+    # 変身していない住民には重ねる姿が無い
+    missing = client.post(f"{path}/residents/aoi/layered-look", json={})
+    assert missing.json()["detail"]["code"] == "no_layered_look"

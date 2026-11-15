@@ -322,3 +322,135 @@ def test_rule_look_instruction_states_body_change():
     female = rule_look_instruction("long hair", body_gender="female")
     assert "1girl instead of 1boy" in female
     assert "Keep the person's own gender." not in female
+
+
+def _transform(state, resident_id="aoi", tags="1girl, magical girl", image="tf.png"):
+    return logic.set_transformation(
+        state,
+        resident_id,
+        {"description": "魔法少女", "tags": tags, "image": image, "day": 1},
+    )
+
+
+def _layered(state, resident_id, kind, key, tags="1girl, magical girl, maid outfit"):
+    source = logic.layer_source(state, {"kind": kind, "key": key})
+    return logic.set_layered_look_image(
+        state,
+        resident_id,
+        kind=kind,
+        key=key,
+        entry={
+            "image": f"layer_{kind}_{resident_id}.png",
+            "tags": tags,
+            "source_tags": source["source_tags"],
+            "source_body": source["body_gender"],
+        },
+    )
+
+
+def test_rule_enabled_after_transform_is_layered_on_top():
+    state = _transform(_world())
+    state, rule_id = _with_rule(state, tags="maid outfit")
+    aoi = logic.find_resident(state, "aoi")
+
+    assert [layer["kind"] for layer in logic.due_layers(state, aoi)] == ["rule"]
+    # 重ねた姿がまだ無いうちは変身のまま。生成状況では未生成に数える
+    assert logic.own_look(state, aoi)["kind"] == "transform"
+    assert "aoi" in logic.rule_look_status(state, rule_id)["pending"]
+
+    state = _layered(state, "aoi", "rule", rule_id)
+    aoi = logic.find_resident(state, "aoi")
+    look = logic.own_look(state, aoi)
+    assert (look["kind"], look["layered"], look["tags"]) == (
+        "rule",
+        True,
+        "1girl, magical girl, maid outfit",
+    )
+    assert "aoi" not in logic.rule_look_status(state, rule_id)["pending"]
+    assert logic.layered_look_ready(state, aoi, logic.due_layers(state, aoi)[0])
+    # 文章には変身と掟の装いの両方を渡す
+    summary = current_appearance_summary(state, aoi)
+    assert "a look transformed into: '魔法少女'" in summary
+    assert "on top of that now a look set by the rule 'メイドの日'" in summary
+
+    # 掟を切れば変身の姿に戻る
+    off = logic.set_rule(state, rule_id, False, random.Random(0))
+    assert logic.own_look(off, logic.find_resident(off, "aoi"))["kind"] == "transform"
+    # 変身を解けば、本人の掟の姿(まだ無いので通常の姿)
+    cleared = logic.clear_transformation(state, "aoi")
+    assert logic.own_look(cleared, logic.find_resident(cleared, "aoi"))["kind"] == (
+        "base"
+    )
+
+
+def test_transform_after_rule_stays_on_top_until_rule_is_enabled_again():
+    state, rule_id = _with_rule(_world(), tags="maid outfit")
+    state = _look(state, "aoi", "rule", rule_id)
+    state = _transform(state)
+    aoi = logic.find_resident(state, "aoi")
+
+    assert logic.due_layers(state, aoi) == []
+    assert logic.own_look(state, aoi)["kind"] == "transform"
+    assert "on top of that" not in current_appearance_summary(state, aoi)
+    # 変身が上の住民は、本人の掟の姿の記録で生成状況を数える(これまでどおり)
+    assert "aoi" not in logic.rule_look_status(state, rule_id)["pending"]
+
+    # 掟を有効にし直すと、あとから行った掟が上になる
+    state = logic.set_rule(state, rule_id, False, random.Random(0))
+    state = logic.set_rule(state, rule_id, True, random.Random(0))
+    aoi = logic.find_resident(state, "aoi")
+    assert [layer["key"] for layer in logic.due_layers(state, aoi)] == [rule_id]
+
+
+def test_dress_layer_history_and_reapply():
+    state = _transform(_world(), "ren", tags="1boy, knit sweater", image="knit.png")
+    state = logic.set_rule(state, "dress", True, random.Random(0))
+    ren = logic.find_resident(state, "ren")
+
+    layer = logic.transform_layer(state, ren)
+    assert layer["kind"] == "dress"
+    # 元が男性の住民がドレスを重ねられたら、女性的な姿への戸惑いを描く
+    assert logic.is_male_in_feminine_form(state, ren)
+    assert "wearing a dress (the dress rule)" in current_appearance_summary(state, ren)
+    # 変身していない住民のドレスは重ねる姿ではない(住民の「ドレス姿を生成」で作る)
+    aoi = logic.find_resident(state, "aoi")
+    assert logic.look_entry_for(state, aoi, "dress", logic.DRESS_LAYER_KEY) == {}
+
+    state = _layered(state, "ren", "dress", logic.DRESS_LAYER_KEY, "1boy, dress")
+    ren = logic.find_resident(state, "ren")
+    assert logic.own_look(state, ren)["kind"] == "dress"
+    # 履歴の同じ変身にも写るので、履歴から戻したときにも使える
+    assert ren["transformation_history"][-1]["looks"]
+
+    # 履歴から戻すのは新しい変身なので、それまでのドレスより上になる
+    state = logic.reapply_transformation(state, "ren", "knit.png")
+    ren = logic.find_resident(state, "ren")
+    assert logic.due_layers(state, ren) == []
+    assert logic.own_look(state, ren)["kind"] == "transform"
+
+
+def test_layered_rule_decides_body_gender_and_old_states_keep_transform_on_top():
+    state = _transform(_world(), "ren", tags="1boy, knit sweater")
+    state, rule_id = _with_rule(state, "女の子の日", "", body_gender="female")
+    ren = logic.find_resident(state, "ren")
+    assert logic.own_body_gender(state, ren) == "female"
+
+    # 番号の無い古い状態は、これまでどおり変身が上
+    old = logic.normalize_state(
+        {
+            **state,
+            "rule_seq": None,
+            "look_seq": None,
+            "residents": [
+                {**item, "transformation": {**item["transformation"], "seq": None}}
+                if item.get("transformation")
+                else item
+                for item in state["residents"]
+            ],
+        }
+    )
+    assert old["rule_seq"] == {} and old["look_seq"] == 0
+    assert logic.due_layers(old, logic.find_resident(old, "ren")) == []
+    # 正規化しても番号は残る
+    kept = logic.normalize_state(state)
+    assert kept["rule_seq"] == state["rule_seq"] and kept["look_seq"] > 0

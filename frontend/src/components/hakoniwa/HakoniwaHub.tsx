@@ -61,6 +61,7 @@ export default function HakoniwaHub() {
   const defaults = settingsState.hakoniwaPreferences;
   const nameId = useId();
   const dissonanceId = useId();
+  const portraitsId = useId();
   const advancedId = useId();
   const [advancedOpen, setAdvancedOpen] = useState(() =>
     readStorageFlag("local", ADVANCED_OPEN_KEY),
@@ -75,6 +76,9 @@ export default function HakoniwaHub() {
   );
   const [playerPresence, setPlayerPresence] = useState<HakoniwaPlayerPresence>(
     defaults.playerPresence,
+  );
+  const [randomPortraits, setRandomPortraits] = useState(
+    defaults.randomPortraits,
   );
   const [name, setName] = useState("");
   const [presetIds, setPresetIds] = useState<string[] | null>(null);
@@ -157,6 +161,7 @@ export default function HakoniwaHub() {
       webSearchEnabled: defaults.webSearchEnabled,
       customResidents: randomResidents,
       theme: normalizeTheme(theme),
+      generatePortraits: randomPortraits,
     });
     if (created) {
       setName("");
@@ -324,6 +329,30 @@ export default function HakoniwaHub() {
                 excludeNames={takenNames}
                 available={MAX_RESIDENTS - fixedCount}
               />
+              {randomResidents.length > 0 && (
+                <div className="hakoniwa-create__option">
+                  <label className="hakoniwa-toggle" htmlFor={portraitsId}>
+                    <span>{t("hakoniwa.random.portraitsLabel")}</span>
+                    <input
+                      id={portraitsId}
+                      type="checkbox"
+                      className="hakoniwa-toggle__input"
+                      checked={randomPortraits}
+                      onChange={(event) =>
+                        setRandomPortraits(event.target.checked)
+                      }
+                    />
+                    <span className="hakoniwa-toggle__switch" aria-hidden />
+                  </label>
+                  <p className="hakoniwa-note">
+                    {randomPortraits
+                      ? t("hakoniwa.random.portraitsOn", {
+                          count: randomResidents.length * 2,
+                        })
+                      : t("hakoniwa.random.portraitsOff")}
+                  </p>
+                </div>
+              )}
 
               <div className="hakoniwa-create__option">
                 <HakoniwaThemePicker value={theme} onChange={setTheme} />

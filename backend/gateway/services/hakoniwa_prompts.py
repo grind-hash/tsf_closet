@@ -68,6 +68,7 @@ from .hakoniwa_logic import (
     resident_name,
     resident_text,
     swap_partner_id,
+    transform_layer,
 )
 from .session_request_prompts import ADULT_CONTENT_RULE
 
@@ -387,11 +388,36 @@ def current_appearance_summary(
         description = str(transformation.get("description") or "")[
             :HAKONIWA_TRANSFORM_DESC_PROMPT_MAX
         ]
-        if transformation.get("kind") == "reality":
-            return (
-                f"the look that this world's common sense gives them ('{description}')"
+        summary = (
+            f"the look that this world's common sense gives them ('{description}')"
+            if transformation.get("kind") == "reality"
+            else f"a look transformed into: '{description}'"
+        )
+        # 変身より後に有効にした掟の装いは、変身の上に重ねて描かせる(体や髪は変身のまま)
+        layer = transform_layer(state, resident)
+        layered = _rule_look_summary(state, layer["kind"]) if layer else None
+        if layered:
+            summary += (
+                f", and on top of that now {layered}, which replaces the clothing "
+                "while the transformed body, face and hair stay (the rule's look is "
+                "everyday common sense here)"
             )
-        return f"a look transformed into: '{description}'"
+        return summary
+    if kind in ("combo", "rule"):
+        return _rule_look_summary(state, kind)
+    if kind == "memo":
+        tags = str((active_memo_look(state) or {}).get("tags") or "")
+        return (
+            "the look that this world's reality (the player's memo) gives everyone"
+            f"{_tags_note(tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX])}"
+        )
+    if kind == "dress":
+        return "wearing a dress"
+    return None
+
+
+def _rule_look_summary(state: dict[str, Any], kind: str) -> str | None:
+    """掟が決める姿(combo / rule / dress)の説明。"""
     if kind == "combo":
         combo = active_combo(state) or {"rule_ids": [], "includes_dress": False}
         names = " and ".join(f"'{rule['name']}'" for rule in _look_rules(state, kind))
@@ -406,14 +432,9 @@ def current_appearance_summary(
                 f"a look set by the rule '{rules[-1]['name']}'"
                 f"{_tags_note(tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX])}"
             )
-    if kind == "memo":
-        tags = str((active_memo_look(state) or {}).get("tags") or "")
-        return (
-            "the look that this world's reality (the player's memo) gives everyone"
-            f"{_tags_note(tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX])}"
-        )
+        return None
     if kind == "dress":
-        return "wearing a dress"
+        return "wearing a dress (the dress rule)"
     return None
 
 

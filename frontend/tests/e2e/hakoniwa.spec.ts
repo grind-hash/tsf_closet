@@ -74,8 +74,14 @@ async function mockHakoniwa(
     webSearch?: boolean;
     webSearchConfigured?: boolean;
     furnishedRooms?: boolean;
-    /** 送られた本文を記録する(世界の作成・設定) */
-    recorded?: { create?: Record<string, unknown>; settings: unknown[] };
+    /** 送られた本文を記録する(世界の作成・設定・立ち絵の生成「住民 id:variant」) */
+    recorded?: {
+      create?: Record<string, unknown>;
+      settings: unknown[];
+      avatars?: string[];
+    };
+    /** 葵が変身していて、その後に有効にしたドレスの掟を重ねられる状態で始める */
+    layeredDress?: boolean;
     /** 世界を作った直後の開幕を流す(既定は流さない: 開幕が画面を覆うため) */
     opening?: boolean;
   } = {},
@@ -150,6 +156,16 @@ async function mockHakoniwa(
         name: "書斎",
         background_url: "/hakoniwa-assets/area_study.png",
       },
+      {
+        id: "kitchen",
+        name: "台所",
+        background_url: "/hakoniwa-assets/location_kitchen.png",
+      },
+      {
+        id: "park",
+        name: "公園",
+        background_url: "/hakoniwa-assets/location_park.png",
+      },
     ],
     areas: [
       area("living", "リビング", "room.png", [
@@ -197,6 +213,21 @@ async function mockHakoniwa(
     world_memo: "",
     intervention: { selected: "watch", choices: ["watch", "nudge", "rewrite"] },
   };
+  if (options.layeredDress) {
+    const aoi = world.residents[0];
+    const knit = {
+      description: "ニットのセーターに着替える",
+      tags: "1girl, knit sweater",
+      image: "tf_aoi.png",
+      image_url: "/hakoniwa-assets/avatar_aoi.png",
+      day: 1,
+    };
+    aoi.transformation = knit;
+    aoi.transformation_history = [knit];
+    aoi.display_kind = "transform";
+    aoi.layered_look = { kind: "dress", names: ["ドレスの掟"], ready: false };
+    world.active_rules = ["dress"];
+  }
   if (options.furnishedRooms) {
     world.residents.push(resident("tamako", "大島 珠子"), {
       ...resident("shiori", "瀬戸 栞"),
@@ -345,13 +376,30 @@ async function mockHakoniwa(
     }
     if (path.endsWith("/avatar")) {
       const id = path.split("/").at(-2);
+      const variant = route.request().postDataJSON().variant;
+      options.recorded?.avatars?.push(`${id}:${variant}`);
       const target = world.residents.find((item) => item.id === id);
-      if (target) {
+      if (target && variant === "dress") {
+        target.dress_avatar_url = "/hakoniwa-assets/avatar_aoi_dress.png";
+      } else if (target) {
         target.avatar_url = "/hakoniwa-assets/avatar_aoi.png";
         target.display_avatar_url = target.avatar_url;
         target.own_avatar_url = target.avatar_url;
       }
       await route.fulfill({ json: { world, cost_usd: null } });
+      return;
+    }
+    if (path.endsWith("/layered-look")) {
+      const id = path.split("/").at(-2);
+      const target = world.residents.find((item) => item.id === id);
+      if (target?.layered_look) {
+        target.layered_look = { ...target.layered_look, ready: true };
+        target.display_kind = target.layered_look.kind;
+        target.display_avatar_url = "/hakoniwa-assets/avatar_aoi_dress.png";
+      }
+      await route.fulfill({
+        json: { world, generated: 1, failed: 0, cost_usd: null },
+      });
       return;
     }
     if (path.endsWith("/day")) {
@@ -1394,8 +1442,13 @@ test("開幕と、掟を切り替えた直後の住民の反応", async ({ page 
 });
 
 test("おまかせの住民・実験テーマ・立ち絵のまとめて生成", async ({ page }) => {
-  const recorded: { create?: Record<string, unknown>; settings: unknown[] } = {
-    settings: [],
+  const recorded = {
+    settings: [] as unknown[],
+    avatars: [] as string[],
+  } as {
+    create?: Record<string, unknown>;
+    settings: unknown[];
+    avatars: string[];
   };
   await mockHakoniwa(page, true, 0, { recorded });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1419,6 +1472,15 @@ test("おまかせの住民・実験テーマ・立ち絵のまとめて生成",
   await expect(items).toHaveCount(1);
   await expect(page.getByRole("button", { name: "組み直す" })).toBeVisible();
 
+  // 作ったあとの立ち絵の生成は既定オン(枚数を出す)。ここではオフにして、あとからまとめて作る
+  const portraits = page.getByRole("checkbox", {
+    name: "作ったあとに立ち絵とドレス姿も生成する",
+  });
+  await expect(portraits).toBeChecked();
+  await expect(page.getByText("（2枚）")).toBeVisible();
+  await portraits.uncheck();
+  await expect(page.getByText("立ち絵の無いまま作ります。")).toBeVisible();
+
   // 実験テーマ: プリセットを選ぶと説明が出る
   await page.getByLabel("実験テーマ").selectOption("dress");
   await expect(
@@ -1441,6 +1503,7 @@ test("おまかせの住民・実験テーマ・立ち絵のまとめて生成",
   expect(
     (created.custom_residents as { name: string }[]).map((item) => item.name),
   ).toEqual(["水野 澪"]);
+  expect(recorded.avatars).toEqual([]);
 
   // 立ち絵の無い住民の姿をまとめて生成(確認してから1人ずつ)
   await page.getByRole("tab", { name: "住民", exact: true }).click();
@@ -1474,6 +1537,67 @@ test("おまかせの住民・実験テーマ・立ち絵のまとめて生成",
   expect(recorded.settings.at(-1)).toMatchObject({
     experiment_theme: { preset_id: null, text: "みんなが猫好きになる" },
   });
+});
+
+test("おまかせの住民の立ち絵とドレス姿を、作った直後に開幕のあいだに順に生成する", async ({
+  page,
+}) => {
+  const recorded = {
+    settings: [] as unknown[],
+    avatars: [] as string[],
+  };
+  await mockHakoniwa(page, true, 0, { recorded, opening: true });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+
+  await page.getByRole("button", { name: /^高度な設定/ }).click();
+  await page.getByLabel("人数").selectOption("2");
+  await page.getByRole("button", { name: "おまかせで組む" }).click();
+  await expect(page.locator(".hakoniwa-random__item")).toHaveCount(2);
+  await expect(
+    page.getByText("世界を作ったら、開幕のあいだに1人ずつ生成します（4枚）。"),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  const opening = page.getByTestId("hakoniwa-opening");
+  await expect(opening).toBeVisible();
+  // 1人ずつ、通常の姿 → ドレス姿の順(並列にしない)
+  await expect
+    .poll(() => recorded.avatars)
+    .toEqual([
+      "custom_0:base",
+      "custom_0:dress",
+      "custom_1:base",
+      "custom_1:dress",
+    ]);
+  // できた住民から庭に並ぶ(はじめからいる2人＋おまかせの2人)
+  await expect(opening.locator(".hakoniwa-opening__lineup img")).toHaveCount(4);
+  await expect(opening.locator(".hakoniwa-opening__status")).toHaveCount(0);
+});
+
+test("変身より後に有効にした掟の姿を、変身の上に重ねる", async ({ page }) => {
+  await mockHakoniwa(page, true, 0, { layeredDress: true });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/hakoniwa");
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await expect(page.locator(".hakoniwa-stage__canvas canvas")).toHaveCount(1);
+
+  await page.getByRole("tab", { name: "住民", exact: true }).click();
+  await page.getByRole("button", { name: /高瀬 葵/ }).click();
+  const layered = page.getByTestId("hakoniwa-layered-look");
+  await expect(layered).toContainText(
+    "変身より後に有効にした掟の姿（「ドレスの掟」）を、この変身の上に重ねられます",
+  );
+  await layered.getByRole("button", { name: "掟の姿を重ねる" }).click();
+  await expect(layered).toContainText(
+    "変身の上に、掟の姿（「ドレスの掟」）を重ねています。",
+  );
+  await expect(
+    layered.getByRole("button", { name: "重ねた姿を描き直す" }),
+  ).toBeVisible();
+  const states = page.locator(".hakoniwa-resident__states");
+  await expect(states).toContainText("変身中");
+  await expect(states).toContainText("ドレス");
 });
 
 test("観察記録: 達成の通知と、実績画面の「箱庭」の絞り込み", async ({

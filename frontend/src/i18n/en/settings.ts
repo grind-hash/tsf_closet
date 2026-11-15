@@ -86,9 +86,12 @@ export const settings = {
   hakoniwaDissonance: "Use world strangeness",
   hakoniwaDissonanceDesc:
     "Rule switches and transformations make residents notice the rewrites (investigation and the confrontation happen only in Unseen presence worlds). You can also switch it when creating a world.",
+  hakoniwaRandomPortraits: "Generate portraits for random residents",
+  hakoniwaRandomPortraitsDesc:
+    "When a world has random residents, their portrait and dress look are generated one resident at a time during the opening (two images each). You can also switch it under Advanced settings when creating a world.",
   hakoniwaOpening: "Play the opening when a world is created",
   hakoniwaOpeningDesc:
-    'Right after you create a world, its residents and "You and the residents" are introduced one scene at a time in the ADV window (click to advance; you can skip). You can replay it anytime from each world\'s Settings tab.',
+    'Right after you create a world, a full-screen opening introduces its residents and "You and the residents" one scene at a time (click to advance; you can skip). You can replay it anytime from each world\'s Settings tab.',
   hakoniwaOpeningGuide: "Include how to play in the opening",
   hakoniwaOpeningGuideFirst: "First world only",
   hakoniwaOpeningGuideFirstDesc:
