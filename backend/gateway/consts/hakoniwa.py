@@ -593,11 +593,12 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
             "ja": {
                 "name": "九条 薫",
                 "pronoun": "僕",
-                "age": "20代前半",
-                "job": "新住民（求職中）",
+                "age": "20歳",
+                "job": "大学1年生",
                 "personality": (
-                    "引っ越してきたばかりの、中性的な顔立ちの青年。好奇心旺盛で、"
-                    "星屑荘の掟や習慣に興味津々。"
+                    "中性的な顔立ちの青年。地元にいた頃、気になったことを突き詰めて調べるあまり"
+                    "受験勉強が手につかず一浪した。合格して大学入学を機に星屑荘へ越してきた"
+                    "ばかりで、好奇心旺盛に掟や習慣を知りたがる。"
                 ),
                 "greetings": [
                     "あ、こんにちは！星屑荘って、毎日何か起きてて面白いですね",
@@ -608,11 +609,11 @@ HAKONIWA_PRESET_RESIDENTS: list[dict[str, Any]] = [
             "en": {
                 "name": "Kaoru Kujo",
                 "pronoun": "I",
-                "age": "early 20s",
-                "job": "new resident (job hunting)",
+                "age": "20 years old",
+                "job": "first-year university student",
                 "personality": (
-                    "A young man with androgynous looks who just moved in. Very "
-                    "curious, especially about the house's rules and customs."
+                    "Androgynous young man. Back home his curiosities cost him a year of "
+                    "exam retakes; he just moved in for university."
                 ),
                 "greetings": [
                     "Oh, hi! Something happens at Stardust House every day, it's so fun.",

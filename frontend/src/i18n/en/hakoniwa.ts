@@ -35,7 +35,9 @@ export const hakoniwa = {
     dayAndResidents: "Day {{day}} · {{count}} residents · {{presence}}",
     createHeading: "Create a new world",
     nameLabel: "World name",
-    namePlaceholder: "e.g. Stardust House",
+    namePlaceholder: "e.g. Stardust House, second run",
+    nameNote:
+      "A name to tell your worlds apart in the list. The story always takes place at Stardust House, the boarding house.",
     defaultName: "Stardust House",
     presetsHeading: "Residents of Stardust House",
     presetsNote: "Click to move a resident in or out.",

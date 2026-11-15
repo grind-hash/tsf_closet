@@ -218,6 +218,11 @@
   font-size: 0.9rem;
 }
 
+/* 欄のすぐ下の説明(欄との間を詰める) */
+.hakoniwa-field__note {
+  margin-top: -4px;
+}
+
 .hakoniwa-field input,
 .hakoniwa-field textarea,
 .hakoniwa-field select,

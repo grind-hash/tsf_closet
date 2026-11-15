@@ -60,6 +60,7 @@ export default function HakoniwaHub() {
   // 設定画面「AI箱庭」の新しい世界の既定(住民とあなた・違和感は、ここで変えられる)
   const defaults = settingsState.hakoniwaPreferences;
   const nameId = useId();
+  const nameNoteId = useId();
   const dissonanceId = useId();
   const portraitsId = useId();
   const advancedId = useId();
@@ -196,9 +197,14 @@ export default function HakoniwaHub() {
               value={name}
               maxLength={WORLD_NAME_MAX}
               placeholder={t("hakoniwa.hub.namePlaceholder")}
+              aria-describedby={nameNoteId}
               onChange={(event) => setName(event.target.value)}
             />
           </label>
+          {/* 世界の名前は一覧での呼び名。物語の舞台(下宿の名前)は変わらない */}
+          <p id={nameNoteId} className="hakoniwa-note hakoniwa-field__note">
+            {t("hakoniwa.hub.nameNote")}
+          </p>
 
           <h3>{t("hakoniwa.hub.presetsHeading")}</h3>
           <p className="hakoniwa-note">{t("hakoniwa.hub.presetsNote")}</p>

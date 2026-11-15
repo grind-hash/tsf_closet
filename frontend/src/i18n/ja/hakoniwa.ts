@@ -36,7 +36,9 @@ export const hakoniwa = {
     dayAndResidents: "{{day}}日目・住民{{count}}人・{{presence}}",
     createHeading: "新しい世界をつくる",
     nameLabel: "世界の名前",
-    namePlaceholder: "例: 星屑荘",
+    namePlaceholder: "例: 星屑荘・二周目",
+    nameNote:
+      "一覧で見分けるための名前です。物語の舞台は、いつも下宿「星屑荘」です。",
     defaultName: "星屑荘",
     presetsHeading: "星屑荘の住民",
     presetsNote: "クリックで入居・退去を切り替えます。",
