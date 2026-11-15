@@ -1481,6 +1481,27 @@
   object-fit: cover;
 }
 
+/*
+ * 場面の絵は人物が切れないよう全体を収める(画面と比率が違っても頭や足を切らない)。
+ * メッセージ窓は上に重なるので、全体を見たいときは窓を隠す。縦に余る画面(スマホの縦向き
+ * など)では上に寄せ、下にあるメッセージ窓に絵が隠れないようにする(横長の画面では中央のまま)
+ */
+.hakoniwa-adv__background.is-scene {
+  object-fit: contain;
+  object-position: center top;
+}
+
+/* 場面の絵の余白に敷く、同じ絵のぼかし(縁が透けないよう画面より少し広げる) */
+.hakoniwa-adv__scene-fill {
+  position: absolute;
+  inset: -48px;
+  width: calc(100% + 96px);
+  height: calc(100% + 96px);
+  object-fit: cover;
+  filter: blur(28px) brightness(0.45) saturate(1.1);
+  pointer-events: none;
+}
+
 .hakoniwa-adv__cast {
   position: absolute;
   inset: 0 0 0 0;

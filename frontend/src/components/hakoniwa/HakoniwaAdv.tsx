@@ -233,9 +233,18 @@ export default function HakoniwaAdv({ bgm }: HakoniwaAdvProps) {
       onKeyDown={handleKeyDown}
       data-testid="hakoniwa-adv"
     >
+      {/* 場面の絵は切らずに全体を見せ、余った場所には同じ絵をぼかして敷く */}
+      {sceneUrl && (
+        <img
+          className="hakoniwa-adv__scene-fill"
+          src={sceneUrl}
+          alt=""
+          aria-hidden
+        />
+      )}
       {backgroundUrl && (
         <img
-          className="hakoniwa-adv__background"
+          className={`hakoniwa-adv__background${sceneUrl ? " is-scene" : ""}`}
           src={backgroundUrl}
           alt=""
           onError={() => {
