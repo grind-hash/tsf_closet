@@ -55,9 +55,9 @@ class _Stubs:
         self.branch_error: SessionBranchError | None = None
         self.nsfw_modes: list[bool] = []
         self.pool: list[Customer] = [
-            Customer("template", "yuya", "水瀬ユウヤ"),
-            Customer("template", "emi", "星野エミ"),
-            Customer("custom", "custom-1", "サクラ"),
+            Customer("template", "yuya", "水瀬ユウヤ", "man"),
+            Customer("template", "emi", "星野エミ", "woman"),
+            Customer("custom", "custom-1", "サクラ", "woman"),
         ]
 
 
@@ -100,6 +100,7 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
         clue_level,
         previous_visit,
         sensitive,
+        target_body=None,
     ):
         state.request_calls.append(
             {
@@ -111,6 +112,7 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
                 "clue_level": clue_level,
                 "previous_visit": previous_visit,
                 "sensitive": sensitive,
+                "target_body": target_body,
             }
         )
         view = {
@@ -274,6 +276,7 @@ async def test_start_visit_links_session_with_salon_request_limits(stubs) -> Non
             "clue_level": "normal",
             "previous_visit": None,
             "sensitive": False,
+            "target_body": None,
         }
     ]
     assert stubs.nsfw_modes == [False]
@@ -1081,3 +1084,44 @@ async def test_extra_turn_needs_used_up_turns_and_enough_cash(
     with pytest.raises(SalonError) as poor:
         await salon_service.buy_extra_turn(run["id"], visit_id)
     assert poor.value.code == "insufficient_cash"
+
+
+# --- 来客の種類 ---
+
+
+@pytest.mark.asyncio
+async def test_customer_gender_limits_the_bookings(stubs) -> None:
+    run = await salon_service.create_run("店", customer_gender="man")
+
+    assert run["customer_gender"] == "man"
+    assert run["desired_body"] == "any"
+    assert {visit["customer"]["id"] for visit in _booked(run)} == {"yuya"}
+
+
+@pytest.mark.asyncio
+async def test_settings_change_only_the_given_items(stubs) -> None:
+    run = await salon_service.create_run("店", sensitive=True)
+
+    updated = await salon_service.update_settings(run["id"], desired_body="female")
+
+    assert updated["sensitive"] is True
+    assert updated["desired_body"] == "female"
+    assert updated["customer_gender"] == "any"
+    with pytest.raises(SalonError) as error:
+        await salon_service.update_settings(run["id"], customer_gender="robot")
+    assert error.value.code == "invalid_customer_gender"
+
+
+@pytest.mark.asyncio
+async def test_desired_body_reaches_the_request(stubs) -> None:
+    run = await salon_service.create_run("店", desired_body="female")
+    visit = _booked(run)[0]
+
+    await salon_service.start_visit(run["id"], visit["id"], language="ja")
+
+    assert stubs.request_calls[0]["target_body"] == "female"
+
+
+@pytest.mark.asyncio
+async def test_customer_counts_by_gender(stubs) -> None:
+    assert await salon_service.customer_counts() == {"any": 3, "man": 1, "woman": 2}

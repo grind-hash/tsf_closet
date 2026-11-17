@@ -20,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from ..consts.adventure_bgm import get_bgm_keys
+from ..consts.adventure_bgm import coerce_bgm_key, get_bgm_keys
 from ..consts.adventure_setup import SCENARIO_CONSTRAINTS_MAX_ITEMS
 from ..consts.companion_avatar import (
     normalize_avatar_expression,
@@ -296,11 +296,7 @@ class AdventureVisualState(BaseModel):
 
 def _coerce_bgm_key(value: Any) -> str | None:
     """BGMキーを検証エラー→修復リトライへ落とさず None(=据え置き)に劣化させる。"""
-    if isinstance(value, str):
-        candidate = value.strip().lower()
-        if candidate in get_bgm_keys():
-            return candidate
-    return None
+    return coerce_bgm_key(value, get_bgm_keys())
 
 
 # 選曲理由の表示上限。プロンプトの "200 characters or fewer" と揃える

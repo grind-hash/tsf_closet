@@ -13,6 +13,9 @@ from ..consts.salon import (
 )
 from .session import SessionRequestResponse
 
+CustomerGender = Literal["any", "man", "woman"]
+DesiredBody = Literal["any", "female", "male"]
+
 
 class SalonCreateRequest(BaseModel):
     name: str = Field(..., max_length=SALON_NAME_MAX, description="サロンの名前")
@@ -27,13 +30,35 @@ class SalonCreateRequest(BaseModel):
         SALON_DEFAULT_SEASON_LENGTH,
         description="1 期の長さ(short=4 週 / standard=12 週)。開業資金と開店時の評判も変わる",
     )
+    customer_gender: CustomerGender = Field(
+        "any", description="来客の種類: お客様の性別(any は絞らない)"
+    )
+    desired_body: DesiredBody = Field(
+        "any", description="来客の種類: お客様が願う体(any は生成が選ぶ)"
+    )
 
 
 class SalonSettingsRequest(BaseModel):
-    sensitive: bool = Field(
-        ...,
+    """オーナー室の設定。指定した項目だけを変える。"""
+
+    sensitive: bool | None = Field(
+        None,
         description="過激施術(成人向けの依頼)。NSFW モードが ON のときだけ効く",
     )
+    customer_gender: CustomerGender | None = Field(
+        None, description="お客様の性別。次の週の予約から効く"
+    )
+    desired_body: DesiredBody | None = Field(
+        None, description="お客様が願う体。次に接客を始めるお客様から効く"
+    )
+
+
+class SalonCustomerCountsResponse(BaseModel):
+    """来客の種類で選べるお客様の人数(性別ごと)。"""
+
+    any: int
+    man: int
+    woman: int
 
 
 class SalonLanguageRequest(BaseModel):
@@ -132,6 +157,8 @@ class SalonRunResponse(BaseModel):
     sensitive: bool = Field(
         False, description="過激施術の設定。NSFW モードが OFF の間は効かない"
     )
+    customer_gender: str = Field("any", description="来客の種類: お客様の性別")
+    desired_body: str = Field("any", description="来客の種類: お客様が願う体")
     weekly_fixed_cost: int
     weekly_salary: int
     base_price: int

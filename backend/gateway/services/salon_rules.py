@@ -53,6 +53,8 @@ class Customer:
     source: str
     id: str
     name: str
+    # 元の性別(man / woman / other)。来客の種類で予約を絞るときに使う
+    gender: str = "other"
 
 
 def clamp_reputation(value: int) -> int:
@@ -65,6 +67,13 @@ def bookings_count(reputation: int) -> int:
         SALON_BOOKINGS_MAX,
         1 + max(0, int(reputation)) // SALON_BOOKINGS_REPUTATION_STEP,
     )
+
+
+def filter_customers(pool: list[Customer], gender: str | None) -> list[Customer]:
+    """来客の種類(お客様の性別)で予約に入りうるお客様を絞る。any なら絞らない。"""
+    if gender not in ("man", "woman"):
+        return list(pool)
+    return [item for item in pool if item.gender == gender]
 
 
 def pick_customers(

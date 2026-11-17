@@ -2,11 +2,13 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import type {
+  SalonCustomerType,
   SalonDifficulty,
   SalonRun,
   SalonSeasonLength,
 } from "../../apis/salon";
 import {
+  SALON_DEFAULT_CUSTOMER_TYPE,
   SALON_DEFAULT_DIFFICULTY,
   SALON_DEFAULT_SEASON_LENGTH,
   SALON_DIFFICULTIES,
@@ -21,6 +23,7 @@ import { getSalonRunPath, ROUTES } from "../../routes";
 import { formatYen } from "../../utils/salonView";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import SalonCustomerTypeFields from "./SalonCustomerTypeFields";
 import type { SalonOfficeLocationState } from "./SalonOffice";
 
 /** サロン一覧と開店(/salon) */
@@ -42,6 +45,11 @@ export default function SalonHub() {
     SALON_DEFAULT_SEASON_LENGTH,
   );
   const seasonTouchedRef = useRef(false);
+  // 来客の種類も、直近に遊んだサロンの設定を引き継ぐ
+  const [customerType, setCustomerType] = useState<SalonCustomerType>(
+    SALON_DEFAULT_CUSTOMER_TYPE,
+  );
+  const customerTypeTouchedRef = useRef(false);
   const [deleteTarget, setDeleteTarget] = useState<SalonRun | null>(null);
   const nameId = useId();
   const difficultyLabelId = useId();
@@ -64,12 +72,24 @@ export default function SalonHub() {
     }
   }, [latestSeasonLength]);
 
+  const latestCustomerGender = runs[0]?.customer_gender;
+  const latestDesiredBody = runs[0]?.desired_body;
+  useEffect(() => {
+    if (customerTypeTouchedRef.current) return;
+    if (!latestCustomerGender || !latestDesiredBody) return;
+    setCustomerType({
+      customer_gender: latestCustomerGender,
+      desired_body: latestDesiredBody,
+    });
+  }, [latestCustomerGender, latestDesiredBody]);
+
   const handleOpen = async () => {
     const created = await createRun(
       name.trim(),
       difficulty,
       sensitive,
       seasonLength,
+      customerType,
     );
     if (created) {
       setName("");
@@ -173,6 +193,14 @@ export default function SalonHub() {
               {t(`salon.open.seasonDesc.${seasonLength}`)}
             </p>
           </div>
+          <SalonCustomerTypeFields
+            variant="open"
+            value={customerType}
+            onChange={(change) => {
+              customerTypeTouchedRef.current = true;
+              setCustomerType((current) => ({ ...current, ...change }));
+            }}
+          />
           <label className="salon-toggle">
             <span className="salon-toggle__info">
               <strong>{t("salon.office.sensitive")}</strong>

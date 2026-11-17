@@ -9,7 +9,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from gateway.consts.character_chat import APP_GUIDE_MAX_ITEMS
+from gateway.consts.character_chat import (
+    APP_GUIDE_DETAIL_ITEM_MAX,
+    APP_GUIDE_MAX_ITEMS,
+)
 from gateway.services.character_chat_service import CharacterChatError
 
 router_module = importlib.import_module("gateway.routes.character_chat_router")
@@ -186,6 +189,7 @@ def test_message_stream_forwards_real_world_flags(
                     "title": "サロン経営",
                     "desc": "12週のあいだサロンを経営します。",
                     "note": None,
+                    "details": [],
                     "available": False,
                 }
             ],
@@ -199,6 +203,44 @@ def test_message_rejects_too_many_app_guide_items(client: TestClient) -> None:
     response = client.post(
         "/api/character-chat/threads/t1/messages/stream",
         json={"content": "やあ", "app_guide": [feature] * (APP_GUIDE_MAX_ITEMS + 1)},
+    )
+    assert response.status_code == 422
+
+
+def test_message_accepts_guide_details_within_limits(
+    client: TestClient, monkeypatch
+) -> None:
+    """「くわしく見る」の細かい仕様は見出しごとに受け取り、項目の長さには上限がある。"""
+
+    async def fake_stream(*, thread_id, content, **kwargs):
+        yield {"event": "complete", "data": {}}
+
+    monkeypatch.setattr(
+        router_module.character_chat_service, "stream_message", fake_stream
+    )
+    feature = {
+        "id": "hakoniwa",
+        "title": "AI箱庭",
+        "desc": "説明",
+        "details": [{"heading": "掟", "items": ["掟は3枚まで"]}],
+    }
+    with client.stream(
+        "POST",
+        "/api/character-chat/threads/t1/messages/stream",
+        json={"content": "やあ", "app_guide": [feature]},
+    ) as response:
+        assert response.status_code == 200
+        "".join(response.iter_text())
+
+    too_long = {
+        **feature,
+        "details": [
+            {"heading": "掟", "items": ["あ" * (APP_GUIDE_DETAIL_ITEM_MAX + 1)]}
+        ],
+    }
+    response = client.post(
+        "/api/character-chat/threads/t1/messages/stream",
+        json={"content": "やあ", "app_guide": [too_long]},
     )
     assert response.status_code == 422
 

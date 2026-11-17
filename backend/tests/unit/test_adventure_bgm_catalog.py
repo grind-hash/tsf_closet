@@ -89,6 +89,35 @@ def test_salon_tracks_are_not_offered_to_the_adventure_llm(
     ]
 
 
+def test_hakoniwa_track_is_not_offered_and_events_skip_endings(
+    catalog_path: Path,
+) -> None:
+    write_catalog(
+        catalog_path,
+        tracks=[
+            {"key": "daily", "file": "daily.ogg", "description": "everyday scenes"},
+            {
+                "key": "ending_success",
+                "file": "end.ogg",
+                "description": "the concluding turn only",
+            },
+            {
+                "key": "hakoniwa_daily",
+                "file": "hakoniwa.ogg",
+                "description": "AI miniature garden only",
+                "scope": "hakoniwa",
+            },
+        ],
+    )
+
+    # 箱庭のふだんの曲は LLM の候補にしない。箱庭の出来事は結末の曲も選ばない
+    assert adventure_bgm.get_bgm_keys() == ("daily", "ending_success")
+    assert adventure_bgm.get_hakoniwa_event_bgm_keys() == ("daily",)
+    assert "ending_success" not in adventure_bgm.get_hakoniwa_bgm_prompt_guide()
+    assert adventure_bgm.coerce_bgm_key(" Daily ", ("daily",)) == "daily"
+    assert adventure_bgm.coerce_bgm_key("hakoniwa_daily", ("daily",)) is None
+
+
 def test_salon_sound_effects_are_not_offered_to_the_adventure_llm(
     catalog_path: Path,
 ) -> None:

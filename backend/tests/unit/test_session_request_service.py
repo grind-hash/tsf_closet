@@ -1362,3 +1362,58 @@ def test_experience_bonus_is_added_and_capped() -> None:
     assert with_experience(57, True) == 72
     assert with_experience(57, False) == 57
     assert with_experience(95, True) == 100
+
+
+# --- サロンの来客の種類: 願う体 ---
+
+
+@pytest.mark.asyncio
+async def test_create_request_follows_the_salon_target_body(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    prompts = _fake_generation_with_prompts(
+        monkeypatch, [json.dumps(_SENSITIVE_GENERATED)]
+    )
+
+    await session_request_service.create_request(
+        "s1", language="ja", sensitive=True, target_body="female"
+    )
+
+    system, user = prompts[0]
+    payload = json.loads(user)
+    # 願う体は Python が決め、行為の候補もその体のものだけにする
+    assert {item["target_body"] for item in payload["desire_candidates"]} == {"female"}
+    assert payload["target_body"] == "female"
+    assert "target_body is given" in system
+
+
+@pytest.mark.asyncio
+async def test_returning_customer_ignores_the_target_body(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    calls = _fake_generation(monkeypatch, [_GENERATED])
+
+    await session_request_service.create_request(
+        "s1",
+        language="ja",
+        previous_visit={"wish": "ふんわりした姿に", "review": "また来ます"},
+        target_body="male",
+    )
+
+    assert "target_body" not in json.loads(calls[0])
+
+
+def test_all_ages_request_prompt_carries_the_target_body() -> None:
+    profile = {"name": "ユウヤ", "gender": "man"}
+
+    system, user = build_request_generation_prompt(
+        profile, "1boy", "ja", target_body="female"
+    )
+    plain_system, plain_user = build_request_generation_prompt(profile, "1boy", "ja")
+
+    assert json.loads(user)["target_body"] == "female"
+    assert "turned into the other sex" in system
+    assert "target_body" not in json.loads(plain_user)
+    assert "target_body is given" not in plain_system

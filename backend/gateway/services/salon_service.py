@@ -24,8 +24,12 @@ from sqlalchemy import select
 from ..consts.salon import (
     SALON_BASE_PRICE,
     SALON_CLUE_LEVELS,
+    SALON_CUSTOMER_GENDERS,
+    SALON_DEFAULT_CUSTOMER_GENDER,
+    SALON_DEFAULT_DESIRED_BODY,
     SALON_DEFAULT_DIFFICULTY,
     SALON_DEFAULT_SEASON_LENGTH,
+    SALON_DESIRED_BODIES,
     SALON_DIFFICULTY_INITIAL_CASH,
     SALON_EXTRA_TURN_PRICE,
     SALON_EXTRA_TURNS_MAX,
@@ -50,7 +54,7 @@ from .achievements import (
 from .characters import character_manager
 from .clothing_layers import split_worn_under_layers
 from .cost_tracker import begin_cost_tracking
-from .custom_sessions import list_custom_character_profiles
+from .custom_sessions import list_custom_character_profiles, normalize_gender
 from .game_service import GameServiceError, game_service
 from .preset_sessions import list_salon_preset_customers
 from .salon_prompts import (
@@ -63,6 +67,7 @@ from .salon_rules import (
     bookings_count,
     clamp_reputation,
     declined_reputation_delta,
+    filter_customers,
     keeps_look,
     normalize_season_length,
     pick_customers,
@@ -100,18 +105,47 @@ async def _customer_pool(db: Any) -> list[Customer]:
     """予約に入りうるお客様: 同梱のテンプレートキャラ、保存済みのカスタムキャラ、
     来店する設定で立ち絵のあるキャラクター(キャラクター画面で作ったキャラ)。"""
     pool = [
-        Customer("template", character.id, character.name)
+        Customer(
+            "template",
+            character.id,
+            character.name,
+            normalize_gender(character.gender),
+        )
         for character in character_manager.get_all()
     ]
     pool.extend(
-        Customer("custom", str(profile["id"]), str(profile.get("name") or ""))
+        Customer(
+            "custom",
+            str(profile["id"]),
+            str(profile.get("name") or ""),
+            normalize_gender(profile.get("gender")),
+        )
         for profile in list_custom_character_profiles()
     )
     pool.extend(
-        Customer("preset", item["id"], item["name"])
+        Customer("preset", item["id"], item["name"], item.get("gender") or "other")
         for item in await list_salon_preset_customers(db)
     )
     return pool
+
+
+def _customer_gender(state: dict[str, Any]) -> str:
+    value = state.get("customer_gender")
+    return value if value in SALON_CUSTOMER_GENDERS else SALON_DEFAULT_CUSTOMER_GENDER
+
+
+def _desired_body(state: dict[str, Any]) -> str:
+    value = state.get("desired_body")
+    return value if value in SALON_DESIRED_BODIES else SALON_DEFAULT_DESIRED_BODY
+
+
+def _validate_customer_type(
+    customer_gender: str | None, desired_body: str | None
+) -> None:
+    if customer_gender is not None and customer_gender not in SALON_CUSTOMER_GENDERS:
+        raise SalonError("invalid_customer_gender", "お客様の性別が正しくありません")
+    if desired_body is not None and desired_body not in SALON_DESIRED_BODIES:
+        raise SalonError("invalid_desired_body", "お客様の願う体が正しくありません")
 
 
 def _load_state(run: SalonRun) -> dict[str, Any]:
@@ -248,6 +282,8 @@ def _serialize_run(run: SalonRun, visits: list[SalonVisit]) -> dict[str, Any]:
         "season_start_cash": _season_start_cash(state),
         "seasons": _seasons(state),
         "sensitive": bool(state.get("sensitive", False)),
+        "customer_gender": _customer_gender(state),
+        "desired_body": _desired_body(state),
         "weekly_fixed_cost": SALON_WEEKLY_FIXED_COST,
         "weekly_salary": SALON_WEEKLY_SALARY,
         "base_price": SALON_BASE_PRICE,
@@ -332,10 +368,12 @@ class SalonService:
         """run.week の予約を評判に応じて入れる。
 
         kept は前の週に施術した姿のまま帰ったお客様の来店で、必ず予約に入れ、
-        残りの枠を抽選で埋める。
+        残りの枠を抽選で埋める。抽選は来客の種類(お客様の性別)で絞った中から選ぶ。
         """
         fresh = pick_customers(
-            await _customer_pool(db),
+            filter_customers(
+                await _customer_pool(db), _customer_gender(_load_state(run))
+            ),
             seed=run.seed,
             week=run.week,
             count=bookings_count(run.reputation) - len(kept),
@@ -392,12 +430,16 @@ class SalonService:
         *,
         sensitive: bool = False,
         season_length: str = SALON_DEFAULT_SEASON_LENGTH,
+        customer_gender: str = SALON_DEFAULT_CUSTOMER_GENDER,
+        desired_body: str = SALON_DEFAULT_DESIRED_BODY,
     ) -> dict[str, Any]:
         """開店する。開業資金は期の長さと経営の難易度で決まる。1週目の予約も入れる。
 
         sensitive は過激施術の初期値(開店画面が直近のサロンの設定を引き継いで渡す)。
         season_length は 1 期の長さ(short=4 週 / standard=12 週)。
+        customer_gender / desired_body は来客の種類(お客様の性別と願う体)。
         """
+        _validate_customer_type(customer_gender, desired_body)
         clean_name = " ".join(str(name or "").split())[:SALON_NAME_MAX]
         if not clean_name:
             raise SalonError("empty_name", "サロンの名前を入力してください")
@@ -423,6 +465,8 @@ class SalonService:
                     "difficulty": difficulty,
                     "initial_cash": initial_cash,
                     "sensitive": bool(sensitive),
+                    "customer_gender": customer_gender,
+                    "desired_body": desired_body,
                     "season_length": season_length,
                     "season": 1,
                     "season_start_week": 1,
@@ -441,17 +485,43 @@ class SalonService:
             await db.commit()
         return await self.get_run(run.id)
 
-    async def update_settings(self, run_id: str, *, sensitive: bool) -> dict[str, Any]:
-        """オーナー室の設定を変える。依頼は接客の開始時に作るので、次の接客から効く。"""
+    async def update_settings(
+        self,
+        run_id: str,
+        *,
+        sensitive: bool | None = None,
+        customer_gender: str | None = None,
+        desired_body: str | None = None,
+    ) -> dict[str, Any]:
+        """オーナー室の設定を変える(None の項目は変えない)。
+
+        過激施術と願う体は依頼を作る接客の開始時に読むので、次の接客から効く。
+        お客様の性別は予約を入れるときに読むので、次の週の予約から効く。
+        """
+        _validate_customer_type(customer_gender, desired_body)
         async with async_session_factory() as db:
             run, visits = await self._load(db, run_id)
             self._require_active(run)
             state = _load_state(run)
-            state["sensitive"] = bool(sensitive)
+            if sensitive is not None:
+                state["sensitive"] = bool(sensitive)
+            if customer_gender is not None:
+                state["customer_gender"] = customer_gender
+            if desired_body is not None:
+                state["desired_body"] = desired_body
             run.state_json = json.dumps(state)
             run.updated_at = datetime.now()
             await db.commit()
             return _serialize_run(run, visits)
+
+    async def customer_counts(self) -> dict[str, int]:
+        """来客の種類で選べるお客様の人数(性別ごと)。0 人の性別を選ぶと予約が入らない。"""
+        async with async_session_factory() as db:
+            pool = await _customer_pool(db)
+        return {
+            gender: len(filter_customers(pool, gender))
+            for gender in SALON_CUSTOMER_GENDERS
+        }
 
     async def delete_run(self, run_id: str) -> None:
         async with async_session_factory() as db:
@@ -494,6 +564,7 @@ class SalonService:
             state = _load_state(run)
             difficulty = state.get("difficulty", SALON_DEFAULT_DIFFICULTY)
             sensitive_setting = bool(state.get("sensitive", False))
+            desired_body = _desired_body(state)
             start_history_id = visit.start_history_id
             previous = next(
                 (
@@ -557,6 +628,7 @@ class SalonService:
                 clue_level=SALON_CLUE_LEVELS.get(difficulty),
                 previous_visit=previous_visit,
                 sensitive=adult,
+                target_body=None if desired_body == "any" else desired_body,
             )
         except (GameServiceError, SessionRequestError) as error:
             raise SalonError("start_failed", str(error)) from error

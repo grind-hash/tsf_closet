@@ -991,6 +991,7 @@ class SessionRequestService:
         clue_level: str | None = None,
         previous_visit: dict[str, Any] | None = None,
         sensitive: bool = False,
+        target_body: str | None = None,
     ) -> tuple[dict[str, Any], float]:
         """依頼を生成して保存し、(公開ビュー, API 料金 USD) を返す。
 
@@ -1000,7 +1001,11 @@ class SessionRequestService:
         previous_visit({wish, review})があれば、今の姿を土台にした追加の要望にする。
         sensitive なら成人向けの依頼にする。モデルが応じず JSON にならなければ、同じ
         プロバイダーで全年齢の依頼を作り直し、公開ビューの sensitive_fallback を True にする。
+        target_body(female / male)は願う体(サロンの来客の種類)。前回の姿のまま来た
+        お客様には効かせない(いまの姿の体のまま次を願う)。
         """
+        if target_body not in ("female", "male") or previous_visit is not None:
+            target_body = None
         session = await session_store.get_session_by_id(session_id)
         if session is None:
             raise SessionRequestError("session_not_found", "セッションが見つかりません")
@@ -1032,7 +1037,9 @@ class SessionRequestService:
         motive = pick_sensitive_motive(f"{session_id}:motive")
         desires = (
             pick_sensitive_candidates(
-                sensitive_body_options(
+                (target_body,)
+                if target_body
+                else sensitive_body_options(
                     appearance, returning=previous_visit is not None
                 ),
                 f"{session_id}:desire",
@@ -1051,6 +1058,7 @@ class SessionRequestService:
                 sensitive=adult,
                 desires=desires if adult else None,
                 motive=motive,
+                target_body=target_body,
             )
             return await generate_validated(
                 GeneratedSensitiveRequest if adult else GeneratedRequest,

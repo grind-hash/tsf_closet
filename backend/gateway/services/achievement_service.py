@@ -8,9 +8,11 @@ from typing import Any
 
 from sqlalchemy import desc, func, select
 
+from ..consts.hakoniwa import HAKONIWA_RULE_MAP
 from ..databases.base import sync_session_factory
 from ..databases.models import (
     AchievementCount,
+    HakoniwaWorld,
     History,
     SalonRun,
     Session,
@@ -18,8 +20,16 @@ from ..databases.models import (
     SessionStats,
     UserAchievement,
 )
+from . import hakoniwa_play
 
 GLOBAL_USER_ID = "global_user"
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 class AchievementService:
@@ -118,6 +128,7 @@ class AchievementService:
             )
 
             salon_stats = self._salon_season_stats(session)
+            hakoniwa_stats = self._hakoniwa_stats(session)
 
             latest_stats = session.execute(
                 select(SessionStats)
@@ -139,6 +150,7 @@ class AchievementService:
                 "self_action_count": int(self_action_count or 0),
                 "request_fulfilled_count": int(request_fulfilled_count or 0),
                 **salon_stats,
+                **hakoniwa_stats,
                 "bloom": latest_stats.bloom if latest_stats else 0,
                 "shame": latest_stats.shame if latest_stats else 50,
                 "adaptation": latest_stats.adaptation if latest_stats else 0,
@@ -184,6 +196,82 @@ class AchievementService:
             "salon_hard_success_count": hard_success_count,
             "salon_best_profit": best_profit,
         }
+
+    @staticmethod
+    def _hakoniwa_stats(session: Any) -> dict[str, Any]:
+        """AI箱庭の観察記録の判定に使う数を、すべての世界の状態から集計する。
+
+        出来事・変身・お気に入りは世界の合計、日数・好感度・違和感は世界ごとの最大。
+        有効にした掟・ドレス姿・入れ替わり・違和感の到達点は、世界の observations
+        (保存のたびに積む観測の事実)から読む。
+        """
+        stats: dict[str, Any] = {
+            "hakoniwa_max_day": 0,
+            "hakoniwa_event_count": 0,
+            "hakoniwa_transform_count": 0,
+            "hakoniwa_confrontation_count": 0,
+            "hakoniwa_favorite_count": 0,
+            "hakoniwa_world_count": 0,
+            "hakoniwa_max_affinity": 0,
+            "hakoniwa_max_dissonance": 0,
+            "hakoniwa_all_rules": False,
+            "hakoniwa_custom_rule": False,
+            "hakoniwa_dress_all": False,
+            "hakoniwa_swap": False,
+        }
+        rules_seen: set[str] = set()
+        for state_json in session.execute(select(HakoniwaWorld.state_json)).scalars():
+            try:
+                state = json.loads(state_json or "{}")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(state, dict):
+                continue
+            stats["hakoniwa_world_count"] += 1
+            events = [e for e in state.get("events") or [] if isinstance(e, dict)]
+            residents = [r for r in state.get("residents") or [] if isinstance(r, dict)]
+            # 観測の記録が無い(観察記録より前に保存した)世界も、いまの状態から拾う
+            try:
+                observed = hakoniwa_play.observe(state)["observations"]
+            except Exception:
+                observed = state.get("observations") or {}
+            stats["hakoniwa_max_day"] = max(
+                stats["hakoniwa_max_day"], _as_int(state.get("day"))
+            )
+            stats["hakoniwa_event_count"] += len(events)
+            stats["hakoniwa_transform_count"] += sum(
+                1
+                for event in events
+                if event.get("kind") == "transform" and event.get("change_text")
+            )
+            stats["hakoniwa_confrontation_count"] += sum(
+                1 for event in events if event.get("kind") == "confrontation"
+            )
+            stats["hakoniwa_favorite_count"] += sum(
+                1 for event in events if event.get("favorite")
+            )
+            for resident in residents:
+                for value in (resident.get("affinities") or {}).values():
+                    stats["hakoniwa_max_affinity"] = max(
+                        stats["hakoniwa_max_affinity"], _as_int(value)
+                    )
+            stats["hakoniwa_max_dissonance"] = max(
+                stats["hakoniwa_max_dissonance"],
+                _as_int(observed.get("dissonance_max")),
+                _as_int(state.get("dissonance")),
+            )
+            rules_seen |= {str(item) for item in observed.get("rules_seen") or []}
+            stats["hakoniwa_custom_rule"] = stats["hakoniwa_custom_rule"] or bool(
+                state.get("custom_rules")
+            )
+            dress_seen = {str(item) for item in observed.get("dress_seen") or []}
+            if residents and all(r.get("id") in dress_seen for r in residents):
+                stats["hakoniwa_dress_all"] = True
+            stats["hakoniwa_swap"] = stats["hakoniwa_swap"] or bool(
+                observed.get("swap_seen")
+            )
+        stats["hakoniwa_all_rules"] = set(HAKONIWA_RULE_MAP) <= rules_seen
+        return stats
 
     def save_user_achievement(self, achievement_id: str) -> None:
         with sync_session_factory() as session:

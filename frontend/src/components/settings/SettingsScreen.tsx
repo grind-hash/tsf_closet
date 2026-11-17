@@ -15,6 +15,11 @@ import AvatarModelSettings, {
   type AvatarModelSummary,
 } from "./AvatarModelSettings";
 import CharacterChatRealWorldSettings from "./CharacterChatRealWorldSettings";
+import {
+  HakoniwaDefaultsSetting,
+  HakoniwaOpeningSetting,
+  HakoniwaWebSearchSetting,
+} from "./HakoniwaSettings";
 import Live2dSettings, { type Live2dCoreStatus } from "./Live2dSettings";
 import MemorySettings from "./MemorySettings";
 import SelfProfileEditor from "./SelfProfileEditor";
@@ -108,6 +113,7 @@ export default function SettingsScreen() {
     setExperimentalPromptExpanderEnabled,
     setCharacterChatEnabled,
     setExperimentalSalonEnabled,
+    setExperimentalHakoniwaEnabled,
     setAdventureEnableCompositeScene,
     setPlayMemoryEnabled,
     setEnableSurroundingsImage,
@@ -725,6 +731,9 @@ export default function SettingsScreen() {
       </div>
     ),
     characterChatRealWorld: <CharacterChatRealWorldSettings />,
+    hakoniwaWebSearch: <HakoniwaWebSearchSetting />,
+    hakoniwaDefaults: <HakoniwaDefaultsSetting />,
+    hakoniwaOpening: <HakoniwaOpeningSetting />,
     salon: (
       <div className="settings-screen__item">
         <label className="settings-screen__toggle">
@@ -747,6 +756,34 @@ export default function SettingsScreen() {
             type="checkbox"
             checked={state.experimentalSalonEnabled}
             onChange={(e) => setExperimentalSalonEnabled(e.target.checked)}
+            className="settings-screen__toggle-input"
+          />
+          <span className="settings-screen__toggle-switch" />
+        </label>
+      </div>
+    ),
+    hakoniwa: (
+      <div className="settings-screen__item">
+        <label className="settings-screen__toggle">
+          <div className="settings-screen__toggle-info">
+            <span className="settings-screen__item-label">
+              {t("settings.experimentalHakoniwa")}
+              <span
+                className="feature-chip-experimental"
+                data-feature-version="v0.12.0"
+                style={{ marginLeft: "0.5rem" }}
+              >
+                Experimental
+              </span>
+            </span>
+            <span className="settings-screen__item-desc">
+              {t("settings.experimentalHakoniwaDesc")}
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            checked={state.experimentalHakoniwaEnabled}
+            onChange={(e) => setExperimentalHakoniwaEnabled(e.target.checked)}
             className="settings-screen__toggle-input"
           />
           <span className="settings-screen__toggle-switch" />
@@ -1087,6 +1124,28 @@ export default function SettingsScreen() {
         title={t("settings.experimentalSection")}
       >
         {renderItems("experimental")}
+      </SettingsSection>
+
+      {/* AI箱庭: 新しい世界の既定と開幕。機能が OFF でも隠さず、有効にすると使われると添える */}
+      <SettingsSection
+        category="hakoniwa"
+        title={
+          <>
+            {t("settings.hakoniwaSection")}
+            <span
+              className="feature-chip-experimental"
+              data-feature-version="v0.12.0"
+              style={{ marginLeft: "0.5rem" }}
+            >
+              Experimental
+            </span>
+          </>
+        }
+      >
+        <p className="settings-screen__section-note">
+          {t("settings.hakoniwaSectionNote")}
+        </p>
+        {renderItems("hakoniwa")}
       </SettingsSection>
 
       {/* 3Dモデル(VRM): TSFシナリオの対面会話モードで使う。モデルが増えると

@@ -5,44 +5,17 @@
  * TAVILY_API_KEY / WEATHER_LOCATION が無いと ON でも調べないため、その場合は
  * 項目の下に理由を添える。スイッチはどの状態でも操作できる。
  * Web 検索を ON にするときは利用条件(要約と、折りたたんだ詳細な注意事項)への同意を
- * 確認し、同意後も同じ利用条件を読み返せるようにする。
+ * 確認し、同意後も同じ利用条件を読み返せるようにする(WebSearchTermsDialog)。
  */
 
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchUserSettings } from "../../apis/settings";
 import { useSettings } from "../../contexts/SettingsContext";
-import ConfirmDialog from "../ui/ConfirmDialog";
-
-const TAVILY_AUP_URL = "https://www.tavily.com/acceptable-use-policy";
-
-/** 利用条件の 1 節。段落、箇条書き、箇条書きの後の段落の順に並べる */
-interface TermsSection {
-  heading: string;
-  paragraphs: string[];
-  items?: string[];
-  after?: string[];
-}
-
-/** i18n の settings.characterChatWebSearchTerms の形 */
-interface WebSearchTerms {
-  title: string;
-  /** 同意のたびに読む要約。詳細は折りたたみの中に置く */
-  summary: string[];
-  /** 詳細な注意事項の折りたたみの見出し */
-  details: string;
-  intro: string[];
-  sections: TermsSection[];
-  consent: string;
-  link: string;
-  accept: string;
-  cancel: string;
-  read: string;
-  close: string;
-}
-
-/** 同意の確認(ON にするとき)か、読み返しか */
-type TermsMode = "consent" | "read";
+import WebSearchTermsDialog, {
+  useWebSearchTerms,
+  type WebSearchTermsMode,
+} from "./WebSearchTermsDialog";
 
 /** サーバー側の設定状況。取得前・取得失敗・項目の無い応答では undefined(注記を出さない) */
 interface RealWorldConfiguration {
@@ -94,62 +67,6 @@ function RealWorldToggle({
   );
 }
 
-/**
- * 利用条件の本文。要約・規約へのリンク・折りたたんだ詳細な注意事項の順に並べ、
- * 同意の一文は同意を求めるときだけ最後(ボタンの直前)に出す。
- */
-function WebSearchTermsBody({
-  terms,
-  showConsent,
-}: {
-  terms: WebSearchTerms;
-  showConsent: boolean;
-}) {
-  return (
-    <>
-      <div className="settings-screen__terms-summary">
-        {terms.summary.map((text) => (
-          <p key={text}>{text}</p>
-        ))}
-      </div>
-      <p>
-        <a href={TAVILY_AUP_URL} target="_blank" rel="noopener noreferrer">
-          {terms.link}
-        </a>
-      </p>
-      <details className="settings-screen__terms-details">
-        <summary>{terms.details}</summary>
-        {terms.intro.map((text) => (
-          <p key={text}>{text}</p>
-        ))}
-        {terms.sections.map((section) => (
-          <section key={section.heading}>
-            <h4>{section.heading}</h4>
-            {section.paragraphs.map((text) => (
-              <p key={text}>{text}</p>
-            ))}
-            {section.items && (
-              <ul className="settings-screen__terms-list">
-                {section.items.map((text) => (
-                  <li key={text}>{text}</li>
-                ))}
-              </ul>
-            )}
-            {section.after?.map((text) => (
-              <p key={text}>{text}</p>
-            ))}
-          </section>
-        ))}
-      </details>
-      {showConsent && (
-        <p>
-          <strong>{terms.consent}</strong>
-        </p>
-      )}
-    </>
-  );
-}
-
 export default function CharacterChatRealWorldSettings() {
   const { t } = useTranslation();
   const {
@@ -160,10 +77,8 @@ export default function CharacterChatRealWorldSettings() {
   const [configuration, setConfiguration] = useState<RealWorldConfiguration>(
     {},
   );
-  const [termsMode, setTermsMode] = useState<TermsMode | null>(null);
-  const terms = t("settings.characterChatWebSearchTerms", {
-    returnObjects: true,
-  }) as unknown as WebSearchTerms;
+  const [termsMode, setTermsMode] = useState<WebSearchTermsMode | null>(null);
+  const terms = useWebSearchTerms("characterChat");
   useEffect(() => {
     let cancelled = false;
     void fetchUserSettings()
@@ -181,8 +96,6 @@ export default function CharacterChatRealWorldSettings() {
       cancelled = true;
     };
   }, []);
-
-  const reading = termsMode === "read";
 
   return (
     <>
@@ -220,22 +133,13 @@ export default function CharacterChatRealWorldSettings() {
         checked={state.characterChatWeatherEnabled}
         onChange={setCharacterChatWeatherEnabled}
       />
-      <ConfirmDialog
-        open={termsMode !== null}
-        title={terms.title}
-        confirmLabel={reading ? terms.close : terms.accept}
-        cancelLabel={reading ? undefined : terms.cancel}
-        onConfirm={() => {
-          if (termsMode === "consent") setCharacterChatWebSearchEnabled(true);
-          setTermsMode(null);
-        }}
-        onCancel={() => setTermsMode(null)}
-        dismissible={reading}
-        className="settings-screen__terms-dialog"
+      <WebSearchTermsDialog
+        mode={termsMode}
+        variant="characterChat"
+        onAccept={() => setCharacterChatWebSearchEnabled(true)}
+        onClose={() => setTermsMode(null)}
         testId="character-chat-web-search-terms"
-      >
-        <WebSearchTermsBody terms={terms} showConsent={!reading} />
-      </ConfirmDialog>
+      />
     </>
   );
 }

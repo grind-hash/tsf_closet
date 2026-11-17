@@ -153,6 +153,7 @@ describe("getItemIdsIn", () => {
     expect(getItemIdsIn("experimental", "classic")).toEqual([
       "promptExpander",
       "salon",
+      "hakoniwa",
       "surroundings",
       "surroundingsPeople",
       "clothingColor",
@@ -170,6 +171,7 @@ describe("getItemIdsIn", () => {
     expect(getItemIdsIn("experimental", "v2")).toEqual([
       "promptExpander",
       "salon",
+      "hakoniwa",
       "playMemory",
     ]);
     // キャラチャットは v0.11.0 で Experimental から独立した節へ移した
@@ -177,6 +179,14 @@ describe("getItemIdsIn", () => {
       expect(getItemIdsIn("characterChat", layout)).toEqual([
         "characterChat",
         "characterChatRealWorld",
+      ]);
+    }
+    // AI箱庭の新しい世界の既定と開幕は、有効化のトグル(Experimental)とは別の節に置く
+    for (const layout of ["classic", "v2"] as const) {
+      expect(getItemIdsIn("hakoniwa", layout)).toEqual([
+        "hakoniwaWebSearch",
+        "hakoniwaDefaults",
+        "hakoniwaOpening",
       ]);
     }
     expect(getItemIdsIn("image", "v2")).toEqual([

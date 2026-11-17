@@ -9,6 +9,14 @@ day) and are meant to be tuned while playing.
 from __future__ import annotations
 
 SALON_NAME_MAX: int = 40
+
+# 来客の種類(開店画面とオーナー室で選ぶ)。お客様の性別(元の性別)で予約を絞り、
+# 願う体で依頼の向きを決める。any は絞らない(願う体は TSF への態度から生成が選ぶ)。
+# 性別は次の週の予約から、願う体は次に接客を始めるお客様から効く
+SALON_CUSTOMER_GENDERS: tuple[str, ...] = ("any", "man", "woman")
+SALON_DESIRED_BODIES: tuple[str, ...] = ("any", "female", "male")
+SALON_DEFAULT_CUSTOMER_GENDER: str = "any"
+SALON_DEFAULT_DESIRED_BODY: str = "any"
 SALON_REVIEW_MAX: int = 160
 
 # 1 期の長さ。開店時に選び、期の最終週を締めた時点で決算する。決算のあとは同じ長さの

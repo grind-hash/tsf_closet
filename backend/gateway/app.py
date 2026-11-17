@@ -27,6 +27,7 @@ from .routes import (
     favorites_router,
     gallery_router,
     game_router,
+    hakoniwa_router,
     history_router,
     memory_router,
     novelai_router,
@@ -166,6 +167,9 @@ app.include_router(history_router, prefix="/api")
 
 # サロン経営モード(開店・予約・会計・週の締め。接客の手番は game_router)
 app.include_router(salon_router, prefix="/api")
+
+# AI箱庭モード(住民・掟・1日の出来事・その場で変身)
+app.include_router(hakoniwa_router, prefix="/api")
 
 # 互換・補助 API（従来どおり /api 配下ではないパス）。prefix 無しでそのまま公開する
 app.include_router(system_router)

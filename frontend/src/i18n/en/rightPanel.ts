@@ -13,7 +13,7 @@ export const rightPanel = {
   presets: "Presets:",
   addAttribute: "➕ Add",
   saveAttributePreset: "💾 Save",
-  attributePlaceholder: "e.g. Skilled at gravure poses",
+  attributePlaceholder: "e.g. Sits with knees together without thinking",
   realityAttrNotify: "Notify on reality change auto-attributes",
   presetNamePlaceholder: "Preset name",
   preciseRefTypeError: "{{name}}: Only PNG, JPEG, WebP are supported",

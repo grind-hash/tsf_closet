@@ -90,6 +90,70 @@
   color: var(--text-muted, #888);
 }
 
+/* 「くわしく見る」: 長い機能の細かい仕様を見出しごとの箇条書きで畳む */
+.guide-screen__details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.guide-screen__details-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0;
+  border: none;
+  background: none;
+  color: var(--text-color, #ddd);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 設定画面のアコーディオンと同じく、閉じているときは ▾ を横に向ける */
+.guide-screen__details-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.guide-screen__details-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.guide-screen__details-toggle:hover {
+  text-decoration: underline;
+}
+
+.guide-screen__details-toggle:focus-visible {
+  outline: 2px solid var(--accent-color, #e94560);
+  outline-offset: 2px;
+}
+
+.guide-screen__details-section + .guide-screen__details-section {
+  margin-top: 0.75rem;
+}
+
+.guide-screen__details-heading {
+  margin: 0 0 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-color, #ddd);
+}
+
+.guide-screen__details-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  line-height: 1.65;
+  color: var(--text-muted, #999);
+}
+
+.guide-screen__details-list li + li {
+  margin-top: 0.2rem;
+}
+
 /* フッター: 状態行(トグル・完了表示)の下に、幅いっぱいの CTA を縦積みする */
 .guide-screen__card-actions {
   display: flex;

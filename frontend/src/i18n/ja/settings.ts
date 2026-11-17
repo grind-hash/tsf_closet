@@ -60,6 +60,56 @@ export const settings = {
   experimentalSalon: "サロン経営",
   experimentalSalonDesc:
     "お客様を着せ替えで願いどおりの姿にして、サロンを経営するモード（1期は4週か12週）をメニューに表示します。接客は依頼モードと同じ仕組み（施術3手・質問2回）で、会計の満足度から売上と評判が決まります",
+  experimentalHakoniwa: "箱庭",
+  experimentalHakoniwaDesc:
+    "下宿の住民たちが勝手に暮らすのを眺める箱庭モードをメニューに表示します。掟を差し込んで1日ずつ進めると、出来事が生まれて部屋で再生されます。キャラクター画面で作ったキャラクターも住民に迎えられます",
+  hakoniwaSection: "箱庭",
+  hakoniwaSectionNote:
+    "箱庭（実験機能）を有効にすると使われます。ここでは新しく作る世界の既定と開幕を決めます。作った世界ごとの設定は、各世界の「設定」タブで変えられます。",
+  hakoniwaWebSearch: "新しい世界でWeb検索を使う",
+  hakoniwaWebSearchDesc:
+    "新しく作る世界で、住民との会話では必要なときに、住民どうしの出来事では1日1件を目安に、Web検索（Tavily）で最近の話題を取り入れます。送るのは話題のキーワードだけで、会話や出来事の文章は送りません。ONにするときに利用条件への同意を確認します。検索1回につきTavilyのクレジットを1消費します。世界ごとに「設定」タブで切り替えられます。",
+  hakoniwaWebSearchUnavailable:
+    "サーバーに TAVILY_API_KEY が設定されていないため、ONにしても検索は行われません。.env（配布版は config.env）に設定してサーバーを再起動してください。",
+  hakoniwaPlayerName: "あなたの名前",
+  hakoniwaPlayerNameDesc:
+    "新しく作る世界で、住民があなたを呼ぶ名前です（20文字まで）。空なら名前で呼ばず「あなた」と話しかけます。世界ごとに「設定」タブで変えられます。",
+  hakoniwaPlayerNamePlaceholder: "例: ユウ",
+  hakoniwaPresence: "住民とあなた",
+  hakoniwaPresenceKnown: "顔なじみ",
+  hakoniwaPresenceKnownDesc:
+    "住民は最初からあなたを知っています。会話で姿を変えると、望んだ姿なら好感度が上がり、嫌な姿なら下がります。",
+  hakoniwaPresenceHidden: "見えない存在",
+  hakoniwaPresenceHiddenDesc:
+    "住民にはあなたが見えず、会話は「謎の声」になります。世界の違和感が育つと声の主を探りはじめます。",
+  hakoniwaDissonance: "世界の違和感を使う",
+  hakoniwaDissonanceDesc:
+    "掟の切り替えや変身で、住民たちが世界の書き換えに気づいていきます（調査と対面は「見えない存在」の世界だけ）。世界を作る画面でも切り替えられます。",
+  hakoniwaRandomPortraits: "おまかせの住民の立ち絵を続けて生成する",
+  hakoniwaRandomPortraitsDesc:
+    "おまかせの住民がいる世界を作ったら、開幕のあいだに、その住民の立ち絵とドレス姿を1人ずつ生成します（1人2枚）。世界を作る画面の「高度な設定」でも切り替えられます。",
+  hakoniwaOpening: "世界を作ったときに開幕を流す",
+  hakoniwaOpeningDesc:
+    "世界を作った直後に、画面全体を使った開幕で、住民の顔ぶれと「住民とあなた」を1幕ずつ紹介します（クリックで送り、スキップできます）。各世界の「設定」タブからいつでも見返せます。",
+  hakoniwaOpeningGuide: "開幕で遊び方の説明も見せる",
+  hakoniwaOpeningGuideFirst: "最初の世界だけ",
+  hakoniwaOpeningGuideFirstDesc:
+    "はじめて世界を作ったときだけ、掟・会話と変身・1日の流れの説明を開幕に加えます。",
+  hakoniwaOpeningGuideAlways: "毎回",
+  hakoniwaOpeningGuideAlwaysDesc:
+    "世界を作るたびに、遊び方の説明を開幕に加えます。",
+  hakoniwaOpeningGuideNever: "見せない",
+  hakoniwaOpeningGuideNeverDesc:
+    "開幕は住民の顔ぶれと「住民とあなた」だけにします。",
+  hakoniwaOpeningGuideUnused:
+    "開幕を流さない設定のため、この項目は使われません。各世界の「設定」タブの「はじまりの説明をもう一度見る」では、いつでも説明つきで見られます。",
+  hakoniwaWebSearchTransmission: {
+    heading: "3. 送信される情報",
+    paragraphs: [
+      "Web検索では、会話や出来事の文章そのものは送信せず、その内容からTSF Closetが作成した検索キーワードだけをTavilyに送信します。",
+      "送信した検索キーワードは、返事や出来事の「参照した情報」で確認できます。規約に反するおそれがあるとして検索を見送った場合は、その旨を返事や出来事の下に表示します。",
+    ],
+  },
   characterChatWebSearch: "セレナがWeb検索で調べる",
   characterChatWebSearchDesc:
     "キャラチャットで最近の出来事や現実の話題を聞かれたときだけ、セレナがWeb検索（Tavily）で調べて答えます。送るのは話題のキーワードだけで、会話の文章は送りません。性的に露骨な内容など、Tavilyの利用規約に反するおそれのある検索はしません（セレナがその旨を伝えます）。ONにするときに利用条件への同意を確認します。検索1回につきTavilyのクレジットを1消費します。",

@@ -14,6 +14,10 @@ import {
   useRef,
 } from "react";
 import { fetchAnlasBalance } from "../apis/anlas";
+import {
+  HAKONIWA_PLAYER_NAME_MAX,
+  type HakoniwaPlayerPresence,
+} from "../apis/hakoniwa";
 import { getMemoryText as fetchMemoryTextApi } from "../apis/memory";
 import type { SelfProfile } from "../apis/settings";
 import {
@@ -60,6 +64,73 @@ function normalizeFeelingMode(raw: unknown): FeelingMode {
 }
 
 // 設定状態の型定義
+/** 開幕で遊び方の説明を見せるか(最初の世界だけ / 毎回 / 見せない) */
+export type HakoniwaOpeningGuide = "first" | "always" | "never";
+
+/** AI箱庭の、世界をまたぐ設定(新しい世界の既定と開幕) */
+export interface HakoniwaPreferences {
+  /** 新しい世界であなたを呼ぶ名前(空なら名前で呼ばない) */
+  playerName: string;
+  /** 新しい世界の「住民とあなた」 */
+  playerPresence: HakoniwaPlayerPresence;
+  /** 新しい世界で世界の違和感を使うか */
+  dissonanceEnabled: boolean;
+  /** 新しい世界で Web 検索を使うか(ON にするとき利用条件への同意を確かめる) */
+  webSearchEnabled: boolean;
+  /** 世界を作った直後に開幕を流すか */
+  openingEnabled: boolean;
+  openingGuide: HakoniwaOpeningGuide;
+  /** 遊び方の説明つきの開幕を見終えたか(「最初の世界だけ」の判定に使う) */
+  openingGuideSeen: boolean;
+  /** おまかせの住民がいる世界を作った直後に、その住民の立ち絵とドレス姿を順に生成するか */
+  randomPortraits: boolean;
+}
+
+export const DEFAULT_HAKONIWA_PREFERENCES: HakoniwaPreferences = {
+  playerName: "",
+  playerPresence: "known",
+  dissonanceEnabled: true,
+  webSearchEnabled: false,
+  openingEnabled: true,
+  openingGuide: "first",
+  openingGuideSeen: false,
+  randomPortraits: true,
+};
+
+/** 保存値を読み込むときに、欠けた項目や壊れた値を既定に戻す */
+export function normalizeHakoniwaPreferences(
+  value: unknown,
+): HakoniwaPreferences {
+  const saved =
+    value && typeof value === "object"
+      ? (value as Partial<Record<keyof HakoniwaPreferences, unknown>>)
+      : {};
+  const base = DEFAULT_HAKONIWA_PREFERENCES;
+  const bool = (item: unknown, fallback: boolean) =>
+    typeof item === "boolean" ? item : fallback;
+  return {
+    playerName:
+      typeof saved.playerName === "string"
+        ? saved.playerName.slice(0, HAKONIWA_PLAYER_NAME_MAX)
+        : base.playerName,
+    playerPresence:
+      saved.playerPresence === "known" || saved.playerPresence === "hidden"
+        ? saved.playerPresence
+        : base.playerPresence,
+    dissonanceEnabled: bool(saved.dissonanceEnabled, base.dissonanceEnabled),
+    webSearchEnabled: bool(saved.webSearchEnabled, base.webSearchEnabled),
+    openingEnabled: bool(saved.openingEnabled, base.openingEnabled),
+    openingGuide:
+      saved.openingGuide === "first" ||
+      saved.openingGuide === "always" ||
+      saved.openingGuide === "never"
+        ? saved.openingGuide
+        : base.openingGuide,
+    openingGuideSeen: bool(saved.openingGuideSeen, base.openingGuideSeen),
+    randomPortraits: bool(saved.randomPortraits, base.randomPortraits),
+  };
+}
+
 export interface SettingsState {
   // 難易度設定
   difficulty: "easy" | "normal" | "hard";
@@ -100,6 +171,10 @@ export interface SettingsState {
   characterChatEnabled: boolean;
   /** サロン経営モード(実験機能)。ON でサイドメニューに出し /salon を開ける */
   experimentalSalonEnabled: boolean;
+  /** AI箱庭モード(実験機能)。ON でサイドメニューに出し /hakoniwa を開ける */
+  experimentalHakoniwaEnabled: boolean;
+  /** AI箱庭: 新しい世界の既定と開幕(設定画面の「AI箱庭」) */
+  hakoniwaPreferences: HakoniwaPreferences;
   // キャラチャット: セレナの Web 検索・天気。発言ごとに送り、サーバー側の設定が無ければ使われない
   characterChatWebSearchEnabled: boolean;
   characterChatWeatherEnabled: boolean;
@@ -217,6 +292,8 @@ type SettingsAction =
   | { type: "SET_EXPERIMENTAL_PROMPT_EXPANDER_ENABLED"; payload: boolean }
   | { type: "SET_CHARACTER_CHAT_ENABLED"; payload: boolean }
   | { type: "SET_EXPERIMENTAL_SALON_ENABLED"; payload: boolean }
+  | { type: "SET_EXPERIMENTAL_HAKONIWA_ENABLED"; payload: boolean }
+  | { type: "SET_HAKONIWA_PREFERENCES"; payload: Partial<HakoniwaPreferences> }
   | { type: "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED"; payload: boolean }
   | { type: "SET_CHARACTER_CHAT_WEATHER_ENABLED"; payload: boolean }
   | { type: "SET_PLAY_MEMORY_ENABLED"; payload: boolean }
@@ -290,6 +367,8 @@ export const defaultState: SettingsState = {
   experimentalPromptExpanderEnabled: false,
   characterChatEnabled: true,
   experimentalSalonEnabled: false,
+  experimentalHakoniwaEnabled: false,
+  hakoniwaPreferences: DEFAULT_HAKONIWA_PREFERENCES,
   characterChatWebSearchEnabled: false,
   characterChatWeatherEnabled: false,
   playMemoryEnabled: false,
@@ -405,6 +484,16 @@ function settingsReducer(
       return { ...state, characterChatEnabled: action.payload };
     case "SET_EXPERIMENTAL_SALON_ENABLED":
       return { ...state, experimentalSalonEnabled: action.payload };
+    case "SET_EXPERIMENTAL_HAKONIWA_ENABLED":
+      return { ...state, experimentalHakoniwaEnabled: action.payload };
+    case "SET_HAKONIWA_PREFERENCES":
+      return {
+        ...state,
+        hakoniwaPreferences: {
+          ...state.hakoniwaPreferences,
+          ...action.payload,
+        },
+      };
     case "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED":
       return { ...state, characterChatWebSearchEnabled: action.payload };
     case "SET_CHARACTER_CHAT_WEATHER_ENABLED":
@@ -550,6 +639,9 @@ interface SettingsContextType {
   setExperimentalPromptExpanderEnabled: (enabled: boolean) => void;
   setCharacterChatEnabled: (enabled: boolean) => void;
   setExperimentalSalonEnabled: (enabled: boolean) => void;
+  setExperimentalHakoniwaEnabled: (enabled: boolean) => void;
+  /** AI箱庭の新しい世界の既定と開幕。渡した項目だけ変える */
+  setHakoniwaPreferences: (changes: Partial<HakoniwaPreferences>) => void;
   setCharacterChatWebSearchEnabled: (enabled: boolean) => void;
   setCharacterChatWeatherEnabled: (enabled: boolean) => void;
   setPlayMemoryEnabled: (enabled: boolean) => void;
@@ -651,6 +743,9 @@ function loadInitialState(initial: SettingsState): SettingsState {
         ...filtered,
         historyLookbackTargets: normalizeHistoryLookbackTargets(
           filtered.historyLookbackTargets,
+        ),
+        hakoniwaPreferences: normalizeHakoniwaPreferences(
+          filtered.hakoniwaPreferences,
         ),
         totalCost:
           typeof rest.totalCost === "number"
@@ -1021,6 +1116,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setExperimentalSalonEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: "SET_EXPERIMENTAL_SALON_ENABLED", payload: enabled });
   }, []);
+  const setExperimentalHakoniwaEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: "SET_EXPERIMENTAL_HAKONIWA_ENABLED", payload: enabled });
+  }, []);
+  const setHakoniwaPreferences = useCallback(
+    (changes: Partial<HakoniwaPreferences>) => {
+      dispatch({ type: "SET_HAKONIWA_PREFERENCES", payload: changes });
+    },
+    [],
+  );
   const setCharacterChatWebSearchEnabled = useCallback((enabled: boolean) => {
     dispatch({
       type: "SET_CHARACTER_CHAT_WEB_SEARCH_ENABLED",
@@ -1326,6 +1430,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setExperimentalPromptExpanderEnabled,
       setCharacterChatEnabled,
       setExperimentalSalonEnabled,
+      setExperimentalHakoniwaEnabled,
+      setHakoniwaPreferences,
       setCharacterChatWebSearchEnabled,
       setCharacterChatWeatherEnabled,
       setPlayMemoryEnabled,
@@ -1402,6 +1508,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setExperimentalPromptExpanderEnabled,
       setCharacterChatEnabled,
       setExperimentalSalonEnabled,
+      setExperimentalHakoniwaEnabled,
+      setHakoniwaPreferences,
       setCharacterChatWebSearchEnabled,
       setCharacterChatWeatherEnabled,
       setPlayMemoryEnabled,

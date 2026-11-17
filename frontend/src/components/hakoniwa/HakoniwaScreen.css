@@ -1,0 +1,3267 @@
+/*
+ * 箱庭。配色は通常プレイ・キャラチャットと同じ共通テーマ
+ * (MainLayout.css の :root)に揃える。本文は --hk-* を参照し、ここで共通トークンへ
+ * 対応づける。共通側に無い役割(進行中・エラー・立ち絵の背景など)だけ箱庭側で持つ。
+ */
+
+.hakoniwa-page,
+.hakoniwa-world,
+.hakoniwa-adv,
+.hakoniwa-opening {
+  --hk-bg: var(--bg-color, #1a1a2e);
+  /* 全画面の重ね表示(ADV・会話)の地。通常プレイの最も暗い地の色 */
+  --hk-bg-deep: #0f0f1a;
+  --hk-surface: var(--side-menu-bg, #16213e);
+  --hk-surface-2: var(--hover-bg, #1f2f50);
+  --hk-border: var(--border-color, #333);
+  --hk-border-strong: #444;
+  --hk-text: var(--text-color, #eee);
+  --hk-muted: var(--text-muted, #888);
+  --hk-accent: var(--accent-color, #e94560);
+  --hk-accent-strong: var(--accent-hover, #ff6b6b);
+  --hk-on-accent: #fff;
+  /* 吹き出し・ひとことの紙の色(部屋の絵の上に載せる) */
+  --hk-paper: #fffaf1;
+  --hk-ink: #3d3630;
+  --hk-warning: var(--warning-color, #fbbf24);
+  --hk-danger: #f87171;
+  /* 進行中の表示(警告やエラーと取り違えない青系) */
+  --hk-info: #60a5fa;
+  /* 立ち絵・顔の背景。キャラクター画面のサムネイルと同じ */
+  --hk-portrait-bg: radial-gradient(circle at 50% 30%, #2a2f5a, #0f1330);
+  color: var(--hk-text);
+  background: var(--hk-bg);
+}
+
+.hakoniwa-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 28px clamp(16px, 4vw, 52px) 52px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.hakoniwa-page > * {
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+.hakoniwa-page__header h1 {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 1.8rem;
+}
+
+.hakoniwa-page__lead {
+  color: var(--hk-muted);
+  line-height: 1.7;
+}
+
+.hakoniwa-eyebrow {
+  margin: 0;
+  letter-spacing: 0.24em;
+  font-size: 0.75rem;
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-card {
+  margin-top: 20px;
+  padding: 20px 22px;
+  border: 1px solid var(--hk-border);
+  border-radius: 14px;
+  background: var(--hk-surface);
+}
+
+.hakoniwa-card h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+}
+
+.hakoniwa-card h3 {
+  margin: 20px 0 4px;
+  font-size: 1rem;
+}
+
+.hakoniwa-note {
+  margin: 4px 0;
+  color: var(--hk-muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.hakoniwa-note--warning {
+  color: var(--hk-warning);
+}
+
+.hakoniwa-note--error {
+  color: var(--hk-danger);
+}
+
+.hakoniwa-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px auto;
+  padding: 10px 14px;
+  border: 1px solid var(--hk-danger);
+  border-radius: 10px;
+  color: var(--hk-danger);
+  background: color-mix(in srgb, var(--hk-danger) 8%, transparent);
+}
+
+.hakoniwa-error > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ダイアログの本文の先頭に出すとき */
+.hakoniwa-error--dialog {
+  margin: 0 0 12px;
+}
+
+/* 全画面の重ね表示(ADV・会話・タッチ)の上端に重ねるとき */
+.hakoniwa-error--overlay {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 5;
+  width: min(640px, calc(100% - 32px));
+  margin: 0;
+  transform: translateX(-50%);
+  cursor: default;
+  background: var(--hk-surface, var(--side-menu-bg, #16213e));
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+}
+
+.hakoniwa-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--hk-muted);
+}
+
+/* --- ボタン・入力 --- */
+
+.hakoniwa-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.hakoniwa-button:hover:not(:disabled) {
+  border-color: var(--hk-accent);
+}
+
+.hakoniwa-button:focus-visible,
+.hakoniwa-tabs__chip:focus-visible,
+.hakoniwa-roster__item:focus-visible,
+.hakoniwa-resident-row:focus-visible {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: 2px;
+}
+
+.hakoniwa-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hakoniwa-button--primary {
+  border-color: var(--hk-accent);
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
+  font-weight: 600;
+}
+
+.hakoniwa-button--primary:hover:not(:disabled) {
+  background: var(--hk-accent-strong);
+}
+
+.hakoniwa-button--ghost {
+  background: transparent;
+}
+
+.hakoniwa-button--large {
+  padding: 12px 26px;
+  font-size: 1.05rem;
+}
+
+.hakoniwa-icon-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--hk-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--hk-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hakoniwa-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+  font-size: 0.9rem;
+}
+
+/* 欄のすぐ下の説明(欄との間を詰める) */
+.hakoniwa-field__note {
+  margin-top: -4px;
+}
+
+.hakoniwa-field input,
+.hakoniwa-field textarea,
+.hakoniwa-field select,
+.hakoniwa-resident__tabpanel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+}
+
+.hakoniwa-segments {
+  display: inline-flex;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.hakoniwa-segments button {
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--hk-text, inherit);
+  font: inherit;
+  cursor: pointer;
+}
+
+.hakoniwa-segments button.is-active {
+  background: var(--hk-accent, var(--accent-color, #e94560));
+  color: var(--hk-on-accent, #fff);
+}
+
+/*
+ * ON/OFF のトグルスイッチ。隠した checkbox の基準をラベルにして、スクロールする
+ * 右パネルの外(ページ全体)へはみ出させない。
+ */
+.hakoniwa-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.hakoniwa-toggle__input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.hakoniwa-toggle__switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--hk-border-strong);
+  transition: background-color 0.2s;
+}
+
+.hakoniwa-toggle__switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.hakoniwa-toggle__input:checked + .hakoniwa-toggle__switch {
+  background: var(--hk-accent);
+}
+
+.hakoniwa-toggle__input:checked + .hakoniwa-toggle__switch::after {
+  transform: translateX(20px);
+}
+
+.hakoniwa-toggle__input:focus-visible + .hakoniwa-toggle__switch {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: 2px;
+}
+
+.hakoniwa-toggle__input:disabled + .hakoniwa-toggle__switch {
+  opacity: 0.45;
+}
+
+.hakoniwa-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  color: var(--hk-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.hakoniwa-badge--accent {
+  border-color: var(--hk-accent);
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: hakoniwa-spin 0.8s linear infinite;
+}
+
+@keyframes hakoniwa-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hakoniwa-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* --- 一覧と作成 --- */
+
+/* つくった世界の見出しと件数 */
+.hakoniwa-worlds-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.hakoniwa-worlds-header__count {
+  color: var(--hk-muted);
+  font-size: 0.85rem;
+}
+
+/* つくった世界の絞り込み(住民とあなた・住民)。件数つきのチップを折り返して並べる */
+.hakoniwa-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.hakoniwa-filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.hakoniwa-filters__label {
+  min-width: 7em;
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+}
+
+.hakoniwa-filters__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--hk-text);
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.hakoniwa-filters__chip.is-active {
+  border-color: var(--hk-accent);
+  background: var(--hk-accent);
+  color: var(--hk-on-accent, #fff);
+}
+
+.hakoniwa-filters__chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.hakoniwa-filters__count {
+  color: inherit;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+.hakoniwa-worlds {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-worlds__item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-worlds__faces {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.hakoniwa-worlds__face {
+  width: 38px;
+  height: 52px;
+  margin-right: -10px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.hakoniwa-worlds__face--empty {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--hk-border);
+}
+
+.hakoniwa-worlds__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 10px;
+}
+
+.hakoniwa-worlds__text span {
+  color: var(--hk-muted);
+  font-size: 0.85rem;
+}
+
+.hakoniwa-worlds__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+/* 狭い画面では顔と名前を上の段、操作を下の段に置く(名前の列が潰れないように) */
+@media (max-width: 640px) {
+  .hakoniwa-worlds__item {
+    flex-wrap: wrap;
+  }
+
+  .hakoniwa-worlds__text {
+    flex: 1 1 0;
+  }
+
+  .hakoniwa-worlds__actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+
+  .hakoniwa-worlds__actions .hakoniwa-button {
+    white-space: nowrap;
+  }
+
+  .hakoniwa-filters__label {
+    flex-basis: 100%;
+  }
+}
+
+.hakoniwa-roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-roster__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 8px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    opacity 0.15s,
+    border-color 0.15s;
+}
+
+.hakoniwa-roster__item.is-chosen {
+  border-color: var(--hk-accent);
+  opacity: 1;
+}
+
+.hakoniwa-roster__portrait {
+  height: 150px;
+  object-fit: contain;
+}
+
+.hakoniwa-roster__name {
+  font-weight: 600;
+}
+
+.hakoniwa-roster__meta {
+  color: var(--hk-accent-strong);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-roster__desc {
+  color: var(--hk-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.hakoniwa-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 4px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 999px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-chip__face {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top;
+  background: var(--hk-portrait-bg);
+}
+
+.hakoniwa-chip__meta {
+  color: var(--hk-muted);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-chip__remove {
+  border: none;
+  background: transparent;
+  color: var(--hk-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.hakoniwa-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.hakoniwa-create__count.is-invalid {
+  color: var(--hk-warning);
+}
+
+.hakoniwa-create__option {
+  margin-top: 18px;
+}
+
+.hakoniwa-create__option .hakoniwa-note {
+  margin: 4px 0 0;
+}
+
+/* 作成画面の「高度な設定」(おまかせの住民・実験テーマ)。見出しを押して開閉する */
+.hakoniwa-advanced {
+  margin-top: 18px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+}
+
+.hakoniwa-advanced__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--hk-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakoniwa-advanced__chevron {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-advanced__title {
+  font-weight: 700;
+}
+
+.hakoniwa-advanced__summary {
+  color: var(--hk-accent-strong);
+  font-size: 0.84rem;
+}
+
+.hakoniwa-advanced__body {
+  padding: 0 14px 14px;
+}
+
+.hakoniwa-advanced__body > h3:first-child {
+  margin-top: 4px;
+}
+
+/* 住民とあなた(顔なじみ / 見えない存在)。見出しと選択をトグルと同じく左右に並べる */
+.hakoniwa-presence {
+  width: 100%;
+}
+
+.hakoniwa-presence__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.hakoniwa-presence .hakoniwa-note {
+  margin: 4px 0 0;
+}
+
+.hakoniwa-presence .hakoniwa-note + .hakoniwa-note {
+  margin-top: 2px;
+}
+
+/* --- 世界の画面 --- */
+
+.hakoniwa-world {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 12px clamp(12px, 2vw, 24px) 16px;
+  overflow: hidden;
+}
+
+.hakoniwa-world__bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding-bottom: 10px;
+}
+
+/* いま進めている処理: どのタブからも見えるバーの中に、スピナーと文言を出す */
+.hakoniwa-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px;
+  border: 1px solid var(--hk-info);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hk-info) 10%, transparent);
+  color: var(--hk-info);
+  font-size: 0.8rem;
+}
+
+/* バーの下端に重ねる動く線(絶対配置にして、出たり消えたりしても画面を動かさない) */
+.hakoniwa-activity__bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--hk-info) 20%, transparent);
+  pointer-events: none;
+}
+
+.hakoniwa-activity__bar::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  background: var(--hk-info);
+  content: "";
+  animation: hakoniwa-activity-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes hakoniwa-activity-slide {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(334%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hakoniwa-activity__bar::after {
+    width: 100%;
+    opacity: 0.6;
+    animation: none;
+  }
+}
+
+.hakoniwa-world__name {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.hakoniwa-world__day {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.hakoniwa-world__rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-world__rule {
+  padding: 2px 10px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 999px;
+  color: var(--hk-accent-strong);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-world__rule.is-empty {
+  border-color: var(--hk-border);
+  color: var(--hk-muted);
+}
+
+/* 世界の違和感: 掟のチップと同じ行・同じ形。段階が上がるほど色を強める */
+.hakoniwa-world__dissonance {
+  padding: 2px 10px;
+  border: 1px dashed var(--hk-border-strong);
+  border-radius: 999px;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.hakoniwa-world__dissonance.is-stirring {
+  border-color: var(--hk-warning);
+  color: var(--hk-warning);
+}
+
+.hakoniwa-world__dissonance.is-probing,
+.hakoniwa-world__dissonance.is-confrontation {
+  border-style: solid;
+  border-color: var(--hk-danger);
+  color: var(--hk-danger);
+}
+
+.hakoniwa-world__dissonance.is-acknowledged {
+  border-style: solid;
+  border-color: var(--hk-accent);
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-world__body {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  gap: 16px;
+  min-height: 0;
+}
+
+.hakoniwa-world__stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 左に明日の介入と説明、右下に「1日進める」。狭くて並ばないときはボタンだけ次の行の右端へ */
+.hakoniwa-world__advance {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.hakoniwa-world__advance-options {
+  display: flex;
+  flex: 1 1 280px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.hakoniwa-world__advance-button {
+  flex: none;
+  margin-left: auto;
+}
+
+.hakoniwa-world__panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--hk-border);
+  border-radius: 14px;
+  background: var(--hk-surface);
+}
+
+.hakoniwa-world__tabpanel {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px 14px 18px;
+  overflow-y: auto;
+}
+
+/*
+ * タブが増えても文字を折り返さず、入りきらない幅では横にスクロールさせる。
+ * overflow を指定すると flex の最小の高さが 0 になり、下の中身が長いタブで帯が縦に
+ * 押しつぶされるため、高さは縮めない(flex: none)。
+ */
+.hakoniwa-tabs {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  padding: 10px 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid var(--hk-border);
+  scrollbar-width: thin;
+}
+
+.hakoniwa-tabs__chip {
+  position: relative;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--hk-muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.hakoniwa-tabs__chip.is-active {
+  border-color: var(--hk-border);
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font-weight: 600;
+}
+
+.hakoniwa-tabs__badge {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hk-accent);
+  color: var(--hk-on-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+@media (max-width: 960px) {
+  .hakoniwa-world {
+    overflow-y: auto;
+  }
+
+  /* 1列のときは中身の高さで伸ばし、画面全体をスクロールさせる */
+  .hakoniwa-world__body {
+    flex: none;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hakoniwa-world__stage {
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .hakoniwa-world__panel {
+    min-height: 420px;
+  }
+}
+
+/* --- 部屋(ステージ) --- */
+
+/* 部屋は、使える幅と高さの両方に収まる大きさにする(下の「1日進める」を画面外へ押し出さない) */
+.hakoniwa-stage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.hakoniwa-stage__fit {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 0;
+  container-type: size;
+}
+
+.hakoniwa-stage__frame {
+  position: relative;
+  width: min(100cqw, calc(100cqh * 1216 / 832));
+}
+
+.hakoniwa-stage__room {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1216 / 832;
+  overflow: hidden;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 14px;
+  background: #f3e7cf;
+  user-select: none;
+}
+
+.hakoniwa-stage__room--playing {
+  cursor: pointer;
+}
+
+.hakoniwa-stage__canvas,
+.hakoniwa-stage__fallback {
+  position: absolute;
+  inset: 0;
+}
+
+.hakoniwa-stage__canvas canvas {
+  display: block;
+}
+
+.hakoniwa-stage__fallback {
+  isolation: isolate;
+  container-type: inline-size;
+  background-size: cover;
+  background-position: center;
+}
+
+.hakoniwa-stage__fallback-furniture {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+.hakoniwa-stage__fallback-furniture img {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+
+.hakoniwa-stage__fallback-furniture::before {
+  position: absolute;
+  bottom: -3%;
+  left: 50%;
+  width: var(--hk-shadow-width);
+  aspect-ratio: 6;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse, rgb(0 0 0 / 43%), transparent 72%);
+  content: "";
+}
+
+.hakoniwa-stage__fallback-avatar {
+  position: absolute;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  height: 55%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  /* 足元を軸に、奥に立つほど小さく描く */
+  transform: translate(-50%, -100%) scale(var(--hk-depth-scale, 1));
+  transform-origin: 50% 100%;
+  cursor: pointer;
+}
+
+.hakoniwa-stage__fallback-avatar img {
+  height: 100%;
+  object-fit: contain;
+}
+
+.hakoniwa-stage__fallback-avatar.is-selected img {
+  filter: drop-shadow(0 0 6px var(--hk-accent));
+}
+
+.hakoniwa-stage__fallback-initial {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 120px;
+  border: 3px dashed #b08968;
+  background: #efe3cd;
+  color: #8c6a4f;
+  font-size: 2.6rem;
+  font-weight: 700;
+}
+
+.hakoniwa-stage__fallback-name {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgb(255 253 248 / 0.88);
+  color: var(--hk-ink);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-stage__loading,
+.hakoniwa-stage__hint {
+  position: absolute;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hk-bg) 78%, transparent);
+  color: var(--hk-text);
+  font-size: 0.85rem;
+}
+
+.hakoniwa-stage__loading {
+  top: 12px;
+}
+
+.hakoniwa-stage__hint {
+  bottom: 12px;
+}
+
+/* 吹き出し(住民の頭上に追従する) */
+.hakoniwa-bubble {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(46%, 360px);
+  padding: 10px 14px;
+  border: 2px solid #c9b79f;
+  border-radius: 16px;
+  background: var(--hk-paper);
+  color: var(--hk-ink);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+}
+
+.hakoniwa-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -11px;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  border-right: 2px solid #c9b79f;
+  border-bottom: 2px solid #c9b79f;
+  background: var(--hk-paper);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.hakoniwa-bubble__name {
+  color: #9a6b3a;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.hakoniwa-bubble__text {
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+/* お嬢様言葉の掟: 金色の枠と明朝体 */
+.hakoniwa-bubble--ojousama {
+  border-color: #c99a2e;
+  background: #fffdf4;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+}
+
+.hakoniwa-bubble--ojousama::after {
+  border-color: #c99a2e;
+  background: #fffdf4;
+}
+
+/* キャプション(地の文と再生の操作) */
+/* 再生中の地の文は部屋の下端に重ねる(部屋の大きさを変えずに済む) */
+.hakoniwa-caption {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 3;
+  box-sizing: border-box;
+  max-height: 46%;
+  padding: 10px 16px;
+  overflow-y: auto;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--hk-bg) 88%, transparent);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+}
+
+.hakoniwa-caption__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hakoniwa-caption__title {
+  font-weight: 700;
+}
+
+.hakoniwa-caption__progress {
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.hakoniwa-caption__narration {
+  margin: 6px 0 10px;
+  line-height: 1.75;
+}
+
+.hakoniwa-caption__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* --- 年代記 --- */
+
+.hakoniwa-chronicle__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-event {
+  padding: 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-event__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.hakoniwa-event__day {
+  color: var(--hk-accent-strong);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-event__title {
+  flex: 1;
+}
+
+.hakoniwa-event__star {
+  border: none;
+  background: transparent;
+  color: var(--hk-muted);
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+
+.hakoniwa-event__star.is-on {
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-event__participants {
+  margin: 4px 0;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-event__narration {
+  margin: 6px 0;
+  line-height: 1.7;
+  font-size: 0.9rem;
+}
+
+.hakoniwa-event__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.88rem;
+}
+
+.hakoniwa-event__lines li {
+  display: flex;
+  gap: 8px;
+  line-height: 1.6;
+}
+
+.hakoniwa-event__speaker {
+  flex-shrink: 0;
+  color: var(--hk-accent-strong);
+  font-weight: 600;
+}
+
+.hakoniwa-event__replay {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.hakoniwa-event__place {
+  margin-left: 10px;
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-event__arc {
+  margin: 2px 0 4px;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-event__instruction {
+  margin: 2px 0 4px;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.hakoniwa-event__arc.is-climax {
+  color: var(--hk-accent-strong);
+  font-weight: 600;
+}
+
+.hakoniwa-event__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hakoniwa-chronicle__digest {
+  margin-bottom: 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-chronicle__digest > summary {
+  padding: 8px 12px;
+  color: var(--hk-accent-strong);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* --- 場所のチップ(部屋の上) --- */
+
+.hakoniwa-areas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.hakoniwa-areas__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 999px;
+  background: var(--hk-surface);
+  color: var(--hk-muted);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.hakoniwa-areas__chip.is-active {
+  border-color: var(--hk-accent);
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font-weight: 600;
+}
+
+.hakoniwa-areas__chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.hakoniwa-areas__count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--hk-border);
+  color: var(--hk-text);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+/* --- 1日のまとめ --- */
+
+.hakoniwa-digest {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.hakoniwa-digest--overlay {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 3;
+  box-sizing: border-box;
+  max-height: 52%;
+  padding: 10px 16px;
+  overflow-y: auto;
+  border: 1px solid var(--hk-accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--hk-bg) 92%, transparent);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+}
+
+.hakoniwa-digest--panel {
+  padding: 0 12px 12px;
+}
+
+.hakoniwa-digest--panel .hakoniwa-digest__head {
+  display: none;
+}
+
+.hakoniwa-digest__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-digest__section p,
+.hakoniwa-digest__section ul {
+  margin: 2px 0 0;
+}
+
+.hakoniwa-digest__section ul {
+  padding-left: 1.2em;
+}
+
+.hakoniwa-digest__section .hakoniwa-button {
+  margin-top: 4px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.hakoniwa-digest__label {
+  color: var(--hk-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+}
+
+/* --- 家具タブ --- */
+
+.hakoniwa-furniture__area {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-furniture__area.is-viewing {
+  border-color: var(--hk-accent);
+}
+
+.hakoniwa-furniture__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.hakoniwa-furniture__head .hakoniwa-button {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.hakoniwa-furniture .hakoniwa-field {
+  margin: 8px 0 0;
+}
+
+/* --- ADV 風に読む画面 --- */
+
+.hakoniwa-adv {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  background: var(--hk-bg-deep);
+  color: var(--hk-text);
+  cursor: pointer;
+  outline: none;
+}
+
+.hakoniwa-adv__background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * 場面の絵は人物が切れないよう全体を収める(画面と比率が違っても頭や足を切らない)。
+ * メッセージ窓は上に重なるので、全体を見たいときは窓を隠す。縦に余る画面(スマホの縦向き
+ * など)では上に寄せ、下にあるメッセージ窓に絵が隠れないようにする(横長の画面では中央のまま)
+ */
+.hakoniwa-adv__background.is-scene {
+  object-fit: contain;
+  object-position: center top;
+}
+
+/* 場面の絵の余白に敷く、同じ絵のぼかし(縁が透けないよう画面より少し広げる) */
+.hakoniwa-adv__scene-fill {
+  position: absolute;
+  inset: -48px;
+  width: calc(100% + 96px);
+  height: calc(100% + 96px);
+  object-fit: cover;
+  filter: blur(28px) brightness(0.45) saturate(1.1);
+  pointer-events: none;
+}
+
+.hakoniwa-adv__cast {
+  position: absolute;
+  inset: 0 0 0 0;
+  pointer-events: none;
+}
+
+.hakoniwa-adv__portrait {
+  position: absolute;
+  bottom: 0;
+  height: 88%;
+  max-width: 46%;
+  object-fit: contain;
+  object-position: bottom;
+  transform: translateX(-50%);
+  transition: filter 0.2s;
+}
+
+.hakoniwa-adv__portrait.is-trio {
+  max-width: 34%;
+}
+
+.hakoniwa-adv__portrait--left {
+  left: 28%;
+}
+
+.hakoniwa-adv__portrait--center {
+  left: 50%;
+}
+
+.hakoniwa-adv__portrait--right {
+  left: 72%;
+}
+
+.hakoniwa-adv__portrait.is-trio.hakoniwa-adv__portrait--left {
+  left: 20%;
+}
+
+.hakoniwa-adv__portrait.is-trio.hakoniwa-adv__portrait--right {
+  left: 80%;
+}
+
+.hakoniwa-adv__portrait.is-dim {
+  filter: brightness(0.55);
+}
+
+/* 窓の高さは文の長さで変えない(長い幕・返事は本文の行の中でスクロールする)。
+   行はメタ・本文・AI の注記と出典・ボタン。注記は本文をスクロールしても隠れない */
+.hakoniwa-adv__window {
+  --hk-adv-window-height: clamp(220px, 34vh, 340px);
+  position: absolute;
+  right: max(16px, calc((100% - 1100px) / 2));
+  bottom: 20px;
+  left: max(16px, calc((100% - 1100px) / 2));
+  display: grid;
+  /* 列は窓の幅に固定する。既定の auto 列だと、折り返さない自分の言葉(あなた「…」)の
+     全文幅まで列が広がり、本文や入力欄が窓の右端からはみ出す */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  box-sizing: border-box;
+  height: var(--hk-adv-window-height);
+  max-height: calc(100% - 40px);
+  padding: 14px 20px;
+  overflow-y: auto;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--hk-bg) 90%, transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  cursor: default;
+}
+
+.hakoniwa-adv__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hakoniwa-adv__speaker {
+  color: var(--hk-accent-strong);
+  font-weight: 700;
+}
+
+.hakoniwa-adv__progress {
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+}
+
+.hakoniwa-adv__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* 狭い画面では、ボタンの文字を折らずにボタンの並びを折り返す */
+.hakoniwa-adv__actions .hakoniwa-button {
+  padding: 4px 12px;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.hakoniwa-adv__body {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.hakoniwa-adv__suggest {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px dashed var(--hk-border-strong);
+  border-radius: 8px;
+  color: var(--hk-muted);
+  font-size: 0.84rem;
+}
+
+.hakoniwa-adv__suggest.is-strong {
+  border-color: var(--hk-accent);
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-adv__text {
+  margin: 10px 0;
+  font-size: 1.05rem;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.hakoniwa-adv__text.is-narration {
+  color: color-mix(in srgb, var(--hk-text) 82%, var(--hk-muted));
+}
+
+.hakoniwa-adv__controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 続きの指示を書いている間と、出典(参照した情報)を開いている間だけは、送るボタンや
+   本文が隠れないよう窓を中身に合わせて伸ばす(幕・返事の文の長さでは変えない) */
+.hakoniwa-adv__window.is-composing,
+.hakoniwa-adv__window:has(.hakoniwa-message-footer details[open]) {
+  height: auto;
+  min-height: var(--hk-adv-window-height);
+}
+
+.hakoniwa-adv__compose {
+  margin-top: 10px;
+}
+
+.hakoniwa-adv__compose textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.hakoniwa-adv__scene-toggle {
+  margin-top: 8px;
+}
+
+.hakoniwa-adv__compose .hakoniwa-adv__controls {
+  margin-top: 8px;
+}
+
+.hakoniwa-adv__show {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  background: color-mix(in srgb, var(--hk-bg) 85%, transparent);
+}
+
+/* 縦長の画面では立ち絵を窓の上に立たせる(窓の裏に隠れないように) */
+@media (max-width: 640px) {
+  .hakoniwa-adv__portrait,
+  .hakoniwa-adv__portrait.is-trio {
+    bottom: 30%;
+    height: 56%;
+    max-width: 48%;
+  }
+
+  .hakoniwa-adv__meta {
+    flex-wrap: wrap;
+  }
+
+  .hakoniwa-adv__window {
+    --hk-adv-window-height: clamp(240px, 40vh, 360px);
+  }
+}
+
+/* --- 住民 --- */
+
+.hakoniwa-residents__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--hk-border);
+  border-radius: 10px;
+  background: var(--hk-surface-2);
+  color: var(--hk-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hakoniwa-resident-row.is-selected {
+  border-color: var(--hk-accent);
+}
+
+.hakoniwa-resident-row__face {
+  width: 36px;
+  height: 48px;
+  object-fit: cover;
+  object-position: top;
+}
+
+.hakoniwa-resident-row__face--empty {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--hk-border);
+}
+
+.hakoniwa-resident-row__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hakoniwa-resident-row__text span {
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-residents__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hakoniwa-resident {
+  padding: 12px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-resident__head {
+  display: flex;
+  gap: 12px;
+}
+
+.hakoniwa-resident__portrait {
+  width: 110px;
+  height: 160px;
+  border-radius: 10px;
+  background: var(--hk-portrait-bg);
+  object-fit: contain;
+  object-position: bottom;
+}
+
+.hakoniwa-resident__portrait--empty {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  box-sizing: border-box;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.hakoniwa-resident__summary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hakoniwa-resident__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.hakoniwa-resident__title h3 {
+  margin: 0;
+}
+
+.hakoniwa-resident__meta {
+  margin: 0;
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+}
+
+.hakoniwa-resident__states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident__details {
+  margin: 10px 0 0;
+  font-size: 0.86rem;
+}
+
+.hakoniwa-resident__details dt {
+  margin-top: 6px;
+  color: var(--hk-accent-strong);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-resident__details dd {
+  margin: 2px 0 0;
+  line-height: 1.6;
+}
+
+.hakoniwa-resident__relations {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident__relations li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hakoniwa-resident__relation-level {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-resident__relation-address {
+  margin-left: 6px;
+  color: var(--hk-muted);
+  font-size: 0.9em;
+}
+
+.hakoniwa-resident__memories {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident__memories li {
+  display: flex;
+  gap: 8px;
+  line-height: 1.55;
+}
+
+.hakoniwa-resident__memory-day {
+  flex-shrink: 0;
+  color: var(--hk-accent-strong);
+  font-size: 0.78rem;
+}
+
+/* 住民パネルのタブ: 名前の下に3つを幅いっぱいに並べる(下線のタブにして、中の「変身／出来事」の
+   セグメントと見分ける)。幅は文字の長さに合わせ、入りきらない狭い画面ではタブの中で折り返す */
+.hakoniwa-resident__tabs {
+  display: flex;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--hk-border);
+}
+
+.hakoniwa-resident__tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 6px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--hk-muted);
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.hakoniwa-resident__tab:hover {
+  color: var(--hk-text);
+}
+
+/* 縦長の画面では住民パネルが狭いため、文字を少し詰めて1行に収める */
+@media (max-width: 640px) {
+  .hakoniwa-resident__tab {
+    padding: 8px 2px;
+    font-size: 0.8rem;
+  }
+}
+
+.hakoniwa-resident__tab.is-active {
+  border-bottom-color: var(--hk-accent);
+  color: var(--hk-text);
+  font-weight: 700;
+}
+
+.hakoniwa-resident__tab:focus-visible {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: -2px;
+}
+
+.hakoniwa-resident__tabpanel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding-top: 12px;
+}
+
+.hakoniwa-resident__tabpanel[hidden] {
+  display: none;
+}
+
+.hakoniwa-resident__tabpanel .hakoniwa-resident__details {
+  align-self: stretch;
+  margin: 0;
+}
+
+.hakoniwa-resident__tabpanel textarea {
+  resize: vertical;
+}
+
+.hakoniwa-resident__section-heading {
+  margin-top: 10px;
+}
+
+/* 出来事の場所: 見出しとプルダウンを1行に */
+.hakoniwa-directive__place {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 10px;
+}
+
+.hakoniwa-directive__place select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+/* 住民パネルの「変身」「出来事」の入力。ブロックの幅いっぱいに縦へ並べる */
+.hakoniwa-resident__mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: stretch;
+  gap: 6px;
+}
+
+.hakoniwa-resident__mode[hidden] {
+  display: none;
+}
+
+/* 巻き込み方の3択。幅いっぱいに並べ、狭い画面ではボタンの中で折り返す */
+.hakoniwa-directive__scope {
+  display: flex;
+  align-self: stretch;
+}
+
+.hakoniwa-directive__scope button {
+  flex: 1 1 auto;
+  padding: 5px 10px;
+  font-size: 0.86rem;
+  line-height: 1.3;
+}
+
+.hakoniwa-directive__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hakoniwa-directive__face {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top;
+  background: var(--hk-portrait-bg);
+}
+
+.hakoniwa-resident__current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.hakoniwa-resident__current p {
+  margin: 0;
+}
+
+/* 住民の改変: 「姿も変える」の説明と、いまの改変の一覧 */
+.hakoniwa-toggle__hint {
+  display: block;
+  color: var(--hk-muted);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-reality {
+  display: grid;
+  gap: 4px;
+}
+
+.hakoniwa-reality__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-reality__item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--hk-border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.hakoniwa-reality__text {
+  overflow-wrap: anywhere;
+}
+
+.hakoniwa-resident__subheading {
+  margin: 6px 0 0;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-resident__history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-resident__history li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hakoniwa-resident__history-face {
+  width: 34px;
+  height: 46px;
+  border-radius: 6px;
+  background: var(--hk-portrait-bg);
+  object-fit: contain;
+}
+
+.hakoniwa-resident__history-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.hakoniwa-resident__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* --- 掟 --- */
+
+.hakoniwa-rules__count {
+  margin: 6px 0;
+  color: var(--hk-accent-strong);
+  font-size: 0.85rem;
+}
+
+.hakoniwa-rules__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-rule {
+  padding: 10px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 10px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-rule.is-active {
+  border-color: var(--hk-accent);
+}
+
+.hakoniwa-rule__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hakoniwa-rule__name {
+  font-weight: 600;
+}
+
+.hakoniwa-rule__desc {
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.hakoniwa-rule__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hakoniwa-rule__actions .hakoniwa-button {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+/* 掟の姿: 見た目の説明(プレイヤーの文)と、そこから作ったタグを分けて出す */
+.hakoniwa-rule__appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--hk-border);
+  font-size: 0.8rem;
+}
+
+.hakoniwa-rule__appearance-text {
+  color: var(--hk-text);
+  line-height: 1.5;
+}
+
+.hakoniwa-rule__appearance-tags {
+  color: var(--hk-muted);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.hakoniwa-rule__look {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+
+.hakoniwa-rule__look-status {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-rule__look .hakoniwa-button,
+.hakoniwa-rule__look-pick .hakoniwa-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+/* 住民を選んで描き直す: 開くボタンは右寄せ、開いた中に住民のチップと実行ボタン */
+.hakoniwa-rule__look-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+}
+
+.hakoniwa-rule__look-pick-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--hk-border);
+  border-radius: 8px;
+  background: var(--hk-surface);
+}
+
+.hakoniwa-rule__look-pick-body .hakoniwa-directive__chips {
+  width: 100%;
+}
+
+.hakoniwa-rules__combo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hk-accent);
+  border-radius: 10px;
+  background: var(--hk-surface-2);
+  font-size: 0.85rem;
+}
+
+.hakoniwa-rules__combo-names {
+  margin: 0;
+  color: var(--hk-accent-strong);
+}
+
+.hakoniwa-rules__combo .hakoniwa-note {
+  margin: 0;
+}
+
+/* --- 設定 --- */
+
+/* 項目の下の補助操作(利用条件を読むなど)。リンクのように見せる */
+.hakoniwa-link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--hk-accent-strong);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.hakoniwa-settings__section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.hakoniwa-settings__section .hakoniwa-field,
+.hakoniwa-settings__section .hakoniwa-toggle {
+  width: 100%;
+}
+
+/* 世界のメモの姿(見た目のタグと生成状況) */
+.hakoniwa-settings__memo-look {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hk-border);
+}
+
+.hakoniwa-settings__memo-look > button {
+  justify-self: start;
+}
+
+/* --- フォームのダイアログ --- */
+
+.hakoniwa-form-dialog {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-width: min(560px, 94vw);
+  /* 入力欄が多いと画面より高くなるので、見出しと保存ボタンを残して中身だけ流す */
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+}
+
+.hakoniwa-form-dialog .confirm-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hakoniwa-form {
+  text-align: left;
+}
+
+.hakoniwa-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
+.hakoniwa-tags code {
+  overflow-wrap: anywhere;
+}
+
+/* 見た目の説明とタグの欄: 説明の見出しの右上に「説明からタグを作る」を置く */
+.hakoniwa-look-fields__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hakoniwa-look-fields__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.hakoniwa-look-fields__tags {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+/* 1列のときは部屋を横幅いっぱいにし、地の文は部屋の下に出す
+   (部屋とキャプションの基本の規則より後ろに置いて上書きする) */
+@media (max-width: 960px) {
+  .hakoniwa-stage,
+  .hakoniwa-stage__fit {
+    flex: none;
+  }
+
+  .hakoniwa-stage__fit {
+    container-type: normal;
+  }
+
+  .hakoniwa-stage__frame {
+    width: 100%;
+  }
+
+  .hakoniwa-caption,
+  .hakoniwa-digest--overlay {
+    position: static;
+    max-height: none;
+    margin-top: 8px;
+    background: var(--hk-surface);
+    box-shadow: none;
+  }
+}
+
+/* --- 明日の介入(「1日進める」の横) --- */
+
+.hakoniwa-intervention {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.hakoniwa-intervention__label {
+  color: var(--hk-muted);
+  font-size: 0.82rem;
+}
+
+.hakoniwa-intervention .hakoniwa-segments button {
+  padding: 5px 12px;
+  font-size: 0.82rem;
+}
+
+.hakoniwa-intervention .hakoniwa-segments button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* --- 世界のメモ・掟の相性 --- */
+
+.hakoniwa-settings__memo-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.hakoniwa-rule__synergies {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+}
+
+.hakoniwa-rule__synergies li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--hk-muted);
+  line-height: 1.5;
+}
+
+.hakoniwa-rule__synergies li.is-active {
+  color: var(--hk-accent-strong);
+}
+
+/* --- 立ち絵に触れる --- */
+
+.hakoniwa-resident__portrait-button {
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+}
+
+.hakoniwa-resident__portrait-button:focus-visible {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: 2px;
+}
+
+.hakoniwa-touch {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.6);
+}
+
+.hakoniwa-touch__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: min(480px, 100%);
+  max-height: 100%;
+  padding: 14px 16px;
+  overflow-y: auto;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 14px;
+  background: var(--hk-surface);
+  color: var(--hk-text);
+}
+
+.hakoniwa-touch__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.hakoniwa-touch__panel .hakoniwa-note {
+  margin: 0;
+}
+
+.hakoniwa-touch__figure {
+  display: block;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: var(--hk-portrait-bg);
+  line-height: 0;
+  cursor: pointer;
+}
+
+.hakoniwa-touch__figure:focus-visible {
+  outline: 2px solid var(--hk-accent-strong);
+  outline-offset: 2px;
+}
+
+.hakoniwa-touch__image {
+  display: block;
+  height: min(56vh, 520px);
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.hakoniwa-touch__reaction {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3.2em;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--hk-paper);
+  color: var(--hk-ink);
+  line-height: 1.6;
+}
+
+.hakoniwa-touch__reaction .hakoniwa-note {
+  color: #7a6d5f;
+}
+
+.hakoniwa-touch__part {
+  margin-right: 8px;
+  color: #9a6b3a;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* --- 箱庭の中での会話(ADV と同じ枠) --- */
+
+.hakoniwa-chat {
+  cursor: default;
+}
+
+/* 行はメタ・本文(返事)・AI の注記と出典・入力欄・ヒント。本文だけスクロールする。
+   高さはキャラチャットの窓に合わせ、返事がおよそ4行見える程度にする */
+.hakoniwa-chat__window {
+  --hk-adv-window-height: clamp(290px, 33vh, 320px);
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+}
+
+/* メタ行の右側: 直近の自分の言葉(1行で省略)と窓の操作 */
+.hakoniwa-chat__meta-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 60%;
+  margin-left: auto;
+}
+
+/* 窓の操作は折り返さない(自分の言葉のほうを省略して詰める) */
+.hakoniwa-chat__meta-end .hakoniwa-adv__actions {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+}
+
+.hakoniwa-chat__user-line {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--hk-muted);
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .hakoniwa-chat__window {
+    --hk-adv-window-height: clamp(340px, 60vh, 500px);
+  }
+
+  /* 狭い画面では自分の言葉を出さない(ログで読める) */
+  .hakoniwa-chat__user-line {
+    display: none;
+  }
+}
+
+.hakoniwa-chat__thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--hk-muted);
+}
+
+/* 入力欄とボタン(会話を終える・送る)を1段に並べる。狭い画面では入力欄を上の段に置く */
+.hakoniwa-chat__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.hakoniwa-chat__form .hakoniwa-adv__controls {
+  flex-shrink: 0;
+}
+
+/* 複数行に伸ばしても返事の行が残るよう、伸びる上限を窓の高さの 4 割にする */
+.hakoniwa-chat__form textarea {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: calc(var(--hk-adv-window-height) * 0.4);
+  padding: 8px 10px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+  resize: vertical;
+}
+
+@media (max-width: 640px) {
+  .hakoniwa-chat__form {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  /* 例文が折り返すため、狭い画面では2行分の高さにする */
+  .hakoniwa-chat__form textarea {
+    flex-basis: 100%;
+    min-height: calc(2lh + 18px);
+  }
+}
+
+.hakoniwa-chat__hint {
+  margin: 6px 0 0;
+  font-size: 0.74rem;
+}
+
+.hakoniwa-message-footer {
+  margin: 8px 0;
+  color: var(--hk-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.hakoniwa-message-footer p {
+  margin: 4px 0;
+}
+
+.hakoniwa-message-footer summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.hakoniwa-message-footer a {
+  color: var(--hk-accent-strong);
+  text-decoration: underline;
+}
+
+.hakoniwa-message-footer ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+/* 窓の中では注記の行の余白を詰めて、本文の行を残す */
+.hakoniwa-adv__window .hakoniwa-message-footer {
+  margin: 6px 0;
+}
+
+.hakoniwa-adv__window .hakoniwa-message-footer > p {
+  margin: 0;
+}
+
+/* 高さを固定した窓の中では、出典の一覧だけをスクロールさせて本文の行を残す */
+.hakoniwa-adv__window .hakoniwa-message-footer ul {
+  max-height: 6.5em;
+  overflow-y: auto;
+}
+
+.hakoniwa-chat__log {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* 広い画面では、開いている間メッセージ窓が縮んで横に並ぶ(.is-log-open) */
+  width: min(360px, calc(100% - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--hk-bg) 96%, transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+}
+
+.hakoniwa-chat__log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.hakoniwa-chat__log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.hakoniwa-chat__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hakoniwa-chat__entry-speaker {
+  color: var(--hk-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.hakoniwa-chat__entry.is-player .hakoniwa-chat__entry-speaker {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-chat__entry.is-system {
+  color: var(--hk-muted);
+}
+
+/* 広い画面では、ログを開いている間メッセージ窓を縮めてログ(幅 360px)を横に並べる
+   (出来事の ADV と会話の両方)。ログを開いたまま幕を送ったり、言葉や続きの指示を
+   書いたりできる(幅は HakoniwaAdv.tsx の LOG_BESIDE_WINDOW_QUERY と同じ) */
+@media (min-width: 900px) {
+  .hakoniwa-adv.is-log-open .hakoniwa-adv__window {
+    right: max(392px, calc((100% - 1100px) / 2));
+  }
+}
+
+/* ADV のログ: 場面(出来事)ごとに見出しを付け、続きの場面は区切り線で分ける */
+.hakoniwa-adv__log-scene {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hakoniwa-adv__log-scene + .hakoniwa-adv__log-scene {
+  padding-top: 8px;
+  border-top: 1px solid var(--hk-border-strong);
+}
+
+.hakoniwa-adv__log-title {
+  color: var(--hk-text);
+  font-size: 0.92rem;
+}
+
+.hakoniwa-adv__log-order {
+  color: var(--hk-muted);
+  font-size: 0.78rem;
+}
+
+.hakoniwa-adv__log-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* --- 開幕(プロローグ)。サロンの開業演出と同じく画面全体を使う。幕ごとに箱庭の場所の背景を
+   クロスフェードし、枠のない文を中央に重ねる。真っ黒にはせず、やわらかな陰りで文を読ませる --- */
+
+.hakoniwa-opening {
+  --hk-display: "BIZ UDMincho", "Yu Mincho", "Hiragino Mincho ProN", serif;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  background: var(--hk-bg-deep);
+  color: #fff;
+  cursor: pointer;
+  outline: none;
+  animation: hakoniwa-opening-fade 0.8s ease-out both;
+}
+
+/* 背景は重ねておき、今の幕の背景だけを見せる(ゆっくりクロスフェード)。かすかに寄っていく */
+.hakoniwa-opening__background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transform: scale(1.02);
+  transition:
+    opacity 1.4s ease,
+    transform 14s ease-out;
+}
+
+.hakoniwa-opening__background.is-active {
+  opacity: 1;
+  transform: scale(1.08);
+}
+
+.hakoniwa-opening__veil {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 70% 55% at 50% 45%,
+      rgb(10 12 24 / 0.55),
+      rgb(10 12 24 / 0.2) 70%,
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      rgb(10 12 24 / 0.35),
+      transparent 30%,
+      transparent 70%,
+      rgb(10 12 24 / 0.4)
+    );
+  pointer-events: none;
+}
+
+/* ようこその幕だけ、住民が庭に並んで立つ */
+.hakoniwa-opening__lineup {
+  position: absolute;
+  inset: auto 4% 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1%;
+  height: 46%;
+  opacity: 0;
+  transition: opacity 1s ease;
+  pointer-events: none;
+}
+
+.hakoniwa-opening__lineup.is-active {
+  opacity: 1;
+  transition-delay: 0.4s;
+}
+
+.hakoniwa-opening__lineup img {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 16%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom;
+  filter: drop-shadow(0 6px 12px rgb(0 0 0 / 0.35));
+  /* 透過が済んだ住民から(作った直後は立ち絵ができた住民から)ふわっと加わる */
+  animation: hakoniwa-opening-fade 0.8s ease both;
+}
+
+/* 文。幕ごとに重ね、今の幕だけをフェードイン(前の幕は先にフェードアウト) */
+.hakoniwa-opening__caption {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  box-sizing: border-box;
+  padding: 72px 24px;
+  text-align: center;
+  text-shadow:
+    0 2px 14px rgb(0 0 0 / 0.75),
+    0 0 2px rgb(0 0 0 / 0.6);
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s ease;
+  pointer-events: none;
+}
+
+.hakoniwa-opening__caption.is-active {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.9s ease 0.45s,
+    transform 0.9s ease 0.45s;
+}
+
+.hakoniwa-opening__caption.is-active .hakoniwa-opening__links {
+  pointer-events: auto;
+}
+
+/* ようこその幕は、並んだ住民に文がかからないよう上寄せ */
+.hakoniwa-opening__caption--welcome {
+  justify-content: flex-start;
+  padding-top: 14vh;
+}
+
+.hakoniwa-opening__eyebrow {
+  max-width: 100%;
+  margin: 0;
+  color: color-mix(in srgb, var(--hk-accent-strong) 40%, #fff);
+  font-family: var(--hk-display);
+  font-size: clamp(0.95rem, 2.6vw, 1.15rem);
+  letter-spacing: 0.3em;
+  overflow-wrap: anywhere;
+}
+
+.hakoniwa-opening__rule {
+  display: block;
+  width: min(60%, 240px);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 0.7),
+    transparent
+  );
+}
+
+.hakoniwa-opening__headline {
+  margin: 0;
+  font-family: var(--hk-display);
+  font-size: clamp(2.2rem, 8vw, 3.4rem);
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+}
+
+.hakoniwa-opening__text {
+  max-width: 36em;
+  margin: 0;
+  font-family: var(--hk-display);
+  font-size: clamp(1.05rem, 2.8vw, 1.35rem);
+  line-height: 2;
+  letter-spacing: 0.06em;
+  white-space: pre-line;
+  /* 語の途中で折り返さず(文節で折る)、行の長さをそろえる */
+  word-break: auto-phrase;
+  text-wrap: balance;
+}
+
+.hakoniwa-opening__note {
+  max-width: 36em;
+  margin: 0;
+  color: rgb(255 255 255 / 0.82);
+  font-size: 0.88rem;
+  line-height: 1.7;
+  word-break: auto-phrase;
+  text-wrap: balance;
+}
+
+/* 最後の幕の案内(掟・住民)。枠を付けず、下線の文字にする */
+.hakoniwa-opening__links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 22px;
+  margin-top: 6px;
+}
+
+.hakoniwa-opening__links button {
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  color: #fff;
+  font: inherit;
+  font-size: 0.92rem;
+  letter-spacing: 0.08em;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-shadow: inherit;
+  cursor: pointer;
+}
+
+/* スキップ(右上)・次へ(右下)・進み具合(左下)。サロンの開業演出と同じ置き方 */
+.hakoniwa-opening__skip,
+.hakoniwa-opening__next {
+  position: absolute;
+  z-index: 2;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgb(255 255 255 / 0.45);
+  border-radius: 2px;
+  background: rgb(10 12 24 / 0.35);
+  color: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+.hakoniwa-opening__skip {
+  top: 18px;
+  right: 18px;
+}
+
+.hakoniwa-opening__next {
+  right: 18px;
+  bottom: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 18px;
+  font-family: var(--hk-display);
+  font-size: 0.92rem;
+  letter-spacing: 0.16em;
+}
+
+.hakoniwa-opening__next span {
+  font-size: 0.7em;
+  animation: hakoniwa-opening-next 1.2s ease-in-out infinite;
+}
+
+.hakoniwa-opening__skip:hover,
+.hakoniwa-opening__next:hover {
+  border-color: #fff;
+  background: rgb(10 12 24 / 0.55);
+}
+
+.hakoniwa-opening__skip:focus-visible,
+.hakoniwa-opening__next:focus-visible,
+.hakoniwa-opening__links button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+/* 作った直後の、おまかせの住民の立ち絵の進み具合(左上。文と操作に重ねない) */
+.hakoniwa-opening__status {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.35);
+  font-size: 0.8rem;
+  text-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
+}
+
+.hakoniwa-opening__progress {
+  position: absolute;
+  bottom: 26px;
+  left: 22px;
+  z-index: 2;
+  margin: 0;
+  color: rgb(255 255 255 / 0.75);
+  font-family: var(--hk-display);
+  font-size: 0.8rem;
+  letter-spacing: 0.2em;
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.7);
+}
+
+@keyframes hakoniwa-opening-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes hakoniwa-opening-next {
+  50% {
+    transform: translateY(3px);
+    opacity: 0.55;
+  }
+}
+
+/* 縦長の画面では、住民を低めに並べ、ようこその文は上に置く */
+@media (max-width: 640px) {
+  .hakoniwa-opening__lineup {
+    height: 34%;
+    inset: auto 2% 8%;
+  }
+
+  .hakoniwa-opening__lineup img {
+    max-width: 30%;
+  }
+
+  .hakoniwa-opening__caption {
+    padding: 64px 18px 80px;
+  }
+
+  .hakoniwa-opening__caption--welcome {
+    padding-top: 12vh;
+  }
+}
+
+/* 動きを減らす設定では、動き(フェード・寄り・▼)だけを止める。幕と文はそのまま */
+@media (prefers-reduced-motion: reduce) {
+  .hakoniwa-opening,
+  .hakoniwa-opening__lineup img,
+  .hakoniwa-opening__next span {
+    animation: none;
+  }
+
+  .hakoniwa-opening__background,
+  .hakoniwa-opening__background.is-active,
+  .hakoniwa-opening__lineup,
+  .hakoniwa-opening__caption,
+  .hakoniwa-opening__caption.is-active {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* --- おまかせの住民と実験テーマ(作成画面・設定タブ) --- */
+
+.hakoniwa-random__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0;
+}
+
+.hakoniwa-random__count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.hakoniwa-random__count select {
+  padding: 6px 10px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 8px;
+  background: var(--hk-bg);
+  color: var(--hk-text);
+  font: inherit;
+}
+
+.hakoniwa-random__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hakoniwa-random__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 12px;
+  background: var(--hk-surface-2);
+}
+
+.hakoniwa-random__item p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.hakoniwa-random__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.hakoniwa-random__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.hakoniwa-residents__batch {
+  margin: 10px 0;
+}
+
+.hakoniwa-residents__batch .hakoniwa-note {
+  margin: 6px 0 0;
+}
+
+/* --- BGM(♪ パネル) --- */
+
+.hakoniwa-bgm {
+  position: relative;
+  flex: 0 0 auto;
+  cursor: default;
+}
+
+.hakoniwa-bgm__button {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--hk-border);
+  border-radius: 50%;
+  color: var(--hk-accent);
+  background: transparent;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hakoniwa-bgm__button:hover {
+  border-color: var(--hk-accent);
+}
+
+/* 消音中は斜線を引き、色も落とす */
+.hakoniwa-bgm__button.is-muted {
+  color: var(--hk-muted);
+}
+
+.hakoniwa-bgm__button.is-muted::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 1px;
+  background: var(--hk-muted);
+  content: "";
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.hakoniwa-bgm__panel {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--hk-border-strong);
+  border-radius: 10px;
+  color: var(--hk-text);
+  background: var(--hk-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  text-align: left;
+}
+
+.hakoniwa-bgm--down .hakoniwa-bgm__panel {
+  top: calc(100% + 8px);
+}
+
+/* ADV のメッセージ窓の中では、窓の上へ開く(位置はボタンから計算して画面基準で置く) */
+.hakoniwa-bgm--up .hakoniwa-bgm__panel {
+  position: fixed;
+}
+
+.hakoniwa-bgm__volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.hakoniwa-bgm__volume input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hakoniwa-bgm__value {
+  min-width: 3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

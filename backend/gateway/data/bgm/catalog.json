@@ -95,6 +95,13 @@
       "scope": "salon"
     },
     {
+      "key": "hakoniwa_daily",
+      "file": "scene16_hakoniwa_daily.ogg",
+      "description": "AI miniature garden only: watching the residents' everyday life in the boarding house; plays whenever no event is being shown",
+      "credit": "Created with Suno AI v6-mini",
+      "scope": "hakoniwa"
+    },
+    {
       "key": "salon_se_register",
       "file": "se01_salon_register.ogg",
       "description": "salon sound effect: the cash register when a checkout is settled",

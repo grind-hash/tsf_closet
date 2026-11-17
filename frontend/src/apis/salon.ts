@@ -12,6 +12,19 @@ import { jsonInit, requestJson } from "../utils/http";
 export type SalonDifficulty = "easy" | "normal" | "hard";
 /** 1 期の長さ(short=4 週 / standard=12 週) */
 export type SalonSeasonLength = "short" | "standard";
+
+/** 来客の種類: お客様の性別(元の性別)。any は絞らない */
+export type SalonCustomerGender = "any" | "man" | "woman";
+/** 来客の種類: お客様が願う体。any は TSF への態度から生成が選ぶ */
+export type SalonDesiredBody = "any" | "female" | "male";
+
+export interface SalonCustomerType {
+  customer_gender: SalonCustomerGender;
+  desired_body: SalonDesiredBody;
+}
+
+/** 来客の種類で選べるお客様の人数(性別ごと) */
+export type SalonCustomerCounts = Record<SalonCustomerGender, number>;
 export type SalonRunStatus = "active" | "completed" | "bankrupt";
 export type SalonVisitStatus = "booked" | "serving" | "done" | "declined";
 
@@ -102,6 +115,9 @@ export interface SalonRun {
   seasons: SalonResult[];
   /** 過激施術(成人向けの依頼)。NSFW モードが OFF の間は効かない */
   sensitive: boolean;
+  /** 来客の種類。性別は次の週の予約から、願う体は次の接客から効く */
+  customer_gender: SalonCustomerGender;
+  desired_body: SalonDesiredBody;
   weekly_fixed_cost: number;
   weekly_salary: number;
   base_price: number;
@@ -163,6 +179,7 @@ export function createSalonRun(
   difficulty: SalonDifficulty,
   sensitive: boolean,
   seasonLength: SalonSeasonLength,
+  customerType: SalonCustomerType,
 ): Promise<SalonRun> {
   return requestJson<SalonRun>(
     BASE,
@@ -171,6 +188,7 @@ export function createSalonRun(
       difficulty,
       sensitive,
       season_length: seasonLength,
+      ...customerType,
     }),
     { fallbackMessage: "開店できませんでした" },
   );
@@ -182,15 +200,28 @@ export function fetchSalonRun(runId: string): Promise<SalonRun> {
   });
 }
 
-/** オーナー室の設定を変える。依頼は接客の開始時に作るので、次の接客から効く */
+/** オーナー室の設定を変える(指定した項目だけ) */
+export type SalonRunSettings = Partial<
+  { sensitive: boolean } & SalonCustomerType
+>;
+
+/** オーナー室の設定を変える。依頼は接客の開始時、予約は週の初めに作る */
 export function updateSalonRunSettings(
   runId: string,
-  settings: { sensitive: boolean },
+  settings: SalonRunSettings,
 ): Promise<SalonRun> {
   return requestJson<SalonRun>(
     `${BASE}/${runId}/settings`,
     jsonInit("PATCH", settings),
     { fallbackMessage: "設定を変更できませんでした" },
+  );
+}
+
+export function fetchSalonCustomerCounts(): Promise<SalonCustomerCounts> {
+  return requestJson<SalonCustomerCounts>(
+    `${API_BASE}/salon/customer-counts`,
+    undefined,
+    { fallbackMessage: "お客様の人数を取得できませんでした" },
   );
 }
 

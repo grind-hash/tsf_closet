@@ -42,6 +42,7 @@ export const getMenuItems = (
   showPromptExpanderMenu: boolean,
   showCharacterChatMenu: boolean,
   showSalonMenu: boolean,
+  showHakoniwaMenu: boolean,
 ): MenuItem[] => {
   return [
     {
@@ -117,6 +118,17 @@ export const getMenuItems = (
           },
         ]
       : []),
+    ...(showHakoniwaMenu
+      ? [
+          {
+            id: "hakoniwa",
+            label: t("menu.hakoniwa"),
+            icon: "🏠",
+            path: ROUTES.HAKONIWA,
+            description: t("menu.hakoniwaDesc"),
+          },
+        ]
+      : []),
     {
       id: "endings",
       label: t("menu.endings"),
@@ -164,6 +176,7 @@ export default function SideMenu() {
     settingsState.experimentalPromptExpanderEnabled,
     settingsState.characterChatEnabled,
     settingsState.experimentalSalonEnabled,
+    settingsState.experimentalHakoniwaEnabled,
   );
 
   // プレイ中のゲームがあるかどうか

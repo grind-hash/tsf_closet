@@ -84,6 +84,32 @@ def test_app_guide_block_lists_guide_text_and_marks_disabled() -> None:
     assert "currently off" in app_guide_block(GUIDE, "en")
 
 
+def test_app_guide_block_lists_details_under_the_feature() -> None:
+    """「くわしく見る」の細かい仕様は、その機能の行の下に見出しごとの箇条書きで渡す。"""
+    guide = [
+        {
+            "id": "hakoniwa",
+            "title": "AI箱庭",
+            "desc": "住民の暮らしを眺めます。",
+            "note": "画像生成を使います。",
+            "details": [
+                {"heading": "掟", "items": ["3枚まで有効にできます。", "  "]},
+                {"heading": "空の見出し", "items": []},
+            ],
+            "available": True,
+        },
+        GUIDE[1],
+    ]
+
+    lines = app_guide_block(guide, "ja").splitlines()
+
+    head = lines.index("- AI箱庭: 住民の暮らしを眺めます。 画像生成を使います。")
+    assert lines[head + 1 : head + 3] == ["  - 掟", "    - 3枚まで有効にできます。"]
+    # 中身の無い見出しや空の項目は渡さない
+    assert "空の見出し" not in "\n".join(lines)
+    assert lines[head + 3].startswith("- サロン経営")
+
+
 def test_app_guide_block_forbids_asserting_unlisted_facts() -> None:
     """一覧に無い仕様(非推奨かどうか等)を断定させず、ガイドを案内させる。"""
     ja = app_guide_block(GUIDE, "ja")

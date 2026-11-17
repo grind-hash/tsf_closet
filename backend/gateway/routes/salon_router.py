@@ -14,6 +14,7 @@ from ..schemas.salon import (
     SalonCheckoutResponse,
     SalonCloseWeekResponse,
     SalonCreateRequest,
+    SalonCustomerCountsResponse,
     SalonExtraTurnResponse,
     SalonLanguageRequest,
     SalonRunListResponse,
@@ -64,10 +65,22 @@ async def create_salon_run(request: SalonCreateRequest) -> SalonRunResponse:
             request.difficulty,
             sensitive=request.sensitive,
             season_length=request.season_length,
+            customer_gender=request.customer_gender,
+            desired_body=request.desired_body,
         )
     except SalonError as error:
         raise _http_error(error) from error
     return SalonRunResponse(**run)
+
+
+@router.get(
+    "/customer-counts",
+    response_model=SalonCustomerCountsResponse,
+    summary="来客の種類で選べるお客様の人数",
+    description="お客様の性別(any / man / woman)ごとの、予約に入りうるお客様の人数",
+)
+async def get_salon_customer_counts() -> SalonCustomerCountsResponse:
+    return SalonCustomerCountsResponse(**await salon_service.customer_counts())
 
 
 @router.get(
@@ -87,14 +100,19 @@ async def get_salon_run(run_id: str) -> SalonRunResponse:
 @router.patch(
     "/runs/{run_id}/settings",
     response_model=SalonRunResponse,
-    summary="オーナー室の設定を変える(過激施術など)",
+    summary="オーナー室の設定を変える(過激施術・来客の種類など)",
     responses=_ERROR_RESPONSES,
 )
 async def update_salon_settings(
     run_id: str, request: SalonSettingsRequest
 ) -> SalonRunResponse:
     try:
-        run = await salon_service.update_settings(run_id, sensitive=request.sensitive)
+        run = await salon_service.update_settings(
+            run_id,
+            sensitive=request.sensitive,
+            customer_gender=request.customer_gender,
+            desired_body=request.desired_body,
+        )
     except SalonError as error:
         raise _http_error(error) from error
     return SalonRunResponse(**run)
