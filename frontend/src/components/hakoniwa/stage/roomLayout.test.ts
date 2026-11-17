@@ -45,6 +45,8 @@ describe("roomLayout", () => {
     "living",
     "study",
     "garden",
+    "kitchen",
+    "wardrobe",
   ])("keeps every walk and event on the %s floor", (areaId) => {
     const random = seededRandom(23);
     const positions = Array.from({ length: 5 }, (_, i) =>
@@ -72,6 +74,11 @@ describe("roomLayout", () => {
     expect(onFloor({ x: 1100, y: 580 }, "living").y).toBeGreaterThan(750);
     expect(onFloor({ x: 180, y: 580 }, "study").y).toBeGreaterThan(770);
     expect(onFloor({ x: 750, y: 580 }, "study").y).toBeLessThan(630);
+  });
+
+  it("keeps shoes in front of the kitchen counter and the dressing room mirror", () => {
+    expect(onFloor({ x: 705, y: 580 }, "kitchen").y).toBeGreaterThan(650);
+    expect(onFloor({ x: 975, y: 580 }, "wardrobe").y).toBeGreaterThan(700);
   });
 
   it("scales furniture by its real size and distance", () => {

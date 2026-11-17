@@ -159,7 +159,7 @@ async function mockHakoniwa(
       {
         id: "kitchen",
         name: "台所",
-        background_url: "/hakoniwa-assets/location_kitchen.png",
+        background_url: "/hakoniwa-assets/area_kitchen.png",
       },
       {
         id: "park",
@@ -185,6 +185,18 @@ async function mockHakoniwa(
         [466, 605],
         [750, 556],
         [1006, 641],
+      ]),
+      area("kitchen", "台所", "area_kitchen.png", [
+        [150, 668],
+        [372, 606],
+        [705, 625],
+        [1040, 672],
+      ]),
+      area("wardrobe", "衣装部屋", "area_wardrobe.png", [
+        [160, 696],
+        [455, 598],
+        [745, 592],
+        [1105, 722],
       ]),
     ],
     furniture_catalog: [

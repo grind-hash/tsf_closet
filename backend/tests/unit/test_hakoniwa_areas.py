@@ -31,6 +31,8 @@ def test_presets_start_in_their_areas_and_layout_is_empty():
         "living": [None] * 4,
         "garden": [None] * 4,
         "study": [None] * 4,
+        "kitchen": [None] * 4,
+        "wardrobe": [None] * 4,
     }
 
 
@@ -48,7 +50,7 @@ def test_placing_furniture_moves_the_single_item():
 @pytest.mark.parametrize(
     ("area", "slot", "item", "code"),
     [
-        ("kitchen", 0, "lamp", "area_not_found"),
+        ("cafe", 0, "lamp", "area_not_found"),
         ("living", 4, "lamp", "invalid_slot"),
         ("living", 0, "sofa", "furniture_not_found"),
     ],
@@ -71,6 +73,9 @@ def test_normalize_drops_unknown_and_duplicate_furniture():
     assert normalized["furniture_layout"]["living"] == ["lamp", None, None, None]
     assert normalized["furniture_layout"]["garden"] == ["plush", None, None, None]
     assert normalized["furniture_layout"]["study"] == [None] * 4
+    # 部屋を足す前の保存データにも、足した部屋の置き場所がそろう
+    assert normalized["furniture_layout"]["kitchen"] == [None] * 4
+    assert normalized["furniture_layout"]["wardrobe"] == [None] * 4
 
 
 def test_events_gather_participants_in_their_area():

@@ -121,6 +121,18 @@ const FLOOR_EDGES: Readonly<Record<string, readonly Point[]>> = {
     { x: 790, y: 606 },
     { x: GAME_W, y: 747 },
   ],
+  kitchen: [
+    { x: 0, y: 760 },
+    { x: 420, y: 650 },
+    { x: 840, y: 662 },
+    { x: GAME_W, y: 790 },
+  ],
+  wardrobe: [
+    { x: 0, y: 790 },
+    { x: 440, y: 640 },
+    { x: 760, y: 632 },
+    { x: GAME_W, y: 806 },
+  ],
 };
 
 /** 背景と横位置から歩ける範囲を求める。書斎の両端には床幅が足りない。 */

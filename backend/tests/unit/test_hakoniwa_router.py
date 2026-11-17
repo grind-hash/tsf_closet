@@ -519,7 +519,13 @@ def test_character_without_gender_requires_choice(
 def test_world_lists_areas_and_furniture_and_places_items(client: TestClient) -> None:
     world = _create(client, ["aoi", "ren"])
 
-    assert [area["id"] for area in world["areas"]] == ["living", "garden", "study"]
+    assert [area["id"] for area in world["areas"]] == [
+        "living",
+        "garden",
+        "study",
+        "kitchen",
+        "wardrobe",
+    ]
     assert world["areas"][1]["background_url"] == "/hakoniwa-assets/area_garden.png"
     assert {item["id"] for item in world["furniture_catalog"]} >= {"lamp", "kotatsu"}
     ren = next(r for r in world["residents"] if r["id"] == "ren")
@@ -548,7 +554,8 @@ def test_day_returns_digest_and_event_areas(client: TestClient) -> None:
     }
     assert body["world"]["last_digest"] == body["digest"]
     assert all(
-        event["area"] in {"living", "garden", "study"} for event in body["new_events"]
+        event["area"] in {"living", "garden", "study", "kitchen", "wardrobe"}
+        for event in body["new_events"]
     )
 
 

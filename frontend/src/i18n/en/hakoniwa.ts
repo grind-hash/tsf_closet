@@ -339,7 +339,7 @@ export const hakoniwa = {
     eventPlaceholder:
       "e.g. The two take a bath together / Go shopping in town in the current look",
     eventNote:
-      "As the writer's order, one scene is generated with the residents in their current looks (transformations, swapped bodies, rule looks) and opened as a scene. Looks do not change. It stays in the chronicle and affects mood, relationships, memories and world strangeness. With Auto, a place that fits the order is chosen; the living room, garden and study move the residents there (other places become the background of the scene picture).",
+      "As the writer's order, one scene is generated with the residents in their current looks (transformations, swapped bodies, rule looks) and opened as a scene. Looks do not change. It stays in the chronicle and affects mood, relationships, memories and world strangeness. With Auto, a place that fits the order is chosen; the living room, garden, study, kitchen and dressing room move the residents there (other places become the background of the scene picture).",
     eventNoteWithLook:
       "As the writer's order, one scene is generated with the residents in their current looks. Then a portrait is generated, one resident at a time, for everyone whose look changed as a result (swapped clothes, changed outfits and so on), and the scene opens once everything is ready. The new looks are treated like transformations: they stay in the history and can be undone with “Change back”. The event stays in the chronicle and affects mood, relationships, memories and world strangeness.",
     eventChangeLook: "Change portraits too",

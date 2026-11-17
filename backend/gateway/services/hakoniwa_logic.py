@@ -2203,7 +2203,7 @@ def settle_event_location(
     *,
     fallback: str | None = None,
 ) -> dict[str, Any]:
-    """出来事の場所を決める。3つのエリアならそこで起き(参加者もそこへ移る)、
+    """出来事の場所を決める。エリアならそこで起き(参加者もそこへ移る)、
     エリアの外の場所なら area はそのままで location に残す。
 
     fallback は location が一覧に無いときに使う場所(続きの出来事なら前の場面の場所)。

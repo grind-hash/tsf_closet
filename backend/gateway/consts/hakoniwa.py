@@ -174,12 +174,43 @@ HAKONIWA_AREAS: list[dict[str, Any]] = [
         ),
         "slots": [(161, 712), (466, 605), (750, 556), (1006, 641)],
     },
+    {
+        "id": "kitchen",
+        "background_file": "area_kitchen.png",
+        "name": {"ja": "台所", "en": "Kitchen"},
+        "scene": (
+            "The shared kitchen of Stardust House: a counter with a sink and a stove "
+            "along the wall, wall cabinets, a window and a wide open wooden floor."
+        ),
+        "scene_tags": (
+            "clean tidy kitchen interior, kitchen counter along the wall, sink, stove, "
+            "wall cabinets, wooden floor, window, warm light, wide open floor space, "
+            "scenery, anime background"
+        ),
+        "slots": [(150, 668), (372, 606), (705, 625), (1040, 672)],
+    },
+    {
+        "id": "wardrobe",
+        "background_file": "area_wardrobe.png",
+        "name": {"ja": "衣装部屋", "en": "Dressing room"},
+        "scene": (
+            "The dressing room of Stardust House: racks of dresses and clothes on "
+            "hangers along the wall, a full-length mirror and a wide open wooden floor. "
+            "Residents try on and swap clothes here."
+        ),
+        "scene_tags": (
+            "dressing room interior, walk-in closet, clothes racks, dresses on hangers, "
+            "full-length mirror, wooden floor, warm light, wide open floor space, "
+            "scenery, anime background"
+        ),
+        "slots": [(160, 696), (455, 598), (745, 592), (1105, 722)],
+    },
 ]
 HAKONIWA_AREA_MAP: dict[str, dict[str, Any]] = {
     area["id"]: area for area in HAKONIWA_AREAS
 }
 
-# 出来事の場所(場面の絵の背景)。住民がいる3つのエリアに加えて、エリアの外の場所を持つ。
+# 出来事の場所(場面の絵の背景)。住民がいるエリアに加えて、エリアの外の場所を持つ。
 # エリアの外の場所は ADV の背景・場面の絵・年代記の表示に使い、住民の居場所(current_area)は変えない。
 # background_file は同梱の背景(frontend/public/hakoniwa-assets/、1216x832・人物なし)。
 HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
@@ -208,19 +239,6 @@ HAKONIWA_EXTRA_LOCATIONS: list[dict[str, Any]] = [
         "scene_tags": (
             "bedroom interior, bed, pillows, curtains, soft lamp light, scenery, "
             "anime background"
-        ),
-    },
-    {
-        "id": "kitchen",
-        "background_file": "location_kitchen.png",
-        "name": {"ja": "台所", "en": "Kitchen"},
-        "scene": (
-            "The shared kitchen of Stardust House: counters, a stove and a small "
-            "dining table."
-        ),
-        "scene_tags": (
-            "clean tidy kitchen interior, kitchen counter, stove, small dining table, "
-            "warm light, scenery, anime background"
         ),
     },
     {
