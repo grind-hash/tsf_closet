@@ -56,6 +56,7 @@ from ..consts.session_request import (
     REQUEST_WISH_MAX,
 )
 from ..models import PersistedSession
+from .adult_content_guard import has_minor_markers
 from .characters import character_manager
 from .clothing_layers import split_worn_under_layers
 from .cost_tracker import begin_cost_tracking, record_cost
@@ -779,13 +780,36 @@ def is_fulfilled(evaluation: dict[str, Any] | None) -> bool:
     )
 
 
+async def experience_blocked_for(
+    store: Any, request: dict[str, Any], session_id: str
+) -> bool:
+    """成人向けの依頼で、今の姿・願い・体験の指示に未成年を思わせる目印があるか。
+
+    目印があれば体験の場面は描かない（成人にもある見た目の特徴は目印にしない）。
+    """
+    if not request.get("sensitive"):
+        return False
+    latest = await store.get_latest_history(session_id)
+    return has_minor_markers(
+        latest.after_description if latest else None,
+        str(request.get("wish") or ""),
+        str(request.get("experience") or ""),
+    )
+
+
 def public_request_view(
     request: dict[str, Any],
     evaluations: list[dict[str, Any]],
     *,
     can_regenerate: bool,
+    experience_blocked: bool = False,
 ) -> dict[str, Any]:
-    """フロントへ配信する依頼。伏せた好みの本文は一度満たされるまで送らない。"""
+    """フロントへ配信する依頼。伏せた好みの本文は一度満たされるまで送らない。
+
+    experience_blocked なら体験の場面の指示を送らず、描かないことだけを伝える。
+    """
+    sensitive = bool(request.get("sensitive"))
+    blocked = sensitive and experience_blocked
     scored = scored_evaluations(evaluations)
     revealed: set[str] = set()
     for evaluation in scored:
@@ -843,10 +867,11 @@ def public_request_view(
         "can_regenerate": can_regenerate,
         "emphasize_hints": bool(request.get("emphasize_hints")),
         "clue_level": normalize_clue_level(request.get("clue_level")),
-        "sensitive": bool(request.get("sensitive")),
+        "sensitive": sensitive,
         "experience": str(request.get("experience") or "")
-        if request.get("sensitive")
+        if sensitive and not blocked
         else "",
+        "experience_blocked": blocked,
     }
 
 
@@ -978,6 +1003,9 @@ class SessionRequestService:
             request,
             evaluations,
             can_regenerate=bool(session) and session.transformation_count == 0,
+            experience_blocked=await experience_blocked_for(
+                session_store, request, session_id
+            ),
         )
 
     async def create_request(
@@ -1118,7 +1146,14 @@ class SessionRequestService:
             sensitive=experience is not None,
             experience=experience,
         )
-        view = public_request_view(saved, [], can_regenerate=True)
+        view = public_request_view(
+            saved,
+            [],
+            can_regenerate=True,
+            experience_blocked=await experience_blocked_for(
+                session_store, saved, session_id
+            ),
+        )
         view["sensitive_fallback"] = fallback
         return view, tracker.total_usd
 
@@ -1183,6 +1218,9 @@ class SessionRequestService:
             saved or request,
             evaluations,
             can_regenerate=session.transformation_count == 0,
+            experience_blocked=await experience_blocked_for(
+                session_store, saved or request, session_id
+            ),
         )
         return view, tracker.total_usd
 

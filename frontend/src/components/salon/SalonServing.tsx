@@ -757,6 +757,11 @@ export default function SalonServing({
                     emphasizeHints={reveal.emphasizeHints}
                   />
                 )}
+                {request?.experience_blocked && (
+                  <p className="salon-window__note">
+                    {t("salon.serving.experienceBlocked")}
+                  </p>
+                )}
                 {(experienceFeeling || experienceBusy) && (
                   <>
                     <p className="salon-window__label">

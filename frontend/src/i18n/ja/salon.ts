@@ -30,7 +30,7 @@ export const salon = {
         "初週は1名から。評判を上げてお客様を増やしていく、じっくりした経営です",
     },
     sensitiveHint:
-      "成人向けの願いを持つお客様が来店し、お披露目で、その姿で願いが叶うひとときの夢を1枚見せます。初期値は直近に遊んだサロンの設定で、開店後もオーナー室で切り替えられます。",
+      "成人向けの願いを持つお客様が来店し、お披露目で、その姿で願いが叶うひとときの夢を1枚見せます。登場人物はすべて18歳以上の成人です。姿や願いに子どもを思わせる要素があるときは、夢は見せません。初期値は直近に遊んだサロンの設定で、開店後もオーナー室で切り替えられます。",
     goal: "期末の現金が開業資金を上回れば成功です。目安は、2回に1回お客様の願いを叶えることです。願いを叶えると、評判に応じたチップや常連の指名料も入ります。決算のあとは、次の期へ続けられます。",
     submit: "開店する",
   },
@@ -63,7 +63,7 @@ export const salon = {
     weeklyBalanceValue: "本業 +{{salary}} / 固定費 −{{fixed}}",
     sensitive: "過激施術（成人向け）",
     sensitiveHint:
-      "成人向けの願いを持つお客様が来店し、お披露目で、その姿で願いが叶うひとときの夢を1枚見せます。次に始める接客から効きます。",
+      "成人向けの願いを持つお客様が来店し、お披露目で、その姿で願いが叶うひとときの夢を1枚見せます。登場人物はすべて18歳以上の成人です。姿や願いに子どもを思わせる要素があるときは、夢は見せません。次に始める接客から効きます。",
     sensitiveNsfwOff: "NSFW モードが OFF のため効きません。",
     sensitiveOpenSettings: "設定を開く",
     cutscene: "開業・週の締めの演出",
@@ -207,8 +207,8 @@ export const salon = {
     chartAsked: "伺った",
     askAbout: "{{category}}について、お好みを伺ってもいいですか？",
     satisfactionMeter: "満足度 {{satisfaction}}% · 達成は {{threshold}}%",
-    satisfactionUp: "▲{{delta}}",
-    satisfactionDown: "▼{{delta}}",
+    satisfactionUp: "+{{delta}}",
+    satisfactionDown: "−{{delta}}",
     satisfactionSame: "±0",
     satisfactionBefore: "施術後にわかります",
     sendHome: "お帰りいただく（評判 −{{penalty}}）",
@@ -236,6 +236,8 @@ export const salon = {
     revealBefore: "ご来店時",
     revealAfter: "施術後",
     experience: "その姿で見る夢",
+    experienceBlocked:
+      "姿や願いに子どもを思わせる要素があるため、夢の場面は描きませんでした。",
     experienceGenerating: "その姿で願いが叶う夢を描いています…",
     experienceFailed:
       "夢の場面を描けませんでした。やり直すか、このまま会計できます。",

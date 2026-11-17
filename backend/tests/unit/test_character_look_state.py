@@ -181,6 +181,75 @@ def test_parse_maps_entries_by_ref_even_when_reordered() -> None:
     ]
 
 
+def test_parse_moves_trailing_inventory_line_to_protagonist() -> None:
+    # 閉じフェンスと同じ行に WORN_UNDER_LAYERS を付けた出力
+    raw = (
+        "```json\n"
+        '{"characters": [{"ref": "C1", "tags": "1girl, navy sundress", '
+        '"position": "center"}], "scene": "simple background", "targets": ["C1"]}\n'
+        "\n"
+        "WORN_UNDER_LAYERS: white bra, white panties ```"
+    )
+    parsed = _parse_novelai_prompt_json(raw)
+    assert parsed is not None
+    scene, characters = parsed
+    assert scene == "simple background"
+    assert characters[0]["prompt"] == (
+        "1girl, navy sundress\n\nWORN_UNDER_LAYERS: white bra, white panties"
+    )
+
+
+def test_parse_moves_unquoted_inventory_key_to_protagonist() -> None:
+    # JSON の最後のキーに引用符なしで入れた出力。主人公が先頭でなくても主人公に戻す
+    raw = (
+        "```json\n"
+        '{"characters": [\n'
+        '  {"tags": "1boy, waiter", "position": "right"},\n'
+        '  {"ref": "C1", "tags": "1girl, white blouse", "position": "center"}\n'
+        '], "scene": "cafe", "targets": ["C1"], '
+        '"WORN_UNDER_LAYERS": white bra, white panties}\n'
+        "```"
+    )
+    parsed = _parse_novelai_prompt_json(raw)
+    assert parsed is not None
+    scene, characters = parsed
+    assert scene == "cafe"
+    assert [(c["stage_index"], c["prompt"]) for c in characters] == [
+        (0, "1girl, white blouse\n\nWORN_UNDER_LAYERS: white bra, white panties"),
+        (None, "1boy, waiter"),
+    ]
+
+
+def test_parse_ignores_extra_closing_brace_after_object() -> None:
+    # 中に入れた inventory の後ろに、閉じ波括弧が1つ余分に付いた出力
+    raw = (
+        "```json\n"
+        '{"characters": [{"ref": "C1", "tags": "1girl, grey coat", '
+        '"position": "center"}], "scene": "street", "targets": ["C1"], '
+        '"WORN_UNDER_LAYERS": "white camisole"}\n'
+        "}\n"
+        "```"
+    )
+    parsed = _parse_novelai_prompt_json(raw)
+    assert parsed is not None
+    assert parsed[1][0]["prompt"] == (
+        "1girl, grey coat\n\nWORN_UNDER_LAYERS: white camisole"
+    )
+
+
+def test_parse_keeps_quoted_inventory_key_for_single_character() -> None:
+    raw = json.dumps(
+        {
+            "character": "1girl, red dress",
+            "scene": "park",
+            "WORN_UNDER_LAYERS": "black bra",
+        }
+    )
+    parsed = _parse_novelai_prompt_json(raw)
+    assert parsed is not None
+    assert parsed[1][0]["prompt"] == "1girl, red dress\n\nWORN_UNDER_LAYERS: black bra"
+
+
 def test_parse_without_refs_keeps_array_order() -> None:
     raw = json.dumps(
         {

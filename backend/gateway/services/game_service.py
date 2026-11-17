@@ -21,7 +21,7 @@ from collections.abc import (
     Callable,
     Sequence,
 )
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..consts.language import normalize_language
@@ -63,6 +63,13 @@ from .action_prompts import (
     get_action_image_edit_system_prompt,
     get_action_novelai_prompt_generation_system,
 )
+from .adult_content_guard import (
+    ADULT_IMAGE_SENTENCE,
+    ADULT_IMAGE_TAG,
+    MINOR_NEGATIVE_TAGS,
+    MinorMarkerError,
+    find_minor_markers,
+)
 from .anlas_service import get_anlas_balance
 from .character_service import (
     CHARACTER_STATS_DEFAULTS,
@@ -92,10 +99,14 @@ from .characters import character_manager
 from .clothing_layers import (
     append_clothing_layer_feeling_rule,
     append_clothing_layer_image_rule,
+    append_worn_under_layers,
     clothing_layer_negative_suffix,
     ensure_characters_worn_under_layers,
     ensure_worn_under_layers,
+    merge_inventory,
     merge_negative_prompt,
+    split_json_worn_under_layers,
+    split_worn_under_layers,
     strip_characters_worn_under_layers,
     strip_worn_under_layers_for_image,
 )
@@ -192,7 +203,12 @@ def _parse_novelai_prompt_json(
 
     Returns None if parsing fails.
     """
-    parsed = json.loads(strip_code_fence(raw_response))
+    # 衣装レイヤーの WORN_UNDER_LAYERS が JSON の後ろや中に混ざると読めないため、
+    # 先に取り出して主人公のタグに戻す。JSON の後ろの余分な閉じ波括弧などは読み飛ばす
+    body, inventory = split_json_worn_under_layers(strip_code_fence(raw_response))
+    parsed, _end = json.JSONDecoder().raw_decode(body)
+    if not isinstance(parsed, dict):
+        return None
     scene_prompt = parsed.get("scene", "").strip()
     if not scene_prompt:
         return None
@@ -241,16 +257,73 @@ def _parse_novelai_prompt_json(
                 use_refs,
                 len(scene_prompt),
             )
-            return scene_prompt, result_chars
+            return scene_prompt, _with_protagonist_inventory(result_chars, inventory)
 
     # Single character format: {"character": "...", "scene": "..."}
     char_prompt = parsed.get("character", "").strip()
     if char_prompt:
-        return scene_prompt, [
-            {"prompt": char_prompt, "position": (0.5, 0.5), "stage_index": 0}
-        ]
+        return scene_prompt, _with_protagonist_inventory(
+            [{"prompt": char_prompt, "position": (0.5, 0.5), "stage_index": 0}],
+            inventory,
+        )
 
     return None
+
+
+def _with_protagonist_inventory(characters: list[dict], inventory: str) -> list[dict]:
+    """JSON から取り出した WORN_UNDER_LAYERS を主人公（いなければ先頭）のタグに戻す。"""
+    if not inventory or not characters:
+        return characters
+    target = next((c for c in characters if c["stage_index"] == 0), characters[0])
+    visual, existing = split_worn_under_layers(target["prompt"])
+    target["prompt"] = append_worn_under_layers(
+        visual, merge_inventory(existing, inventory)
+    )
+    return characters
+
+
+def _raise_if_minor_markers(*texts: str | None) -> None:
+    """成人向けの場面の姿・指示に未成年を思わせる目印があれば止める。"""
+    markers = find_minor_markers(*texts)
+    if markers:
+        logger.warning("Adult scene blocked: minor markers=%s", markers)
+        raise MinorMarkerError(
+            "姿や指示に子どもを思わせる要素があるため、この場面は描きません"
+        )
+
+
+def _append_tag(prompt: str, tag: str) -> str:
+    """タグ列の末尾にタグを足す（既にあれば足さない）。"""
+    text = (prompt or "").strip().rstrip(",").strip()
+    if tag in (token.strip() for token in text.split(",")):
+        return text
+    return f"{text}, {tag}" if text else tag
+
+
+def _with_adult_image_safeguards(
+    payload: _ImagePayload, *, is_novelai: bool
+) -> _ImagePayload:
+    """成人向けの場面の画像を成人に寄せる（成人のタグと、子どもを示す語のネガティブ）。"""
+    api_characters = payload.api_characters
+    if is_novelai:
+        api_prompt = _append_tag(payload.api_prompt, ADULT_IMAGE_TAG)
+        if api_characters:
+            api_characters = [
+                {**char, "prompt": _append_tag(char["prompt"], ADULT_IMAGE_TAG)}
+                if isinstance(char.get("prompt"), str)
+                else char
+                for char in api_characters
+            ]
+    else:
+        api_prompt = f"{payload.api_prompt.rstrip()} {ADULT_IMAGE_SENTENCE}".strip()
+    return replace(
+        payload,
+        api_prompt=api_prompt,
+        api_characters=api_characters,
+        negative_prompt=merge_negative_prompt(
+            payload.negative_prompt, MINOR_NEGATIVE_TAGS
+        ),
+    )
 
 
 def _pending_cost_event(
@@ -2759,6 +2832,26 @@ class GameService:
             current_desc = self._initial_prompt_for(ctx)
         logger.info("current_desc:%s", current_desc)
 
+        # サロンの過激施術: 接客画面が送る行動の手番は体験の場面だけ。
+        # 未成年を思わせる姿・指示なら、LLM を呼ぶ前に止める
+        session_request = (
+            None
+            if ctx.session.self_mode
+            else await session_store.get_session_request(ctx.session.id)
+        )
+        experience_request = (
+            session_request
+            if session_request is not None and session_request.get("sensitive")
+            else None
+        )
+        if experience_request is not None:
+            _raise_if_minor_markers(
+                current_desc,
+                ctx.instruction,
+                str(experience_request.get("wish") or ""),
+                str(experience_request.get("experience") or ""),
+            )
+
         previous_situation_summary = await self._summarize_previous_situation(
             last_hist, ctx.novelai_text_model
         )
@@ -2797,6 +2890,8 @@ class GameService:
         if spec_look and ctx.is_novelai_opus:
             # 手番の後に主人公の設定が変わった・固定中: 直前の姿ではなく設定の姿から描く
             current_desc = spec_look
+            if experience_request is not None:
+                _raise_if_minor_markers(current_desc)
 
         # 行動時の性別適合。feeling_mode=gender_aware かつ self_mode 以外
         congruence = await self._evaluate_turn_congruence(
@@ -2828,14 +2923,12 @@ class GameService:
             attributes=attributes,
             gender_discomfort=gender_discomfort,
         )
-        # サロンの過激施術: 接客画面が送る行動の手番は体験の場面だけ。
-        # サロンが仕上げの姿のまま見せる夢として書かせ、画像でも仕上げた服を残す
+        # 体験の場面は、サロンが仕上げの姿のまま見せる夢として書かせ、
+        # 画像でも仕上げた服を残す
         experience_image_rule = ""
-        if not ctx.session.self_mode:
-            session_request = await session_store.get_session_request(ctx.session.id)
-            if session_request is not None:
-                act_user += experience_feeling_context(session_request, ctx.language)
-                experience_image_rule = experience_image_context(session_request)
+        if session_request is not None:
+            act_user += experience_feeling_context(session_request, ctx.language)
+            experience_image_rule = experience_image_context(session_request)
 
         from .conversation import get_language_rules
 
@@ -2853,6 +2946,10 @@ class GameService:
             attribute_context=attribute_context + experience_image_rule,
             multi_char_image_section=sections.image,
         )
+        if experience_request is not None:
+            _raise_if_minor_markers(
+                image_prompt, *(str(c.get("prompt") or "") for c in characters or [])
+            )
         payload = self._build_image_payload(
             ctx,
             image_prompt,
@@ -2861,6 +2958,8 @@ class GameService:
             apply_override=False,
             stage=sections.stage,
         )
+        if experience_request is not None:
+            payload = _with_adult_image_safeguards(payload, is_novelai=ctx.is_novelai)
         # 履歴用: inventory 付き状態を保持
         prompt_desc = (
             self._protagonist_prompt(payload.characters, sections.stage)

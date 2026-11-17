@@ -9,9 +9,17 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 WORN_UNDER_LAYERS_MARKER = "WORN_UNDER_LAYERS:"
+
+# JSON のキーとして混ざった WORN_UNDER_LAYERS（値に引用符が無いことがある）。
+# 値は次の閉じ波括弧の手前までで、閉じ波括弧は残す
+_JSON_INVENTORY_KEY_PATTERN = re.compile(
+    r',\s*"WORN_UNDER_LAYERS"\s*:\s*(?P<value>[^{}]*?)\s*(?=\})',
+    re.IGNORECASE,
+)
 
 CLOTHING_LAYER_COVERED_NEGATIVE = (
     "braless, no bra, no panties, nipples, erect nipples, underboob, "
@@ -146,6 +154,33 @@ def strip_worn_under_layers_for_image(text: str) -> str:
     """画像API送信用に WORN_UNDER_LAYERS を除去する。"""
     visual, _inventory = split_worn_under_layers(text or "")
     return visual
+
+
+def _json_inventory_value(value: str) -> str:
+    """JSON のキーに入った inventory の値を、カンマ区切りのタグ列にする。"""
+    try:
+        parsed: object = json.loads(value)
+    except json.JSONDecodeError:
+        parsed = value
+    if isinstance(parsed, list):
+        parsed = ", ".join(str(item) for item in parsed)
+    return str(parsed).strip().strip('"').strip(" ,")
+
+
+def split_json_worn_under_layers(text: str) -> tuple[str, str]:
+    """LLM が JSON の出力に混ぜた WORN_UNDER_LAYERS を取り出す。
+
+    JSON の後ろに行として付けた形と、JSON のキーとして入れた形
+    （値に引用符が無く JSON として読めないことがある）の両方を扱う。
+    (JSON 本体, inventory) を返す。混ざっていなければ (text, "")。
+    """
+    body, inventory = split_worn_under_layers(text or "")
+    while match := _JSON_INVENTORY_KEY_PATTERN.search(body):
+        inventory = merge_inventory(
+            inventory, _json_inventory_value(match.group("value"))
+        )
+        body = body[: match.start()] + body[match.end() :]
+    return body, inventory
 
 
 def _normalize_tag(tag: str) -> str:

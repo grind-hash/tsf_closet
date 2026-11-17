@@ -91,6 +91,7 @@ export const guide = {
           "The message window shows a chart of the kinds of taste the customer keeps unsaid (✓ when granted, ◆ for the one on their mind). In counselling, press a kind on the chart to write a question about it.",
           "A perfect finish (satisfaction 100) doubles the course price, and granting the wish of a regular who came back in your look adds a regular’s fee.",
           "You can send home a customer you have not styled yet (reputation −3). You can close the week while serving; a styled customer is checked out at the current satisfaction.",
+          "In adult styling, all characters are adults aged 18 or over. When the look or wish suggests a child, the reveal shows no dream.",
         ],
       },
       {
