@@ -338,7 +338,7 @@ async def _seed_session(
                 session_id="s1",
                 instruction="初期状態",
                 image_path="img/h0.png",
-                after_description="制服姿の少年",
+                after_description="スーツ姿の青年",
                 created_at=datetime(2026, 10, 31, 10, 0),
             )
         )
@@ -377,7 +377,7 @@ async def test_create_request_saves_hidden_preferences_and_locks_after_first_tur
     assert view["wish"] == _GENERATED["wish"]
     assert view["can_regenerate"] is True
     assert [item["text"] for item in view["preferences"]] == [None, None]
-    assert "制服姿の少年" in calls[0]
+    assert "スーツ姿の青年" in calls[0]
     stored = await session_store.get_session_request("s1")
     assert [item["id"] for item in stored["preferences"]] == ["p1", "p2"]
     assert stored["preferences"][0]["text"] == "淡いピンクのドレス"
@@ -703,7 +703,7 @@ async def test_create_request_builds_on_the_kept_look_of_the_previous_visit(
         "wish": "ふんわりした姿に",
         "review": "また来ます",
     }
-    assert second["current_look"] == "制服姿の少年"
+    assert second["current_look"] == "スーツ姿の青年"
 
 
 def test_request_generation_asks_for_an_additional_request_on_kept_look() -> None:
@@ -1119,12 +1119,71 @@ async def test_create_request_falls_back_to_all_ages_when_the_model_declines(
 
     assert view["sensitive"] is False
     assert view["sensitive_fallback"] is True
+    assert view["sensitive_fallback_reason"] == "generation_failed"
     assert view["experience"] == ""
     assert view["wish"] == _GENERATED["wish"]
     assert "Never write sexual content." in prompts[-1][0]
     stored = await session_store.get_session_request("s1")
     assert stored["sensitive"] is False
     assert stored["experience"] == ""
+
+
+async def _set_panel_profile(factory, profile: dict[str, Any]) -> None:
+    async with factory() as db:
+        db.add(
+            SessionCharacter(
+                id="c-main",
+                session_id="s1",
+                name="主人公",
+                is_protagonist=True,
+                profile_json=json.dumps(profile, ensure_ascii=False),
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_create_request_skips_adult_wishes_for_a_customer_set_as_a_minor(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    await _set_panel_profile(isolated_db.async_factory, {"memo": "高校2年生"})
+    prompts = _fake_generation_with_prompts(monkeypatch, [json.dumps(_GENERATED)])
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", sensitive=True
+    )
+
+    # 成人向けの生成は呼ばず、最初から全年齢で作る
+    assert len(prompts) == 1
+    assert "Never write sexual content." in prompts[0][0]
+    assert view["sensitive"] is False
+    assert view["sensitive_fallback"] is True
+    assert view["sensitive_fallback_reason"] == "minor_markers"
+    assert view["experience"] == ""
+
+
+@pytest.mark.asyncio
+async def test_create_request_keeps_adult_wishes_for_a_childish_personality(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed_session(isolated_db.async_factory)
+    await _set_panel_profile(
+        isolated_db.async_factory,
+        {
+            "personality": "明るく子どもっぽい性格",
+            "speech_style": "少し子どもっぽい話し方",
+        },
+    )
+    _fake_generation_with_prompts(monkeypatch, [json.dumps(_SENSITIVE_GENERATED)])
+
+    view, _ = await session_request_service.create_request(
+        "s1", language="ja", sensitive=True
+    )
+
+    assert view["sensitive"] is True
+    assert view["sensitive_fallback"] is False
+    assert view["sensitive_fallback_reason"] is None
 
 
 @pytest.mark.asyncio

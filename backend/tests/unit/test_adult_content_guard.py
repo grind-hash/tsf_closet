@@ -17,6 +17,7 @@ from gateway.services.game_service import (
     _with_adult_image_safeguards,
 )
 from gateway.services.session_request_service import (
+    customer_minor_markers,
     experience_blocked_for,
     public_request_view,
 )
@@ -65,14 +66,81 @@ def test_checks_every_text_and_skips_none() -> None:
     assert not has_minor_markers(None, "1girl, dress")
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # 性格・口調・経歴・職業の言い回しは、本人の年齢を示さない
+        "明るく子どもっぽい性格",
+        "少し子どもっぽい話し方",
+        "子供っぽさが残る",
+        "子どもの頃から体が弱い",
+        "子供時代は海辺の町で育った",
+        "子ども扱いされるのが嫌い",
+        "高校の先生",
+        "小学校教師",
+        "She was shy as a child.",
+        "A high school teacher who loves tea.",
+    ],
+)
+def test_character_setting_ignores_phrases_without_age(text: str) -> None:
+    assert find_minor_markers(text, character_setting=True) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # 見た目を言うときは目印のまま
+        ("子どもっぽい体型", ["子ども"]),
+        ("子供っぽい顔立ち", ["子供"]),
+        ("高校2年生", ["高校"]),
+        ("女子高生", ["女子高生"]),
+        ("16歳", ["16歳"]),
+        ("a teenager who loves music", ["teenager"]),
+    ],
+)
+def test_character_setting_still_finds_age_markers(
+    text: str, expected: list[str]
+) -> None:
+    assert find_minor_markers(text, character_setting=True) == expected
+
+
+def test_wishes_and_looks_stay_strict_about_childish_wording() -> None:
+    # 願い・姿・場面の指示では、性格の言い回しも目印として扱う(慎重な側)
+    assert find_minor_markers("子どもっぽい性格") == ["子ども"]
+
+
 class _Store:
-    def __init__(self, after_description: str | None) -> None:
+    def __init__(
+        self, after_description: str | None, panel: dict | None = None
+    ) -> None:
         self._after = after_description
+        self._panel = panel
 
     async def get_latest_history(self, session_id: str):
         if self._after is None:
             return None
         return SimpleNamespace(after_description=self._after)
+
+    async def get_protagonist_profile(self, session_id: str):
+        return self._panel
+
+
+@pytest.mark.asyncio
+async def test_customer_markers_read_the_profile_panel_and_look() -> None:
+    profile = {"personality": "穏やか", "description": "会社員"}
+    assert await customer_minor_markers(_Store(None), "s", profile, "1boy, suit") == []
+    # 人物パネルのメモ・興味にある目印
+    panel = {"memo": "中学生", "interests": ["読書", "高校の部活"]}
+    assert await customer_minor_markers(
+        _Store(None, panel), "s", profile, "1boy, suit"
+    ) == ["中学生", "高校"]
+    # 来店時の姿は除外なしで見る
+    assert await customer_minor_markers(
+        _Store(None), "s", profile, "1girl, school uniform"
+    ) == ["school uniform"]
+    # 性格の言い回しは目印にしない
+    childish = {"personality": "子どもっぽい性格", "speech_style": "子どもっぽい口調"}
+    assert await customer_minor_markers(_Store(None), "s", childish, "1boy") == []
 
 
 _REQUEST = {

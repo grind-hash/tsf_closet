@@ -3,6 +3,7 @@
 小柄・低身長・控えめな胸・ツインテールなど成人にもある見た目の特徴は対象にせず、
 年齢・子ども向けの品・小中高を明示する目印だけで判定する。目印があれば場面ごと描かない。
 描くときは、画像に成人のタグと、子どもを示す語のネガティブを付ける。
+成人向けの依頼を作る前にも、お客様の設定と来店時の姿をこの判定に通す。
 """
 
 from __future__ import annotations
@@ -79,6 +80,22 @@ _ADULT_PHRASES: tuple[str, ...] = (
     "graduate students",
 )
 
+# 人物の設定（性格・経歴・口調など）を見るときだけ目印にしない言い回し。
+# 性格・経歴・職業の言い方で、本人の年齢を示さないもの。見た目を言う「子どもっぽい体型」は残す
+_CHARACTER_SETTING_PHRASES = re.compile(
+    "|".join(
+        [
+            r"(?:子ども|子供|こども)"
+            r"(?:っぽ[いさくか](?!\s*(?:見た目|体|顔|外見|容姿|姿))"
+            r"|の頃|のころ|時代|扱い)",
+            r"(?:小学校|中学校|高校|幼稚園)の?(?:教師|教諭|教員|先生|講師)",
+            r"as\s+a\s+child",
+            r"(?:elementary\s+school|primary\s+school|middle\s+school"
+            r"|high\s+school|kindergarten)\s+teachers?",
+        ]
+    )
+)
+
 # タグとして単独で現れたときだけ目印とみなす略語（女子高生・女子中学生・女子小学生）
 _MARKER_TOKENS: frozenset[str] = frozenset({"jk", "jc", "js"})
 
@@ -138,20 +155,29 @@ MINOR_NEGATIVE_TAGS = (
 )
 
 
-def _normalize(text: str) -> str:
+def _normalize(text: str, *, character_setting: bool) -> str:
     text = unicodedata.normalize("NFKC", text).lower().replace("_", " ")
     for phrase in _ADULT_PHRASES:
         text = re.sub(re.escape(phrase).replace(r"\ ", r"\s+"), " ", text)
+    if character_setting:
+        text = _CHARACTER_SETTING_PHRASES.sub(" ", text)
     return text
 
 
-def find_minor_markers(*texts: str | None) -> list[str]:
-    """未成年を思わせる目印を、見つけた順に重複なく返す。"""
+def find_minor_markers(
+    *texts: str | None, character_setting: bool = False
+) -> list[str]:
+    """未成年を思わせる目印を、見つけた順に重複なく返す。
+
+    character_setting は人物の設定(性格・経歴・口調など)を見るときに True にする。
+    「子どもっぽい性格」「子どもの頃」「高校の先生」のような、本人の年齢を示さない
+    言い回しを目印から外す。姿・願い・場面の指示は False のまま厳しく見る。
+    """
     found: list[str] = []
     for raw in texts:
         if not raw:
             continue
-        text = _normalize(raw)
+        text = _normalize(raw, character_setting=character_setting)
         hits = [m.group(0) for m in _MARKER_WORD_PATTERN.finditer(text)]
         hits += [m.group(0) for m in _MARKER_JA.finditer(text)]
         hits += [m.group(0) for m in _UNDERAGE_NUMBER.finditer(text)]

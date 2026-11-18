@@ -655,6 +655,8 @@ export interface SessionRequestView {
   experience_blocked?: boolean;
   /** 成人向けの依頼を作れず、全年齢の依頼に切り戻したか(生成した直後の応答だけ) */
   sensitive_fallback?: boolean;
+  /** 全年齢に切り戻した理由(依頼主の設定か姿に未成年の目印があった / 生成に失敗した) */
+  sensitive_fallback_reason?: "minor_markers" | "generation_failed" | null;
 }
 
 /** カウンセリングのやり取り1件 */
