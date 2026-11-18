@@ -1817,6 +1817,32 @@ def _transform_cause_text(state: dict[str, Any], language: str) -> str:
     )
 
 
+def _transform_consent_text(state: dict[str, Any], name: str) -> str:
+    """直前の会話で本人が望んだ・承知した変身なら、願いが叶った反応にさせる。
+
+    会話を渡すだけでは驚き・元男性の戸惑いの指示に引きずられ、「なんで」「あなたの仕業」と
+    責める台詞になるため、承知していた場合はそれらの指示より優先させる。
+    """
+    source = (
+        "who did it"
+        if story.player_known(state)
+        else "that the mysterious voice offered it, though still not who or what the "
+        "voice is"
+    )
+    return (
+        f"Read {name}'s recent talks above. If {name} asked for this change or agreed "
+        f"to it there, it is a wish being granted: {name} knew it was coming and knows "
+        f"{source}. Never have {name} ask why it happened, blame the player or treat "
+        "it as an unwanted prank. Depict delight, excitement or shyness at it really "
+        f"happening, and do not lower {name}'s mood. This overrides the guidance above "
+        "about wanting to change back or "
+        "not accepting it calmly. Only the parts that go beyond what "
+        f"{name} agreed to (for example the body itself changing when {name} only "
+        "agreed to an outfit) may surprise or fluster them, as surprise rather than "
+        "complaint."
+    )
+
+
 def transform_reaction_prompts(
     state: dict[str, Any],
     target: dict[str, Any],
@@ -1901,6 +1927,10 @@ def transform_reaction_prompts(
                 "bewilderment at the daring feminine look overlaps with the "
                 "embarrassment and sways even harder.\n"
             )
+    # 変身した本人とプレイヤーの直近の会話。本人が望んだ・承知した変身なら、責めずに受け止めさせる
+    talk = "" if reality else player_talk_text(state, (target,), language)
+    if talk:
+        extra += _transform_consent_text(state, target_name) + "\n"
     subject = (
         f'Resident whose reality was rewritten: {target_name}. The new common sense: "{change_text}".\n'
         if reality
@@ -1911,7 +1941,8 @@ def transform_reaction_prompts(
         f"Involved residents: {involved_text}.\n"
         f"{place_text(state, target.get('current_area'))}"
         f"{story_text.dissonance_context_text(state)}"
-        f"{story_text.acknowledged_player_rule(state, language)}\n"
+        f"{story_text.acknowledged_player_rule(state, language)}"
+        f"{talk}\n"
         f"{extra}"
         f"World rules:\n{active_rules_text(state, language)}"
         f"{memo_section(state)}"
