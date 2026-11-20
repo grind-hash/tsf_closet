@@ -107,7 +107,7 @@ export const guide = {
   },
   hakoniwa: {
     title: "Dollhouse",
-    desc: 'Watch residents live on their own in Stardust House, a small boarding house. Each time you press "Advance the day", three events happen and pile up in the chronicle. As the unseen writer, you can rewrite the world’s common sense with rules and the world memo, transform or rewrite the residents, and order scenes.',
+    desc: 'Watch over the residents of Stardust House, a small boarding house, at your own pace. There is no goal or set objective. Time only moves when you press "Advance the day": three events happen that day and pile up in the chronicle. Whenever you like, step in freely: transform or rewrite the residents, rewrite the world’s common sense with rules and the world memo, or order scenes.',
     note: "Events, words and chats use text generation; transformations, looks and scene pictures use image generation (choose the image model per world on the Settings tab).",
     details: [
       {

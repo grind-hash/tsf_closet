@@ -17,7 +17,7 @@ export const menu = {
   salon: "サロン経営",
   salonDesc: "お客様を着せ替えて、4週か12週のサロン経営に挑む",
   hakoniwa: "箱庭",
-  hakoniwaDesc: "住民たちが暮らす下宿に掟を差し込み、1日ずつ眺める",
+  hakoniwaDesc: "ゴールなしで住民を見守り、変身や掟で気ままに介入する",
   endings: "エンディング",
   endingsDesc: "達成したエンディングを確認",
   guide: "遊び方ガイド",

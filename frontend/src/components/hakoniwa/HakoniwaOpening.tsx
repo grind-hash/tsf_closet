@@ -51,7 +51,7 @@ function useOpeningScenes(world: HakoniwaWorld, guide: boolean) {
         names,
         count: world.residents.length,
       }),
-      notes: [],
+      notes: [t("hakoniwa.opening.welcomeNote")],
       place: "garden",
     },
     {

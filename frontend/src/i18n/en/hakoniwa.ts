@@ -12,7 +12,7 @@ export const hakoniwa = {
   },
   eyebrow: "HAKONIWA",
   title: "Dollhouse",
-  lead: "In Stardust House, a small boarding house, the residents live their own lives. Slot in rules, advance the day and watch what happens. Click a resident to hear a word from them, or transform them on the spot.",
+  lead: "Watch over the residents of Stardust House, a small boarding house, at your own pace. There is no goal or set objective. Press Advance the day to bring about the day’s events, and slot in rules to rewrite the world’s common sense whenever you like. Click a resident to hear a word from them, or transform them on the spot.",
   loading: "Loading…",
   back: "Back to worlds",
   hub: {
@@ -669,6 +669,8 @@ export const hakoniwa = {
     welcomeHeading: "Welcome",
     welcome:
       "In this small boarding house, life begins for {{count}} residents.\n{{names}}",
+    welcomeNote:
+      "No goal here: watch at your own pace and step in whenever you like.",
     presenceHeading: "You and the residents",
     presenceKnown:
       "The residents know you.\nThey answer when you talk to them, and gossip among themselves about the looks you gave them.",
