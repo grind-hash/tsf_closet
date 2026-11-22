@@ -465,6 +465,46 @@ def test_unseen_player_is_a_voice_until_the_residents_know_them():
         assert "The residents know the player did it" in reaction
 
 
+def test_transform_reaction_reads_the_transformed_resident_talk():
+    from gateway.services.hakoniwa_prompts import transform_reaction_prompts
+
+    state = {**_world(), "player_name": "はっしゅ"}
+    aoi = logic.find_resident(state, "aoi")
+    _, plain = transform_reaction_prompts(state, aoi, "巫女", [], "ja", nsfw=False)
+    assert "Recent talks" not in plain
+    assert "wish being granted" not in plain
+
+    talked = play.append_chat(
+        state,
+        "aoi",
+        [
+            {"role": "player", "text": "巫女に変身できるけど、する？"},
+            {"role": "resident", "text": "ちょっとだけ試してみたいです"},
+        ],
+    )
+    # 居合わせた住民とプレイヤーの会話は渡さない(本人の会話だけ)
+    talked = play.append_chat(talked, "ren", [{"role": "player", "text": "別の話"}])
+    ren = logic.find_resident(talked, "ren")
+    _, user = transform_reaction_prompts(talked, aoi, "巫女", [ren], "ja", nsfw=False)
+    assert "ちょっとだけ試してみたいです" in user
+    assert "別の話" not in user
+    assert "wish being granted" in user
+    assert "knows who did it" in user
+    # 承知していた場合は、元男性の戸惑いの指示より優先させるので後ろに置く
+    assert user.index("Recent talks") < user.index("wish being granted")
+
+    _, hidden = transform_reaction_prompts(
+        {**talked, "player_presence": "hidden"}, aoi, "巫女", [], "ja", nsfw=False
+    )
+    assert "the mysterious voice offered it" in hidden
+
+    _, reality = transform_reaction_prompts(
+        talked, aoi, "巫女", [], "ja", nsfw=False, reality=True
+    )
+    assert "Recent talks" not in reality
+    assert "wish being granted" not in reality
+
+
 def test_event_premise_and_talks_follow_player_presence():
     state = {**_world(), "player_name": "はっしゅ"}
     group = tuple(state["residents"])

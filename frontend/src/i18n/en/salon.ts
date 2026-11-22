@@ -31,7 +31,7 @@ export const salon = {
         "One customer in the first week. Build up your reputation to welcome more customers",
     },
     sensitiveHint:
-      "Customers arrive with adult wishes, and the reveal shows one picture of a brief dream where, in that look, the wish comes true. It starts as set in your most recent salon, and you can switch it in the owner's room after opening.",
+      "Customers arrive with adult wishes, and the reveal shows one picture of a brief dream where, in that look, the wish comes true. All characters are adults aged 18 or over. If a customer's profile or look suggests a child, the visit uses an all-ages request; if the styled look or wish does, no dream is shown. It starts as set in your most recent salon, and you can switch it in the owner's room after opening.",
     goal: "The season succeeds if your final cash is above the opening funds. As a guide, make every other customer's wish come true. A granted wish also brings a tip that grows with your reputation, and a regular's fee. After the settlement, you can go on to the next season.",
     submit: "Open the salon",
   },
@@ -64,7 +64,7 @@ export const salon = {
     weeklyBalanceValue: "Day job +{{salary}} / Fixed costs −{{fixed}}",
     sensitive: "Explicit treatments (adult)",
     sensitiveHint:
-      "Customers arrive with adult wishes, and the reveal shows one picture of a brief dream where, in that look, the wish comes true. Takes effect from the next customer you serve.",
+      "Customers arrive with adult wishes, and the reveal shows one picture of a brief dream where, in that look, the wish comes true. All characters are adults aged 18 or over. If a customer's profile or look suggests a child, the visit uses an all-ages request; if the styled look or wish does, no dream is shown. Takes effect from the next customer you serve.",
     sensitiveNsfwOff: "No effect while NSFW mode is off.",
     sensitiveOpenSettings: "Open settings",
     cutscene: "Opening and week-closing scenes",
@@ -211,8 +211,8 @@ export const salon = {
     askAbout: "May I ask what you like about the {{category}}?",
     satisfactionMeter:
       "Satisfaction {{satisfaction}}% · {{threshold}}% grants the wish",
-    satisfactionUp: "▲{{delta}}",
-    satisfactionDown: "▼{{delta}}",
+    satisfactionUp: "+{{delta}}",
+    satisfactionDown: "−{{delta}}",
     satisfactionSame: "±0",
     satisfactionBefore: "Shown after styling",
     sendHome: "Send the customer home (reputation −{{penalty}})",
@@ -241,12 +241,16 @@ export const salon = {
     revealBefore: "On arrival",
     revealAfter: "After styling",
     experience: "A dream in this look",
+    experienceBlocked:
+      "The look or wish suggests a child, so the dream scene was not drawn.",
     experienceGenerating: "Drawing the dream where their wish comes true…",
     experienceFailed:
       "Could not draw the dream. Try again, or check out as is.",
     experienceRetry: "Draw the dream again",
     sensitiveFallback:
       "An adult request could not be written for this customer, so this visit uses an all-ages request.",
+    sensitiveFallbackMinor:
+      "This customer's profile or look suggests a child, so this visit uses an all-ages request.",
     typing: "{{name}} is speaking",
     extraTurn: "Add a styling turn ({{price}})",
     extraTurnHint:

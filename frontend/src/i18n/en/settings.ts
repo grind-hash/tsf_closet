@@ -63,7 +63,7 @@ export const settings = {
     "Show a mode in the menu where you run a dress-up salon in seasons of 4 or 12 weeks, turning customers into the look they wish for. Serving uses the same rules as request mode (3 styling turns, 2 questions), and the satisfaction at checkout decides sales and reputation",
   experimentalHakoniwa: "Dollhouse",
   experimentalHakoniwaDesc:
-    "Show a dollhouse mode in the menu where residents of a boarding house live on their own. Slot in rules and advance day by day to watch events play out in the room. Characters you made on the Characters screen can join as residents",
+    "Show a dollhouse mode in the menu where you watch over the residents of a boarding house. There is no goal or set objective: press Advance the day to bring about events, and step in with transformations or rules as you like. Characters you made on the Characters screen can join as residents",
   hakoniwaSection: "Dollhouse",
   hakoniwaSectionNote:
     "Used when Dollhouse (experimental) is on. Here you set the defaults for new worlds and the opening. Each world's own settings can be changed on that world's Settings tab.",

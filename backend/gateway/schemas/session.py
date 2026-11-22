@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from ..consts.character_profile import PROFILE_TSF_ATTITUDE_MAX_LEN
@@ -154,9 +156,22 @@ class SessionRequestResponse(BaseModel):
     experience: str = Field(
         "", description="成人向けの依頼で、願いの姿でしたいこと(体験の場面の指示)"
     )
+    experience_blocked: bool = Field(
+        False,
+        description="今の姿や願いに未成年を思わせる目印があり、体験の場面を描かないか",
+    )
     sensitive_fallback: bool = Field(
         False,
         description="成人向けの依頼を作れず、全年齢の依頼に切り戻したか(生成直後だけ)",
+    )
+    sensitive_fallback_reason: Literal["minor_markers", "generation_failed"] | None = (
+        Field(
+            None,
+            description=(
+                "全年齢に切り戻した理由。minor_markers は依頼主の設定か姿に"
+                "未成年を思わせる目印があった、generation_failed は生成に失敗した"
+            ),
+        )
     )
 
 

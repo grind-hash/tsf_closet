@@ -144,7 +144,7 @@ async def _build_request_response(
     store: DatabaseSessionStore, session: PersistedSession
 ) -> SessionRequestResponse | None:
     # session_request_service は session ストアを import するため遅延 import する
-    from .session_request_service import public_request_view
+    from .session_request_service import experience_blocked_for, public_request_view
 
     request = await store.get_session_request(session.id)
     if request is None:
@@ -155,5 +155,6 @@ async def _build_request_response(
             request,
             evaluations,
             can_regenerate=session.transformation_count == 0,
+            experience_blocked=await experience_blocked_for(store, request, session.id),
         )
     )

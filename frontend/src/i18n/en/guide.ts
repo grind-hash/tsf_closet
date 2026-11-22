@@ -91,6 +91,7 @@ export const guide = {
           "The message window shows a chart of the kinds of taste the customer keeps unsaid (✓ when granted, ◆ for the one on their mind). In counselling, press a kind on the chart to write a question about it.",
           "A perfect finish (satisfaction 100) doubles the course price, and granting the wish of a regular who came back in your look adds a regular’s fee.",
           "You can send home a customer you have not styled yet (reputation −3). You can close the week while serving; a styled customer is checked out at the current satisfaction.",
+          "In adult styling, all characters are adults aged 18 or over. If a customer's profile or arrival look suggests a child, the visit uses an all-ages request; if the styled look or wish does, the reveal shows no dream.",
         ],
       },
       {
@@ -106,7 +107,7 @@ export const guide = {
   },
   hakoniwa: {
     title: "Dollhouse",
-    desc: 'Watch residents live on their own in Stardust House, a small boarding house. Each time you press "Advance the day", three events happen and pile up in the chronicle. As the unseen writer, you can rewrite the world’s common sense with rules and the world memo, transform or rewrite the residents, and order scenes.',
+    desc: 'Watch over the residents of Stardust House, a small boarding house, at your own pace. There is no goal or set objective. Time only moves when you press "Advance the day": three events happen that day and pile up in the chronicle. Whenever you like, step in freely: transform or rewrite the residents, rewrite the world’s common sense with rules and the world memo, or order scenes.',
     note: "Events, words and chats use text generation; transformations, looks and scene pictures use image generation (choose the image model per world on the Settings tab).",
     details: [
       {

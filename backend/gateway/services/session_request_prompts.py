@@ -77,7 +77,7 @@ def build_request_generation_prompt(
         preference_examples = "such as a body trait (breast size, figure), lingerie or a revealing outfit, a color family, an accessory, or a hairstyle. At least one of them is about lingerie, exposure, or a body trait that suits the chosen act (its look_hint is a good candidate)"
         content_rule = f"Write the sexual content of wish and experience explicitly. Never pair a male body with a male partner. {ADULT_CONTENT_RULE}"
         experience_rule = """
-experience: one sentence of at most 80 Japanese characters or 40 English words, written as a stage direction of a dream: right after the styling, the salon lets the character dream, in the finished look, of the scene where they do the chosen act. Begin with the private place in the dream where it happens (for example, 夢の中の寝室で or in a dream bedroom), never the salon or anywhere with onlookers. Call the character by their name, never by a pronoun such as 彼, 彼女, he, or she, so they are never mistaken for the partner. Name the act and the position or pose explicitly. When the chosen desire's partner is man or woman, the partner's face is never seen: describe that partner as a faceless adult of that sex (a faceless adult man or a faceless adult woman; in Japanese, 顔の見えない男性 or 顔の見えない女性, never 無表情) and keep the character the focus. When its partner is none, no one else appears."""
+experience: one sentence of at most 80 Japanese characters or 40 English words, written as a stage direction of a dream: right after the styling, the salon lets the character dream, in the finished look, of the scene where they do the chosen act. Begin with the private place in the dream where it happens (for example, 夢の中の寝室で or in a dream bedroom), never the salon or anywhere with onlookers. Call the character by their name, never by a pronoun such as 彼, 彼女, he, or she, so they are never mistaken for the partner. Name the act and the position or pose explicitly. When the chosen desire's partner is man or woman, the partner's face is never seen: describe that partner as a faceless adult of that sex (a faceless adult man or a faceless adult woman; in Japanese, 顔の見えない男性 or 顔の見えない女性, never 無表情) and keep the character the focus. When its partner is none, no one else appears. The character and the partner are both adults, and the character takes part eagerly, by their own wish: never write it as forced, pressured, or something they cannot refuse (in Japanese, never use causative-passive forms such as させられ, and never 無理やり)."""
         choice_rule = """
 desire_id: the id of the one candidate in desire_candidates that best fits the character. target_body is the body they ask for (gender man matches male, woman matches female): different from gender means becoming the other sex, the same as gender means staying their own sex in an ideal body. Choose by tsf_attitude and personality: a character who longs to become the other sex takes that body, and one who has never wished to change sex stays their own sex. partner is who they do it with (none means alone)."""
         if motive == "crush":
@@ -461,6 +461,8 @@ def build_experience_feeling_context(*, wish: str, language: str) -> str:
                 "周囲の視線についての指示より、こちらを優先してください。",
                 "・夢だと分かっていても、身体の感覚は本物のように鮮明です。"
                 "夢から覚める場面は書かないでください。",
+                "・本人も相手も成人で、本人が自分から望んで加わっています。"
+                "無理にされている、断れない、「させられる」といった書き方はしないでください。",
             ]
         )
     return "\n".join(
@@ -477,5 +479,8 @@ def build_experience_feeling_context(*, wish: str, language: str) -> str:
             "onlookers. This takes priority over any instruction about being watched.",
             "- Even knowing it is a dream, every sensation feels vivid and real. Never "
             "write the character waking up.",
+            "- The character and the partner are both adults, and the character takes "
+            "part eagerly, by their own wish. Never write it as forced, pressured, or "
+            "something they cannot refuse.",
         ]
     )

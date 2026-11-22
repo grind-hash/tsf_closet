@@ -56,6 +56,7 @@ from ..consts.session_request import (
     REQUEST_WISH_MAX,
 )
 from ..models import PersistedSession
+from .adult_content_guard import find_minor_markers, has_minor_markers
 from .characters import character_manager
 from .clothing_layers import split_worn_under_layers
 from .cost_tracker import begin_cost_tracking, record_cost
@@ -779,13 +780,71 @@ def is_fulfilled(evaluation: dict[str, Any] | None) -> bool:
     )
 
 
+async def experience_blocked_for(
+    store: Any, request: dict[str, Any], session_id: str
+) -> bool:
+    """成人向けの依頼で、今の姿・願い・体験の指示に未成年を思わせる目印があるか。
+
+    目印があれば体験の場面は描かない（成人にもある見た目の特徴は目印にしない）。
+    """
+    if not request.get("sensitive"):
+        return False
+    latest = await store.get_latest_history(session_id)
+    return has_minor_markers(
+        latest.after_description if latest else None,
+        str(request.get("wish") or ""),
+        str(request.get("experience") or ""),
+    )
+
+
+# 依頼主の設定のうち、未成年の目印を確かめる項目(人物パネルの項目を含む)
+_CUSTOMER_SETTING_KEYS = (
+    "personality",
+    "description",
+    "tsf_attitude",
+    "memo",
+    "knowledge",
+    "speech_style",
+    "sample_lines",
+    "greeting",
+)
+
+
+async def customer_minor_markers(
+    store: Any, session_id: str, profile: dict[str, Any], appearance: str
+) -> list[str]:
+    """成人向けの依頼を作る前に、依頼主の設定と来店時の姿にある未成年の目印を返す。
+
+    設定は性格・経歴の言い回し(子どもっぽい性格・子どもの頃など)を目印にしない。
+    姿は願い・体験の指示と同じく除外なしで見る。
+    """
+    panel = await store.get_protagonist_profile(session_id) or {}
+    settings = [
+        str(source.get(key) or "")
+        for source in (profile, panel)
+        for key in _CUSTOMER_SETTING_KEYS
+    ]
+    interests = panel.get("interests")
+    if isinstance(interests, list):
+        settings.extend(str(item) for item in interests)
+    markers = find_minor_markers(*settings, character_setting=True)
+    markers += [m for m in find_minor_markers(appearance) if m not in markers]
+    return markers
+
+
 def public_request_view(
     request: dict[str, Any],
     evaluations: list[dict[str, Any]],
     *,
     can_regenerate: bool,
+    experience_blocked: bool = False,
 ) -> dict[str, Any]:
-    """フロントへ配信する依頼。伏せた好みの本文は一度満たされるまで送らない。"""
+    """フロントへ配信する依頼。伏せた好みの本文は一度満たされるまで送らない。
+
+    experience_blocked なら体験の場面の指示を送らず、描かないことだけを伝える。
+    """
+    sensitive = bool(request.get("sensitive"))
+    blocked = sensitive and experience_blocked
     scored = scored_evaluations(evaluations)
     revealed: set[str] = set()
     for evaluation in scored:
@@ -843,10 +902,11 @@ def public_request_view(
         "can_regenerate": can_regenerate,
         "emphasize_hints": bool(request.get("emphasize_hints")),
         "clue_level": normalize_clue_level(request.get("clue_level")),
-        "sensitive": bool(request.get("sensitive")),
+        "sensitive": sensitive,
         "experience": str(request.get("experience") or "")
-        if request.get("sensitive")
+        if sensitive and not blocked
         else "",
+        "experience_blocked": blocked,
     }
 
 
@@ -978,6 +1038,9 @@ class SessionRequestService:
             request,
             evaluations,
             can_regenerate=bool(session) and session.transformation_count == 0,
+            experience_blocked=await experience_blocked_for(
+                session_store, request, session_id
+            ),
         )
 
     async def create_request(
@@ -999,8 +1062,10 @@ class SessionRequestService:
         emphasize_hints なら、心境の中のヒントの一文に目印を付けさせる。
         clue_level はカウンセリングの答えの手掛かりの強さ(None は既定の normal)。
         previous_visit({wish, review})があれば、今の姿を土台にした追加の要望にする。
-        sensitive なら成人向けの依頼にする。モデルが応じず JSON にならなければ、同じ
-        プロバイダーで全年齢の依頼を作り直し、公開ビューの sensitive_fallback を True にする。
+        sensitive なら成人向けの依頼にする。依頼主の設定か来店時の姿に未成年の目印があれば
+        全年齢の依頼にする。モデルが応じず JSON にならなければ、同じプロバイダーで全年齢の
+        依頼を作り直す。どちらも公開ビューの sensitive_fallback を True にし、理由を
+        sensitive_fallback_reason(minor_markers / generation_failed)に入れる。
         target_body(female / male)は願う体(サロンの来客の種類)。前回の姿のまま来た
         お客様には効かせない(いまの姿の体のまま次を願う)。
         """
@@ -1028,6 +1093,19 @@ class SessionRequestService:
         user_settings = await session_store.get_user_settings()
         novelai_model = user_settings.get("novelai_text_model")
         tracker = begin_cost_tracking()
+
+        # 未成年を思わせる依頼主には、アプリから成人向けの願いを作らない(全年齢に切り替える)
+        fallback_reason: str | None = None
+        if sensitive:
+            markers = await customer_minor_markers(
+                session_store, session_id, profile, appearance
+            )
+            if markers:
+                logger.warning(
+                    "Adult request skipped for customer: minor markers=%s", markers
+                )
+                sensitive = False
+                fallback_reason = "minor_markers"
 
         async def generate(system: str, user: str) -> str:
             return await _generate_text(system, user, novelai_model=novelai_model)
@@ -1074,7 +1152,6 @@ class SessionRequestService:
                 else None,
             )
 
-        fallback = False
         if sensitive:
             try:
                 generated = await generate_request(True, motive)
@@ -1094,7 +1171,7 @@ class SessionRequestService:
                         "Sensitive request generation failed; falling back to all-ages: %s",
                         error,
                     )
-                    fallback = True
+                    fallback_reason = "generation_failed"
                     generated = await generate_request(False, motive)
         else:
             generated = await generate_request(False, motive)
@@ -1118,8 +1195,16 @@ class SessionRequestService:
             sensitive=experience is not None,
             experience=experience,
         )
-        view = public_request_view(saved, [], can_regenerate=True)
-        view["sensitive_fallback"] = fallback
+        view = public_request_view(
+            saved,
+            [],
+            can_regenerate=True,
+            experience_blocked=await experience_blocked_for(
+                session_store, saved, session_id
+            ),
+        )
+        view["sensitive_fallback"] = fallback_reason is not None
+        view["sensitive_fallback_reason"] = fallback_reason
         return view, tracker.total_usd
 
     async def ask_question(
@@ -1183,6 +1268,9 @@ class SessionRequestService:
             saved or request,
             evaluations,
             can_regenerate=session.transformation_count == 0,
+            experience_blocked=await experience_blocked_for(
+                session_store, saved or request, session_id
+            ),
         )
         return view, tracker.total_usd
 

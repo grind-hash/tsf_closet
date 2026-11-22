@@ -170,7 +170,9 @@ export default function SalonServing({
   const [compareOpen, setCompareOpen] = useState(false);
   const [reveal, setReveal] = useState<RevealFrame | null>(null);
   const [experience, setExperience] = useState<ExperienceFrame | null>(null);
-  const [fallbackNotice, setFallbackNotice] = useState(false);
+  const [fallbackNotice, setFallbackNotice] = useState<
+    "minor_markers" | "generation_failed" | null
+  >(null);
   const [checkedOut, setCheckedOut] = useState<SalonVisit | null>(null);
   // この画面で会計したときだけ演出する(済んだ来店を開き直したときは立てない)
   const [celebrate, setCelebrate] = useState(false);
@@ -249,7 +251,11 @@ export default function SalonServing({
       }
       const started = await startVisit(runId, visitId);
       if (!started) return;
-      setFallbackNotice(Boolean(started.request?.sensitive_fallback));
+      setFallbackNotice(
+        started.request?.sensitive_fallback
+          ? (started.request.sensitive_fallback_reason ?? "generation_failed")
+          : null,
+      );
       setAct(initialSalonAct(started.request));
     })();
   }, [activeRun, openRun, runId, startVisit, visitId]);
@@ -682,7 +688,11 @@ export default function SalonServing({
               <>
                 {fallbackNotice && (
                   <p className="salon-window__note">
-                    {t("salon.serving.sensitiveFallback")}
+                    {t(
+                      fallbackNotice === "minor_markers"
+                        ? "salon.serving.sensitiveFallbackMinor"
+                        : "salon.serving.sensitiveFallback",
+                    )}
                   </p>
                 )}
                 {visit?.returning_look && (
@@ -756,6 +766,11 @@ export default function SalonServing({
                     text={reveal.feeling}
                     emphasizeHints={reveal.emphasizeHints}
                   />
+                )}
+                {request?.experience_blocked && (
+                  <p className="salon-window__note">
+                    {t("salon.serving.experienceBlocked")}
+                  </p>
                 )}
                 {(experienceFeeling || experienceBusy) && (
                   <>
