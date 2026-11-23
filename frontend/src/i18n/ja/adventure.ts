@@ -32,6 +32,9 @@ export const adventure = {
       "このキャラクター本人として遊びます。名前・性格・口調・知識が主人公に反映されます",
     characterPartnerHint:
       "このキャラクターが攻略対象になります。名前・性格・口調はキャラクターの設定を使います",
+    sessionMeta: "{{items}}枚・{{date}}開始",
+    currentHeading: "選択中",
+    openSelectedHistory: "時点の一覧を見る",
   },
   startMode: "開始方式",
   startModes: {

@@ -650,8 +650,6 @@ export interface AdventureRunSetup {
   source_history_id: string | null;
   source_prompt_expander_entry_id: string | null;
   source_character_preset_id: string | null;
-  /** 開始セッションの作成時点の名前。セッション一覧から引けないときの表示に使う */
-  source_character_name: string | null;
   narration_voice: AdventureNarrationVoice;
   narration_pronoun: string;
   player_speech_style: AdventureSpeechStyle;

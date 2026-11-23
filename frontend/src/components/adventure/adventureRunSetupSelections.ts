@@ -1,7 +1,6 @@
 import { getCharacterPreset } from "../../apis/characters";
-import { fetchGalleryItem, fetchGalleryList } from "../../apis/gallery";
+import { fetchGalleryItem, fetchGallerySession } from "../../apis/gallery";
 import { fetchPromptExpanderEntry } from "../../apis/promptExpander";
-import type { GallerySession } from "../../types";
 import type {
   AdventureRunSetupPlayer,
   AdventureRunSetupSessionTarget,
@@ -18,47 +17,23 @@ type SelectionTarget =
   | Exclude<AdventureRunSetupSource, null>
   | Exclude<AdventureRunSetupPlayer, null>;
 
-function characterNameFor(
-  sessions: GallerySession[],
-  sessionId: string,
-  fallbackName: string | null,
-): string | null {
-  return (
-    sessions.find((session) => session.session_id === sessionId)
-      ?.character_name ?? fallbackName
-  );
-}
-
 async function resolveSessionSelection(
   target: AdventureRunSetupSessionTarget,
-  sessions: GallerySession[],
 ): Promise<AdventureSourceSelection | null> {
-  const { sessionId, historyId, fallbackName } = target;
-  if (historyId) {
-    // ピッカーで時点を選んだときと同じ形の選択を組む
-    const { item } = await fetchGalleryItem(historyId);
-    if (item.session_id !== sessionId) return null;
-    return {
-      sessionId,
-      historyId: item.id,
-      characterName: characterNameFor(sessions, sessionId, fallbackName),
-      thumbnailUrl: item.image_url,
-      pointLabel: item.instruction,
-      origin: "session",
-    };
-  }
-  const listed = sessions.find((session) => session.session_id === sessionId);
-  if (listed) return selectionFromSession(listed);
-  // 1ページ目に無いセッションは、その画像1件で存在を確かめて現在の状態として選ぶ
-  const { items } = await fetchGalleryList(1, 1, sessionId);
-  const latest = items[0];
-  if (!latest) return null;
+  const { sessionId, historyId } = target;
+  // 一覧の何ページ目にあっても、セッションの名前と最新画像を ID で引く
+  const session = await fetchGallerySession(sessionId);
+  if (!session) return null;
+  if (!historyId) return selectionFromSession(session);
+  // ピッカーで時点を選んだときと同じ形の選択を組む
+  const { item } = await fetchGalleryItem(historyId);
+  if (item.session_id !== sessionId) return null;
   return {
     sessionId,
-    historyId: undefined,
-    characterName: fallbackName,
-    thumbnailUrl: latest.image_url,
-    pointLabel: null,
+    historyId: item.id,
+    characterName: session.character_name,
+    thumbnailUrl: item.image_url,
+    pointLabel: item.instruction,
     origin: "session",
   };
 }
@@ -70,7 +45,6 @@ async function resolveSessionSelection(
  */
 export async function resolveRunSetupSelection(
   target: SelectionTarget,
-  sessions: GallerySession[],
 ): Promise<AdventureSourceSelection | null> {
   try {
     switch (target.kind) {
@@ -87,7 +61,7 @@ export async function resolveRunSetupSelection(
         return selectionFromPromptExpanderEntry(entry);
       }
       case "session":
-        return await resolveSessionSelection(target, sessions);
+        return await resolveSessionSelection(target);
       default:
         return null;
     }

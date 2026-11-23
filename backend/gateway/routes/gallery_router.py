@@ -79,6 +79,11 @@ async def get_gallery_sessions(
             "salon はそれだけにする"
         ),
     ),
+    session_id: str | None = Query(
+        None,
+        description="指定したセッション1件だけを返す（選択中のセッションの表示用）",
+        max_length=200,
+    ),
 ):
     """ギャラリーのセッション一覧を取得（q 指定時はやり取りを横断検索）"""
     offset = (page - 1) * page_size
@@ -89,10 +94,13 @@ async def get_gallery_sessions(
     salon_select = select(SalonVisit.session_id).where(
         SalonVisit.session_id.is_not(None)
     )
-    search_conditions = (
+    filter_conditions = (
         [HistoryORM.session_id.in_(match_select)] if match_select is not None else []
     )
-    conditions = [*search_conditions]
+    # 件数(origin_counts・total)も同じ絞り込みで数え、has_more を正しく保つ
+    if session_id:
+        filter_conditions.append(HistoryORM.session_id == session_id)
+    conditions = [*filter_conditions]
     if origin == "salon":
         conditions.append(HistoryORM.session_id.in_(salon_select))
     elif origin == "play":
@@ -102,7 +110,7 @@ async def get_gallery_sessions(
 
         async def count_sessions(*extra: Any) -> int:
             stmt = select(func.count(func.distinct(HistoryORM.session_id)))
-            criteria = [*search_conditions, *extra]
+            criteria = [*filter_conditions, *extra]
             if criteria:
                 stmt = stmt.where(*criteria)
             return (await db_session.execute(stmt)).scalar() or 0

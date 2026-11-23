@@ -51,11 +51,12 @@ import {
 } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureDrawPreferences } from "../../hooks/useAdventureDrawPreferences";
+import { useGallerySessionInfo } from "../../hooks/useGallerySessionInfo";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { ROUTES } from "../../routes";
 import type { Character, GallerySession } from "../../types";
 import { estimateAdventureAnlas } from "../../utils/adventureAnlasEstimate";
-import { formatAnlasEstimate, mediaUrl } from "../../utils/adventureFormat";
+import { formatAnlasEstimate } from "../../utils/adventureFormat";
 import {
   formValuesFromRunSetup,
   romancePlayerSelectValue,
@@ -92,6 +93,7 @@ import AdventureSessionPickerModal, {
   selectionFromPromptExpanderEntry,
   selectionFromSession,
 } from "./AdventureSessionPickerModal";
+import AdventureSourceSelectionCard from "./AdventureSourceSelectionCard";
 import { resolveRunSetupSelection } from "./adventureRunSetupSelections";
 
 // Adventure のセットアップ画面（開始素材・シナリオ・オプションの選択と保存済み Run の一覧）。
@@ -107,6 +109,7 @@ function SourceSelectionSummary({
   onOpenPicker: () => void;
 }) {
   const { t } = useTranslation();
+  const sessionInfo = useGallerySessionInfo(selection?.sessionId);
   if (!selection) {
     return (
       <button
@@ -119,29 +122,11 @@ function SourceSelectionSummary({
       </button>
     );
   }
-  // Prompt Expander 由来はキャラ名を持たないため、出どころのラベルを主見出しにする
-  const name =
-    selection.origin === "prompt_expander"
-      ? t("adventure.sourcePicker.promptExpanderOrigin")
-      : (selection.characterName ?? t("adventure.unnamedCharacter"));
-  const state =
-    selection.pointLabel ??
-    (selection.origin === "character"
-      ? t("adventure.sourcePicker.characterOrigin")
-      : t("adventure.currentState"));
   return (
-    <div
-      className="adventure-source-summary"
-      role="group"
-      aria-label={t("adventure.selectedSourceSummary", { name, state })}
+    <AdventureSourceSelectionCard
+      selection={selection}
+      sessionInfo={sessionInfo}
     >
-      <span className="adventure-source-summary__thumb">
-        <img src={mediaUrl(selection.thumbnailUrl)} alt="" />
-      </span>
-      <span className="adventure-source-summary__text">
-        <strong>{name}</strong>
-        <span>{state}</span>
-      </span>
       <button
         type="button"
         className="adventure-source-summary__change"
@@ -150,7 +135,7 @@ function SourceSelectionSummary({
       >
         {t("adventure.sourcePicker.change")}
       </button>
-    </div>
+    </AdventureSourceSelectionCard>
   );
 }
 
@@ -756,10 +741,10 @@ export default function AdventureHub() {
           : null;
       const [source, player] = await Promise.all([
         values.source
-          ? resolveRunSetupSelection(values.source, sessions)
+          ? resolveRunSetupSelection(values.source)
           : Promise.resolve(null),
         playerTarget
-          ? resolveRunSetupSelection(playerTarget, sessions)
+          ? resolveRunSetupSelection(playerTarget)
           : Promise.resolve(null),
       ]);
       const notes: string[] = [];

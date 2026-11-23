@@ -29,7 +29,6 @@ function makeSetup(
     source_history_id: null,
     source_prompt_expander_entry_id: "pe-1",
     source_character_preset_id: null,
-    source_character_name: "ナオ",
     narration_voice: "first_person",
     narration_pronoun: "俺",
     player_speech_style: "custom",
@@ -126,7 +125,6 @@ describe("formValuesFromRunSetup", () => {
       kind: "session",
       sessionId: "session-1",
       historyId: "history-1",
-      fallbackName: "ナオ",
     });
     expect(
       formValuesFromRunSetup(
@@ -143,12 +141,10 @@ describe("formValuesFromRunSetup", () => {
         romance_player_history_id: "player-history",
       }),
     );
-    // 主人公セッションの表示名は run に残る呼び名で代用する
     expect(values.player).toEqual({
       kind: "session",
       sessionId: "player-session",
       historyId: "player-history",
-      fallbackName: "エミ",
     });
   });
 
@@ -188,7 +184,6 @@ describe("romancePlayerSelectValue", () => {
         kind: "session",
         sessionId: "s",
         historyId: null,
-        fallbackName: null,
       }),
     ).toBe(ROMANCE_PLAYER_SESSION_VALUE);
   });

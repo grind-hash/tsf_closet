@@ -33,6 +33,9 @@ export const adventure = {
       "You play as this character. Their name, personality, speech, and background apply to the protagonist.",
     characterPartnerHint:
       "This character becomes the romance partner, with their own name, personality, and speech.",
+    sessionMeta: "{{items}} images · started {{date}}",
+    currentHeading: "Selected",
+    openSelectedHistory: "View its moments",
   },
   startMode: "Start Mode",
   startModes: {

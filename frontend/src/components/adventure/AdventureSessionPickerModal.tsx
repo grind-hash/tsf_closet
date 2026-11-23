@@ -7,13 +7,15 @@ import {
 } from "../../apis/gallery";
 import type { PromptExpanderEntry } from "../../apis/promptExpander";
 import { useGallery } from "../../hooks/useGallery";
+import { useGallerySessionInfo } from "../../hooks/useGallerySessionInfo";
 import { useInfiniteScroll } from "../../hooks/useInfiniteScroll";
 import { useSessionOriginFilter } from "../../hooks/useSessionOriginFilter";
 import type { CharacterPreset, GallerySession } from "../../types";
-import { API_BASE } from "../../utils/api";
+import { formatSessionDate, mediaUrl } from "../../utils/adventureFormat";
 import SessionOriginFilter from "../gallery/SessionOriginFilter";
 import PromptExpanderEntryGrid from "../promptExpander/PromptExpanderEntryGrid";
 import AdventureCharacterPresetGrid from "./AdventureCharacterPresetGrid";
+import AdventureSourceSelectionCard from "./AdventureSourceSelectionCard";
 import "./AdventureSessionPickerModal.css";
 
 export type AdventureSourceOrigin =
@@ -88,21 +90,6 @@ export function selectionFromCharacterPreset(
     pointLabel: preset.profile?.personality?.trim() || null,
     origin: "character",
   };
-}
-
-function mediaUrl(url: string): string {
-  if (url.startsWith(`${API_BASE}/`)) return url;
-  return url.startsWith("/") ? `${API_BASE}${url}` : url;
-}
-
-function formatSessionDate(iso: string, locale: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(locale.startsWith("en") ? "en-US" : "ja-JP", {
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  });
 }
 
 const PAGE_SIZE = 20;
@@ -224,6 +211,50 @@ function SessionHistoryList({
   );
 }
 
+interface SelectedSourcePinProps {
+  selection: AdventureSourceSelection;
+  /** ドリルダウン中のセッション。選択中のセッションを開いているときは移動ボタンを出さない */
+  drilldownSessionId: string | null;
+  onOpenHistory: (session: GallerySession) => void;
+}
+
+/**
+ * 一覧の先頭に出す「選択中」カード。一覧は少しずつ読み込むため、
+ * 選択中の項目が読み込み範囲に無くても、何を選んでいるかをここで分かるようにする。
+ */
+function SelectedSourcePin({
+  selection,
+  drilldownSessionId,
+  onOpenHistory,
+}: SelectedSourcePinProps) {
+  const { t } = useTranslation();
+  const sessionInfo = useGallerySessionInfo(selection.sessionId);
+  return (
+    <section
+      className="adventure-session-picker__current"
+      aria-labelledby="adventure-session-picker-current"
+    >
+      <h3 id="adventure-session-picker-current">
+        {t("adventure.sourcePicker.currentHeading")}
+      </h3>
+      <AdventureSourceSelectionCard
+        selection={selection}
+        sessionInfo={sessionInfo}
+      >
+        {sessionInfo && sessionInfo.session_id !== drilldownSessionId && (
+          <button
+            type="button"
+            className="adventure-source-summary__change"
+            onClick={() => onOpenHistory(sessionInfo)}
+          >
+            {t("adventure.sourcePicker.openSelectedHistory")}
+          </button>
+        )}
+      </AdventureSourceSelectionCard>
+    </section>
+  );
+}
+
 interface AdventureSessionPickerModalProps {
   title: string;
   selected: AdventureSourceSelection | null;
@@ -299,6 +330,17 @@ export default function AdventureSessionPickerModal({
   const [favoritesError, setFavoritesError] = useState(false);
   const [favoritesFetchedOnce, setFavoritesFetchedOnce] = useState(false);
   const favoritesLoadingRef = useRef(false);
+
+  // Prompt Expander・キャラクターの一覧は各グリッドが読み込む。初回の読み込みを終えたタブ
+  const [loadedGridTab, setLoadedGridTab] = useState<PickerTab | null>(null);
+  const markCharactersLoaded = useCallback(
+    () => setLoadedGridTab("characters"),
+    [],
+  );
+  const markPromptExpanderLoaded = useCallback(
+    () => setLoadedGridTab("prompt_expander"),
+    [],
+  );
 
   // 無限スクロールの root にするスクロールコンテナ。
   // useRef ではなく useState で保持し、要素確定後に observer を張り直す
@@ -396,13 +438,13 @@ export default function AdventureSessionPickerModal({
   const initialFocusDoneRef = useRef(false);
   useEffect(() => {
     if (initialFocusDoneRef.current || !contentEl) return;
-    // Prompt Expander・キャラクタータブは各グリッド側で読み込むため、ここでは待たない
+    // Prompt Expander・キャラクタータブは各グリッドの初回読み込みを待ってから選択中へ当てる
     const fetchedOnce =
       tab === "sessions"
         ? sessionsFetchedOnce
         : tab === "favorites"
           ? favoritesFetchedOnce
-          : true;
+          : loadedGridTab === tab;
     const loading =
       tab === "sessions"
         ? sessionsLoading
@@ -423,6 +465,7 @@ export default function AdventureSessionPickerModal({
     favoritesFetchedOnce,
     sessionsLoading,
     favoritesLoading,
+    loadedGridTab,
   ]);
 
   const handleLoadMoreSessions = useCallback(() => {
@@ -784,6 +827,13 @@ export default function AdventureSessionPickerModal({
           </>
         )}
         <div className="adventure-session-picker__body" ref={setContentEl}>
+          {selected && (
+            <SelectedSourcePin
+              selection={selected}
+              drilldownSessionId={drilldownSession?.session_id ?? null}
+              onOpenHistory={setDrilldownSession}
+            />
+          )}
           {drilldownSession ? (
             <SessionHistoryList
               key={drilldownSession.session_id}
@@ -802,6 +852,7 @@ export default function AdventureSessionPickerModal({
               onSelect={(preset) =>
                 onSelect(selectionFromCharacterPreset(preset))
               }
+              onLoaded={markCharactersLoaded}
             />
           ) : tab === "sessions" ? (
             renderSessionsTab()
@@ -815,6 +866,7 @@ export default function AdventureSessionPickerModal({
               onSelect={(entry) =>
                 onSelect(selectionFromPromptExpanderEntry(entry))
               }
+              onLoaded={markPromptExpanderLoaded}
             />
           ) : (
             renderFavoritesTab()

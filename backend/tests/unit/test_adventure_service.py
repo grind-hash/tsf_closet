@@ -6476,8 +6476,6 @@ def test_run_setup_inputs_prefers_character_preset_source_from_snapshot() -> Non
 
     assert setup["source_character_preset_id"] == "preset-1"
     assert setup["source_session_id"] is None
-    # 名前はセッションを開始素材にしたときだけ返す
-    assert setup["source_character_name"] is None
     assert setup["source_history_id"] is None
     assert setup["source_prompt_expander_entry_id"] is None
 
@@ -6487,7 +6485,6 @@ def test_run_setup_inputs_returns_deleted_session_ids_from_snapshot() -> None:
     snapshot = {
         "source_session_id": "gone-session",
         "source_history_id": "gone-history",
-        "character_name": "ナオ",
     }
 
     setup = _run_setup_inputs(
@@ -6498,7 +6495,6 @@ def test_run_setup_inputs_returns_deleted_session_ids_from_snapshot() -> None:
 
     assert setup["source_session_id"] == "gone-session"
     assert setup["source_history_id"] == "gone-history"
-    assert setup["source_character_name"] == "ナオ"
 
 
 def test_run_setup_inputs_omits_romance_fields_for_other_presets() -> None:

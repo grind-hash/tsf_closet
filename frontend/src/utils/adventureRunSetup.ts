@@ -29,12 +29,11 @@ import {
 // 舞台・ゴールの入力欄の上限(AdventureHub の maxLength と揃える)
 const SCENARIO_TEXT_MAX_LENGTH = 600;
 
-/** セッションを取り直す対象。fallbackName はセッション一覧から名前を引けないときの表示名 */
+/** セッションを取り直す対象。historyId が null なら現在の状態 */
 export type AdventureRunSetupSessionTarget = {
   kind: "session";
   sessionId: string;
   historyId: string | null;
-  fallbackName: string | null;
 };
 
 /** 開始素材として取り直す対象。種類ごとに1つだけ入る */
@@ -109,7 +108,6 @@ function setupSource(setup: AdventureRunSetup): AdventureRunSetupSource {
       kind: "session",
       sessionId: setup.source_session_id,
       historyId: setup.source_history_id,
-      fallbackName: setup.source_character_name,
     };
   }
   return null;
@@ -134,8 +132,6 @@ function setupPlayer(setup: AdventureRunSetup): AdventureRunSetupPlayer {
       kind: "session",
       sessionId: setup.romance_player_session_id,
       historyId: setup.romance_player_history_id,
-      // 主人公セッションの名前は run に残らないため、呼び名を表示名の代わりにする
-      fallbackName: setup.romance_player_name.trim() || null,
     };
   }
   if (setup.romance_player_character_id) {

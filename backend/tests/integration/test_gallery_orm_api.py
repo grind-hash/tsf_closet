@@ -327,3 +327,31 @@ def test_gallery_sessions_filter_by_origin(isolated_db, monkeypatch):
 class _NoCharacters:
     def get_by_id(self, _character_id: str):
         return None
+
+
+def test_gallery_sessions_filter_by_session_id(isolated_db, monkeypatch):
+    import asyncio
+
+    asyncio.run(_seed_gallery_data(isolated_db.async_factory))
+    module = sys.modules["gateway.routes.gallery_router"]
+    monkeypatch.setattr(module, "CharacterManager", lambda: _NoCharacters())
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+
+    with TestClient(app) as client:
+        # 1ページ目の件数を1にしても、指定したセッションが返る
+        found = client.get(
+            "/api/gallery/sessions",
+            params={"session_id": "gallery-session-2", "page_size": 1},
+        ).json()
+        missing = client.get(
+            "/api/gallery/sessions", params={"session_id": "no-such-session"}
+        ).json()
+
+    assert [item["session_id"] for item in found["sessions"]] == ["gallery-session-2"]
+    assert found["sessions"][0]["item_count"] == 1
+    assert found["sessions"][0]["thumbnail_url"] == "/history/images/gallery-history-3"
+    assert found["total"] == 1
+    assert found["has_more"] is False
+    assert missing["sessions"] == []
+    assert missing["total"] == 0

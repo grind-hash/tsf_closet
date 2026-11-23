@@ -1349,12 +1349,6 @@ def _run_setup_inputs(
         "source_history_id": source_history_id,
         "source_prompt_expander_entry_id": source_pe_entry_id,
         "source_character_preset_id": source_preset_id,
-        # セッション一覧から名前を引けないときの表示用(作成時点の名前)
-        "source_character_name": (
-            str(snapshot.get("character_name") or "") or None
-            if source_session_id
-            else None
-        ),
         "narration_voice": normalize_narration_voice(state.get("narration_voice")),
         "narration_pronoun": normalize_narration_pronoun(
             state.get("narration_pronoun")
