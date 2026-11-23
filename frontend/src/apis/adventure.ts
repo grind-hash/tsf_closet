@@ -630,6 +630,49 @@ export async function fetchAdventureRun(runId: string): Promise<AdventureRun> {
   );
 }
 
+/**
+ * 遊んだ run の作成時の設定。新規作成フォームへ写すために使う。
+ * 開始素材は1種類だけ値が入り、残りは null。romance_* は恋愛シミュレーションのときだけ入る。
+ */
+export interface AdventureRunSetup {
+  run_id: string;
+  title: string;
+  preset: AdventurePreset;
+  scenario_template_id: string | null;
+  setting: string;
+  objective: string;
+  constraints: string[];
+  max_turns: number;
+  /** 恋愛シミュレーションの日数(開幕時点)。恋愛以外と対面会話モードは null になりうる */
+  total_days: number | null;
+  companion_mode: boolean;
+  source_session_id: string | null;
+  source_history_id: string | null;
+  source_prompt_expander_entry_id: string | null;
+  source_character_preset_id: string | null;
+  /** 開始セッションの作成時点の名前。セッション一覧から引けないときの表示に使う */
+  source_character_name: string | null;
+  narration_voice: AdventureNarrationVoice;
+  narration_pronoun: string;
+  player_speech_style: AdventureSpeechStyle;
+  player_speech_custom: string;
+  partner_speech_style: string;
+  romance_player_character_id: string | null;
+  romance_player_session_id: string | null;
+  romance_player_history_id: string | null;
+  romance_player_prompt_expander_entry_id: string | null;
+  romance_player_character_preset_id: string | null;
+  romance_player_name: string;
+}
+
+export async function fetchAdventureRunSetup(
+  runId: string,
+): Promise<AdventureRunSetup> {
+  return requestJson<AdventureRunSetup>(
+    `${API_BASE}/adventure/runs/${runId}/setup`,
+  );
+}
+
 export async function generateAdventureSetup(
   request: AdventureSetupRequest,
 ): Promise<AdventureSetup> {

@@ -122,6 +122,15 @@ async def get_run(run_id: str) -> dict:
         raise _http_error(error) from error
 
 
+@router.get("/runs/{run_id}/setup")
+async def get_run_setup(run_id: str) -> dict:
+    """遊んだ run の作成時の設定(新規作成フォームへ写す用)を返す。"""
+    try:
+        return await adventure_service.get_run_setup(run_id)
+    except AdventureError as error:
+        raise _http_error(error) from error
+
+
 @router.delete("/runs/{run_id}", status_code=204)
 async def delete_run(run_id: str) -> None:
     try:

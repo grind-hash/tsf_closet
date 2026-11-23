@@ -1275,6 +1275,106 @@ def _romance_replay_player_name(replay_state: dict[str, Any]) -> str:
     return normalize_player_name(str(replay_sim.get("player_name") or ""))
 
 
+def _run_setup_inputs(
+    run: Any,
+    state: dict[str, Any],
+    snapshot: dict[str, Any],
+    opening_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """run の作成時の設定を、新規作成フォームへ写せる形で返す。
+
+    舞台・ゴール・制約は作成時に保存した文面、語り・口調はプレイ中に変えていれば
+    変更後の値を返す。恋愛の日数は開幕時点の state(opening_state_json)を優先し、
+    無い旧 run は現在値を返す。開始素材はリプレイと同じ優先順(キャラクター >
+    Prompt Expander > セッション)で1種類だけ返し、削除で列が NULL になった
+    セッション・履歴は snapshot に残る ID を返す(取り直せない場合は呼び出し側で案内する)。
+    """
+    romance = run.preset == "romance"
+    sim = state["sim"] if isinstance(state.get("sim"), dict) else {}
+    opening_sim = (opening_state or {}).get("sim")
+    days_source = opening_sim if isinstance(opening_sim, dict) else sim
+    raw_days = days_source.get("total_days")
+    total_days = (
+        raw_days
+        if isinstance(raw_days, int) and not isinstance(raw_days, bool) and raw_days > 0
+        else None
+    )
+
+    source_preset_id = str(snapshot.get("source_character_preset_id") or "") or None
+    source_pe_entry_id = (
+        None
+        if source_preset_id
+        else (str(getattr(run, "source_prompt_expander_entry_id", None) or "") or None)
+    )
+    source_session_id: str | None = None
+    source_history_id: str | None = None
+    if not source_preset_id and not source_pe_entry_id:
+        source_session_id = (
+            str(run.source_session_id or snapshot.get("source_session_id") or "")
+            or None
+        )
+        source_history_id = (
+            str(run.source_history_id or snapshot.get("source_history_id") or "")
+            or None
+        )
+
+    (
+        player_character_id,
+        player_session_id,
+        player_history_id,
+        player_pe_entry_id,
+        player_preset_id,
+    ) = (
+        _romance_replay_player_selection(state)
+        if romance
+        else (None, None, None, None, None)
+    )
+    constraints = [
+        str(item).strip()
+        for item in _json_load(run.constraints_json, [])
+        if str(item).strip()
+    ]
+    return {
+        "run_id": run.id,
+        "title": str(run.title or ""),
+        "preset": run.preset,
+        "scenario_template_id": str(state.get("scenario_template_id") or "") or None,
+        "setting": str(state.get("setting") or ""),
+        "objective": str(run.objective or ""),
+        "constraints": constraints,
+        "max_turns": int(run.max_turns),
+        "total_days": total_days if romance else None,
+        "companion_mode": romance and bool(state.get("companion_mode")),
+        "source_session_id": source_session_id,
+        "source_history_id": source_history_id,
+        "source_prompt_expander_entry_id": source_pe_entry_id,
+        "source_character_preset_id": source_preset_id,
+        # セッション一覧から名前を引けないときの表示用(作成時点の名前)
+        "source_character_name": (
+            str(snapshot.get("character_name") or "") or None
+            if source_session_id
+            else None
+        ),
+        "narration_voice": normalize_narration_voice(state.get("narration_voice")),
+        "narration_pronoun": normalize_narration_pronoun(
+            state.get("narration_pronoun")
+        ),
+        "player_speech_style": normalize_speech_style(state.get("player_speech_style")),
+        "player_speech_custom": normalize_speech_custom(
+            state.get("player_speech_custom")
+        ),
+        "partner_speech_style": (
+            str(sim.get("partner_speech_style") or "") if romance else ""
+        ),
+        "romance_player_character_id": player_character_id,
+        "romance_player_session_id": player_session_id,
+        "romance_player_history_id": player_history_id,
+        "romance_player_prompt_expander_entry_id": player_pe_entry_id,
+        "romance_player_character_preset_id": player_preset_id,
+        "romance_player_name": _romance_replay_player_name(state) if romance else "",
+    }
+
+
 def _romance_partner_member_index(
     main_characters: list[Any], partner_name: str
 ) -> int | None:
@@ -4019,6 +4119,24 @@ The objective must name a concrete target and an observable end condition that c
         await self._drop_missing_companion_avatar(run)
         turns = sorted(run.turns, key=lambda item: item.turn_number)
         return self._serialize_run(run, turns)
+
+    async def get_run_setup(self, run_id: str) -> dict[str, Any]:
+        """run の作成時の設定を返す(遊んだシナリオの設定を作成フォームへ写す用)。"""
+        run = await self.get_run_orm(run_id)
+        state = _json_load(run.state_json, {})
+        snapshot = _json_load(run.snapshot_json, {})
+        opening = _json_load(getattr(run, "opening_state_json", None), {})
+        opening_state = (
+            opening.get("state")
+            if isinstance(opening, dict) and isinstance(opening.get("state"), dict)
+            else None
+        )
+        return _run_setup_inputs(
+            run,
+            state if isinstance(state, dict) else {},
+            snapshot if isinstance(snapshot, dict) else {},
+            opening_state,
+        )
 
     async def _drop_missing_companion_avatar(self, run: AdventureRun) -> None:
         """登録が消えた 3D アバターの割り当てを run から外す(自己修復)。
