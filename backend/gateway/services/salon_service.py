@@ -54,7 +54,7 @@ from .achievements import (
 from .characters import character_manager
 from .clothing_layers import split_worn_under_layers
 from .cost_tracker import begin_cost_tracking
-from .custom_sessions import list_custom_character_profiles, normalize_gender
+from .custom_sessions import imported_preset_id, normalize_gender
 from .game_service import GameServiceError, game_service
 from .preset_sessions import list_salon_preset_customers
 from .salon_prompts import (
@@ -102,8 +102,12 @@ class SalonError(Exception):
 
 
 async def _customer_pool(db: Any) -> list[Customer]:
-    """予約に入りうるお客様: 同梱のテンプレートキャラ、保存済みのカスタムキャラ、
-    来店する設定で立ち絵のあるキャラクター(キャラクター画面で作ったキャラ)。"""
+    """予約に入りうるお客様: 同梱のテンプレートキャラと、来店する設定で立ち絵のある
+    キャラクター(キャラクター画面で作ったキャラ)。
+
+    v0.11.0 以前は保存済みのカスタムキャラ(customer_source="custom")も入っていた。
+    その予約は接客開始時に取り込み先のキャラクターへ読み替える。
+    """
     pool = [
         Customer(
             "template",
@@ -113,15 +117,6 @@ async def _customer_pool(db: Any) -> list[Customer]:
         )
         for character in character_manager.get_all()
     ]
-    pool.extend(
-        Customer(
-            "custom",
-            str(profile["id"]),
-            str(profile.get("name") or ""),
-            normalize_gender(profile.get("gender")),
-        )
-        for profile in list_custom_character_profiles()
-    )
     pool.extend(
         Customer("preset", item["id"], item["name"], item.get("gender") or "other")
         for item in await list_salon_preset_customers(db)
@@ -190,6 +185,17 @@ def _seasons(state: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(result, dict):
         return [{"season": 1, **result}]
     return []
+
+
+def _booked_customer_keys(visits: Sequence[SalonVisit]) -> set[tuple[str, str]]:
+    """抽選から外すお客様。旧カスタムキャラのお客様は取り込み先のキャラクターも外す。"""
+    keys = {(item.customer_source, item.customer_id) for item in visits}
+    for item in visits:
+        if item.customer_source == "custom":
+            preset_id = imported_preset_id(item.customer_id)
+            if preset_id:
+                keys.add(("preset", preset_id))
+    return keys
 
 
 def _regular_visits(visit: SalonVisit, visits: list[SalonVisit]) -> int:
@@ -377,7 +383,7 @@ class SalonService:
             seed=run.seed,
             week=run.week,
             count=bookings_count(run.reputation) - len(kept),
-            exclude={(item.customer_source, item.customer_id) for item in kept},
+            exclude=_booked_customer_keys(kept),
         )
         bookings = [
             (
@@ -597,27 +603,23 @@ class SalonService:
                     nsfw_mode=adult,
                     self_mode=False,
                 )
-            elif customer[0] == "preset":
-                session, _, _ = await game_service.start_preset_session(
-                    preset_id=customer[1],
-                    difficulty="normal",
-                    nsfw_mode=adult,
-                    self_mode=False,
-                )
             else:
-                session, _, _ = await game_service.start_custom_session(
-                    custom_character_id=customer[1],
-                    image=None,
-                    name="",
-                    description="",
-                    pronoun="",
-                    personality="",
-                    gender=None,
-                    base_tags="",
+                # 旧カスタムキャラ(customer_source="custom")は取り込み先のキャラクターで迎える
+                preset_id = (
+                    customer[1]
+                    if customer[0] == "preset"
+                    else imported_preset_id(customer[1])
+                )
+                if preset_id is None:
+                    raise SalonError(
+                        "customer_unavailable",
+                        "このお客様のキャラクターが見つからないため、接客を始められません",
+                    )
+                session, _, _ = await game_service.start_preset_session(
+                    preset_id=preset_id,
                     difficulty="normal",
                     nsfw_mode=adult,
                     self_mode=False,
-                    use_saved_profile=True,
                 )
             request, cost_usd = await session_request_service.create_request(
                 session.id,

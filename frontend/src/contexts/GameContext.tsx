@@ -70,7 +70,6 @@ import {
   regeneratePlayMemory as apiRegeneratePlayMemory,
   removeSessionAttribute as apiRemoveSessionAttribute,
   restoreSession as apiRestoreSession,
-  startCustomGame as apiStartCustomGame,
   startGame as apiStartGame,
   startPresetGame as apiStartPresetGame,
   updatePlayMemory as apiUpdatePlayMemory,
@@ -441,11 +440,11 @@ interface GameContextType {
   ) => Promise<BranchSessionResponse>;
   /**
    * キャラクターを指定して新規セッションを開始する(キャラチャットの提案・キャラクター画面から使う)。
-   * source は template(同梱) / custom(保存済みカスタム) / preset(キャラクター画面のキャラ)。
+   * source は template(同梱) / preset(キャラクター画面のキャラ)。
    * 開始後にセッションを取り直して Game 状態を差し替え、session_id を返す。失敗時は投げる。
    */
   startNewSession: (options: {
-    source: "template" | "custom" | "preset";
+    source: "template" | "preset";
     characterId: string;
     selfMode: boolean;
   }) => Promise<string>;
@@ -890,7 +889,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const startNewSession = useCallback(
     async (options: {
-      source: "template" | "custom" | "preset";
+      source: "template" | "preset";
       characterId: string;
       selfMode: boolean;
     }): Promise<string> => {
@@ -901,21 +900,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
         self_mode: options.selfMode,
       };
       const started =
-        options.source === "custom"
-          ? await apiStartCustomGame({
-              custom_character_id: options.characterId,
-              use_saved_profile: true,
+        options.source === "preset"
+          ? await apiStartPresetGame({
+              preset_id: options.characterId,
               ...common,
             })
-          : options.source === "preset"
-            ? await apiStartPresetGame({
-                preset_id: options.characterId,
-                ...common,
-              })
-            : await apiStartGame({
-                character_id: options.characterId,
-                ...common,
-              });
+          : await apiStartGame({
+              character_id: options.characterId,
+              ...common,
+            });
       // 開始の応答は一部の項目だけのため、セッション全体を取り直して状態を差し替える
       const data = await apiRestoreSession(started.session_id);
       const action = mapSessionResponse(

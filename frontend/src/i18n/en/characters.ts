@@ -37,14 +37,6 @@ export const characters = {
     noPortrait:
       "This character visits your salon as a customer in Salon Management. They do not visit while they have no portrait.",
   },
-  legacy: {
-    hint: 'You have {{count}} characters made with "Use your own image" on the new-play screen. That entry will be removed in v0.12.0, so you can bring them into this Characters screen.',
-    import: "Bring them into Characters",
-    importing: "Bringing them in...",
-    done: "Brought {{count}} characters into Characters.",
-    none: "There were no characters to bring in.",
-    failed: "Could not bring the characters in.",
-  },
   sections: {
     play: "Play and salon",
     profile: "Name and personality",

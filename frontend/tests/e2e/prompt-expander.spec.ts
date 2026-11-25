@@ -484,9 +484,6 @@ async function mockGameApis(page: Page) {
   await page.route("**/api/game/characters", async (route) => {
     await route.fulfill({ json: { characters: [] } });
   });
-  await page.route("**/api/game/custom-characters", async (route) => {
-    await route.fulfill({ json: { characters: [] } });
-  });
 }
 
 /** TSFシナリオのセットアップ画面が必要とする API の最小モック */
@@ -1791,70 +1788,88 @@ test("suggestions include the current input and stay after closing the modal", a
   );
 });
 
-test("use in normal play preloads the welcome screen", async ({ page }) => {
+test("make a character turns the entry image into a character portrait", async ({
+  page,
+}) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
   await mockPromptExpanderApis(page);
-  await mockGameApis(page);
+  const preset = {
+    id: "preset-new",
+    name: "新しいキャラクター",
+    appearance_natural: "",
+    appearance_tags: ENTRY_FINAL_PROMPT,
+    default_position: "center",
+    negative_tags: "",
+    profile: null,
+    thumbnail_url: null,
+    avatar_model_id: null,
+    voice: null,
+    portrait_url: "/game/character-presets/preset-new/images/source-1.png",
+    salon_enabled: true,
+    created_at: "2026-11-25T00:00:00",
+    updated_at: "2026-11-25T00:00:00",
+  };
+  const createBodies: Record<string, unknown>[] = [];
+  const importBodies: Record<string, unknown>[] = [];
+  await page.route("**/api/game/character-presets", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    createBodies.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 201,
+      json: { ...preset, appearance_tags: "", portrait_url: null },
+    });
+  });
+  await page.route(
+    "**/api/game/character-presets/preset-new/portrait/from-source",
+    async (route) => {
+      importBodies.push(route.request().postDataJSON());
+      await route.fulfill({
+        json: {
+          preset,
+          source: {
+            name: null,
+            appearance_natural: "",
+            appearance_tags: ENTRY_FINAL_PROMPT,
+          },
+        },
+      });
+    },
+  );
+  await page.route(
+    "**/api/game/character-presets/preset-new",
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({ json: preset });
+    },
+  );
   await openSession(page);
 
   await page
     .locator(".prompt-expander__entry-list > li")
     .first()
-    .getByRole("button", { name: "通常プレイで使う" })
+    .getByRole("button", { name: "キャラクターにする" })
     .click();
 
-  // ?pe_entry= は取り込み後に消える
-  await expect(page).toHaveURL(/\/play\/new$/);
+  // 作ったキャラクターの編集画面へ移る
+  await expect(page).toHaveURL(/\/characters\/preset-new$/);
+  expect(createBodies).toHaveLength(1);
+  expect(importBodies).toEqual([{ prompt_expander_entry_id: ENTRY_ID }]);
+});
+
+test("new play has no own-image section", async ({ page }) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockGameApis(page);
+  await page.goto("/play/new");
   const welcome = page.locator(".welcome-screen");
   await expect(welcome).toBeVisible();
-  const preview = welcome.locator(".welcome-screen__custom-preview img");
-  await expect(preview).toBeVisible();
-  await expect(preview).toHaveAttribute("src", /^data:image\/png;base64,/);
-  // タグ拡張のエントリは最終プロンプトを外見タグ欄に前埋めする
-  await expect(welcome.getByPlaceholder(/外見タグ/)).toHaveValue(
-    ENTRY_FINAL_PROMPT,
-  );
+  // 自分の画像はキャラクター画面から始める
   await expect(
-    welcome.getByRole("button", { name: "ゲームを開始" }),
-  ).toBeEnabled();
-});
-
-test("welcome screen picks an entry from the Prompt Expander modal", async ({
-  page,
-}) => {
-  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
-  await mockPromptExpanderApis(page);
-  await mockGameApis(page);
-  await page.goto("/play/new");
-
-  const welcome = page.locator(".welcome-screen");
-  await welcome
-    .getByRole("button", { name: "Prompt Expander から選択" })
-    .click();
-  const dialog = page.getByRole("dialog", { name: "Prompt Expander から選択" });
-  await dialog.getByRole("button", { name: ENTRY_INSTRUCTION }).click();
-  await expect(dialog).toBeHidden();
-  await expect(
-    welcome.locator(".welcome-screen__custom-preview img"),
-  ).toBeVisible();
-  await expect(welcome.getByPlaceholder(/外見タグ/)).toHaveValue(
-    ENTRY_FINAL_PROMPT,
-  );
-});
-
-test("welcome screen hides the Prompt Expander button when disabled", async ({
-  page,
-}) => {
-  await enableFeatures(page, {});
-  await mockGameApis(page);
-  await page.goto("/play/new");
-  const welcome = page.locator(".welcome-screen");
-  await expect(
-    welcome.getByRole("button", { name: "📁 画像を選択" }),
+    welcome.getByRole("link", { name: "キャラクター画面を開く" }),
   ).toBeVisible();
   await expect(
     welcome.getByRole("button", { name: "Prompt Expander から選択" }),
   ).toHaveCount(0);
+  await expect(welcome.getByPlaceholder(/外見タグ/)).toHaveCount(0);
 });
 
 test("adventure setup can start from a Prompt Expander entry", async ({

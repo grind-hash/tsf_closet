@@ -3,7 +3,7 @@
  *
  * 画像（クリックでプレビュー）、主テキスト（指示または最終プロンプト。省略表示 + 全文展開）、
  * 行末のバッジ（モデル / サイズ / seed / 拡張モード / 生成元 / アップロード / 精密参照 / 透過）、
- * 操作（欄へ復元 / このプロンプトで再生成 / i2i 元にする / 参照にする / 通常プレイで使う / TSFシナリオで使う / 削除）。
+ * 操作（欄へ復元 / このプロンプトで再生成 / i2i 元にする / 参照にする / キャラクターにする / TSFシナリオで使う / 削除）。
  * 画像は <button> で包まない（ブラウザの「名前を付けて画像を保存」が効かなくなるため）。
  * 背景透過エントリは表示時にフロントで切り抜く（V4.5 は白背景で保存されている。V5 のネイティブ透過は素通し）。
  * 切り抜き後の画像は「透過PNGを保存」からダウンロードできる。
@@ -13,6 +13,11 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
+  createCharacterPreset,
+  deleteCharacterPreset,
+  importCharacterPresetPortrait,
+} from "../../apis/characters";
+import {
   type PromptExpanderEntry,
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
@@ -21,11 +26,12 @@ import {
   PROMPT_EXPANDER_ALPHA_OPTIONS,
   referenceTypeI18nKey,
 } from "../../constants/promptExpander";
-import { useChat } from "../../contexts/ChatContext";
-import { useGame } from "../../contexts/GameContext";
+import { useNotification } from "../../contexts/NotificationContext";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
+import { ROUTES } from "../../routes";
+import { EMPTY_CHARACTER_PROFILE } from "../characters/characterMaker";
 import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderEntryList.css";
@@ -59,8 +65,7 @@ export default function PromptExpanderEntryCard({
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { state: settingsState } = useSettings();
-  const { clearSession } = useGame();
-  const { clearMessages } = useChat();
+  const { showNotification } = useNotification();
   const {
     restoreEntry,
     regenerateEntry,
@@ -73,6 +78,7 @@ export default function PromptExpanderEntryCard({
   } = usePromptExpander();
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [makingCharacter, setMakingCharacter] = useState(false);
   const originalUrl = promptExpanderImageUrl(entry);
   // 透過エントリは表示時に背景を切り抜く（既に透過を持つ V5 画像は素通しされる）
   const { url: transparentUrl, processing } = useTransparentImage(
@@ -155,10 +161,30 @@ export default function PromptExpanderEntryCard({
     badges.push(t("promptExpander.entry.transparentBadge"));
   }
 
-  const handleUseInGame = () => {
-    clearSession();
-    clearMessages();
-    navigate(`/play/new?pe_entry=${encodeURIComponent(entry.id)}`);
+  // エントリの画像を立ち絵にしたキャラクターを作り、編集画面へ移る。
+  // 外見タグは空のキャラクターへの取り込みなのでサーバーがエントリから入れる
+  const handleMakeCharacter = async () => {
+    setMakingCharacter(true);
+    let createdId: string | null = null;
+    try {
+      const created = await createCharacterPreset({
+        name: t("characters.newName"),
+        profile: EMPTY_CHARACTER_PROFILE,
+      });
+      createdId = created.id;
+      await importCharacterPresetPortrait(created.id, {
+        prompt_expander_entry_id: entry.id,
+      });
+      navigate(`${ROUTES.CHARACTERS}/${created.id}`);
+    } catch (err) {
+      console.error("Failed to make a character from the entry", err);
+      // 立ち絵の無いキャラクターを残さない
+      if (createdId) {
+        void deleteCharacterPreset(createdId).catch(() => undefined);
+      }
+      showNotification("error", t("promptExpander.entry.makeCharacterFailed"));
+      setMakingCharacter(false);
+    }
   };
 
   const handleUseInAdventure = () => {
@@ -367,9 +393,13 @@ export default function PromptExpanderEntryCard({
           <button
             type="button"
             className="prompt-expander__btn prompt-expander__btn--sm"
-            onClick={handleUseInGame}
+            onClick={() => void handleMakeCharacter()}
+            disabled={makingCharacter}
+            aria-busy={makingCharacter}
           >
-            {t("promptExpander.entry.useInGame")}
+            {makingCharacter
+              ? t("promptExpander.entry.makingCharacter")
+              : t("promptExpander.entry.makeCharacter")}
           </button>
           {settingsState.adventureEnabled && (
             <button

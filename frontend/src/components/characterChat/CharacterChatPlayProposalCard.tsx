@@ -41,8 +41,10 @@ export default function CharacterChatPlayProposalCard({
   const [failed, setFailed] = useState(false);
   // 自分自身モードはキャラ設定(セルフプロフィール)が無いと始められない
   const selfProfileMissing = proposal.self_mode && !selfProfile;
+  // v0.11.0 以前の提案(保存済みカスタムキャラ)。キャラクター画面へ取り込み済みで、ここからは始めない
+  const legacyCharacter = proposal.character.source === "custom";
   // 返答の処理中(立ち絵・要約の工程を含む)は始めない。途中で画面を離れると料金の表示が届かない
-  const blocked = sending || selfProfileMissing;
+  const blocked = sending || selfProfileMissing || legacyCharacter;
   const { first_instruction: instruction } = proposal;
 
   const handleStart = async () => {
@@ -95,9 +97,11 @@ export default function CharacterChatPlayProposalCard({
         </dd>
       </dl>
       <p className="character-chat__proposal-note">
-        {selfProfileMissing
-          ? t("characterChat.proposal.selfProfileMissing")
-          : t("characterChat.proposal.startNote")}
+        {legacyCharacter
+          ? t("characterChat.proposal.legacyCharacter")
+          : selfProfileMissing
+            ? t("characterChat.proposal.selfProfileMissing")
+            : t("characterChat.proposal.startNote")}
       </p>
       {failed && (
         <p className="character-chat__proposal-error" role="alert">

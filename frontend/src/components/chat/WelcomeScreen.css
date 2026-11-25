@@ -43,25 +43,6 @@
   margin: 0 0 1rem;
 }
 
-/* 非推奨の入口の案内(移行先へのリンク付き) */
-.welcome-screen__deprecated-notice {
-  margin: -0.5rem 0 1rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid rgba(248, 113, 113, 0.4);
-  border-radius: 6px;
-  background-color: rgba(248, 113, 113, 0.08);
-  color: var(--text-muted, #aaa);
-  font-size: 0.85rem;
-  line-height: 1.6;
-}
-
-.welcome-screen__deprecated-notice a {
-  display: inline-block;
-  margin-left: 0.5rem;
-  color: var(--accent, #ff4757);
-  font-weight: 600;
-}
-
 /* キャラクター選択 */
 .welcome-screen__characters {
   background-color: rgba(255, 255, 255, 0.05);
@@ -122,183 +103,19 @@
   text-align: center;
 }
 
-/* カスタム画像 */
-.welcome-screen__custom {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  padding: 1.5rem;
+/* キャラクター画面で作ったキャラの始め方の案内 */
+.welcome-screen__own-characters {
+  margin: 1rem 0 0;
+  color: var(--text-muted, #aaa);
+  font-size: 0.85rem;
+  line-height: 1.6;
 }
 
-.welcome-screen__custom-upload {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.welcome-screen__file-input {
-  display: none;
-}
-
-.welcome-screen__upload-btn {
-  padding: 0.75rem 1.5rem;
-  background-color: var(--side-menu-bg, #16213e);
-  border: 1px solid var(--border-color, #333);
-  border-radius: 8px;
-  color: var(--text-color, #eee);
-  font-size: 0.95rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.welcome-screen__upload-btn:hover {
-  background-color: var(--hover-bg, #1f2f50);
-}
-
-.welcome-screen__custom-preview {
-  position: relative;
-  width: 80px;
-  height: 80px;
-}
-
-.welcome-screen__custom-preview img {
-  width: 100%;
-  height: 100%;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 2px solid var(--accent-color, #e94560);
-}
-
-.welcome-screen__remove-btn {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background-color: var(--accent-color, #e94560);
-  border: none;
-  color: white;
-  font-size: 0.75rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.welcome-screen__remove-btn:hover {
-  background-color: var(--accent-hover, #ff6b6b);
-}
-
-.welcome-screen__saved-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.welcome-screen__saved-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.5rem;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-color, #eee);
-  cursor: pointer;
-}
-
-.welcome-screen__saved-item img {
-  width: 100%;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 6px;
-}
-
-.welcome-screen__saved-item.is-selected {
-  border-color: var(--accent-color, #e94560);
-  background-color: rgba(233, 69, 96, 0.15);
-}
-
-.welcome-screen__custom-fields {
-  margin-top: 1rem;
-  display: grid;
-  gap: 0.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}
-
-.welcome-screen__custom-fields input {
-  padding: 0.5rem 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color, #333);
-  background: var(--bg-color, #1a1a2e);
-  color: var(--text-color, #eee);
-}
-
-.welcome-screen__custom-fields select {
-  padding: 0.5rem 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color, #333);
-  background: var(--bg-color, #1a1a2e);
-  color: var(--text-color, #eee);
-}
-
-/* TSF への態度: 入力欄と、使い道を示す注記で 1 行を占める */
-.welcome-screen__tsf-attitude {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 0.25rem;
-}
-
-.welcome-screen__tsf-attitude-hint {
-  margin: 0;
-  color: var(--text-muted, #888);
-  font-size: 0.78rem;
-  line-height: 1.4;
-}
-
-/* 外見タグ行 (入力欄 + 自動生成ボタン) */
-.welcome-screen__base-tags-row {
-  grid-column: 1 / -1;
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.welcome-screen__base-tags-row input {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color, #333);
-  background: var(--bg-color, #1a1a2e);
-  color: var(--text-color, #eee);
-}
-
-.welcome-screen__generate-tags-btn {
-  flex-shrink: 0;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.8rem;
-  font-weight: 500;
-  border: 1px solid var(--accent-color, #e94560);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--accent-color, #e94560);
-  cursor: pointer;
-  transition:
-    background-color 0.2s,
-    opacity 0.2s;
-  white-space: nowrap;
-}
-
-.welcome-screen__generate-tags-btn:hover:not(:disabled) {
-  background-color: rgba(233, 69, 96, 0.15);
-}
-
-.welcome-screen__generate-tags-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.welcome-screen__own-characters a {
+  display: inline-block;
+  margin-left: 0.5rem;
+  color: var(--accent, #ff4757);
+  font-weight: 600;
 }
 
 /* 開始ボタン */
@@ -427,8 +244,7 @@
     font-size: 1rem;
   }
 
-  .welcome-screen__characters,
-  .welcome-screen__custom {
+  .welcome-screen__characters {
     padding: 1rem;
   }
 }

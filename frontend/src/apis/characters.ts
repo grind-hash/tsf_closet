@@ -14,7 +14,6 @@ import {
   CHARACTER_PRESET_PORTRAIT_STREAM,
   CHARACTER_PRESET_PORTRAIT_UPLOAD,
   CHARACTER_PRESETS,
-  CHARACTER_PRESETS_IMPORT_CUSTOM,
   CHARACTERS_FROM_GROUP,
   CHARACTERS_FROM_PRESET,
   CHARACTERS_GENERATE_PROFILE,
@@ -317,20 +316,6 @@ export async function uploadCharacterPresetPortrait(
     method: "POST",
     body: JSON.stringify({ image }),
   });
-}
-
-/**
- * 新規プレイの「作成したキャラクター」をキャラクターへ取り込み、取り込んだキャラを返す。
- * 取り込んだものは新規プレイの一覧とサロンの来店候補から外れる
- */
-export async function importCustomCharacterPresets(): Promise<
-  CharacterPreset[]
-> {
-  const data = await request<{ presets: CharacterPreset[] }>(
-    CHARACTER_PRESETS_IMPORT_CUSTOM,
-    { method: "POST" },
-  );
-  return data.presets;
 }
 
 export type CharacterPresetPortraitEvent =

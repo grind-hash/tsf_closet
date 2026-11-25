@@ -1,8 +1,8 @@
-"""custom_sessions（カスタム画像セッションの補助）。"""
+"""custom_sessions（セッションごとのプロフィールと旧カスタムキャラクターの移行）。"""
 
 from __future__ import annotations
 
-import base64
+import json
 import os
 import time
 
@@ -50,52 +50,49 @@ def test_session_metadata_round_trip_and_missing(history_dir) -> None:
     assert custom_sessions.load_custom_session_metadata("s1") == {}
 
 
-def test_list_custom_characters_newest_first_with_defaults(history_dir) -> None:
-    custom_sessions.save_custom_character(
-        "old", b"old-png", {"id": "old", "name": "旧", "gender": "male"}
+def _write_custom(history_dir, custom_id: str, png: bytes, metadata) -> None:
+    """v0.11.0 以前の新規プレイが保存したカスタムキャラクターと同じ形で置く。"""
+    directory = history_dir / "custom"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{custom_id}.png").write_bytes(png)
+    (directory / f"{custom_id}.json").write_text(
+        json.dumps(metadata, ensure_ascii=False), encoding="utf-8"
     )
-    custom_sessions.save_custom_character("new", b"new-png", {"id": "new"})
+
+
+def test_unimported_profiles_oldest_first_with_defaults(history_dir) -> None:
+    _write_custom(history_dir, "old", b"old-png", {"name": "旧", "gender": "male"})
+    _write_custom(history_dir, "new", b"new-png", {})
+    _write_custom(history_dir, "done", b"png", {"imported_preset_id": "p1"})
     old_png = custom_sessions.custom_character_image_path("old")
     os.utime(old_png, (time.time() - 100, time.time() - 100))
     (history_dir / "custom" / "new.json").write_text("{broken", encoding="utf-8")
+    # セッションごとのプロフィールは画像を持たないので対象外
+    custom_sessions.save_custom_session_metadata("s1", {"name": "サクラ"})
 
-    items = custom_sessions.list_custom_characters()
-    assert [item["id"] for item in items] == ["new", "old"]
-    newest = items[0]
+    profiles = custom_sessions.list_unimported_custom_character_profiles()
+    assert [item["id"] for item in profiles] == ["old", "new"]
+    assert profiles[0]["name"] == "旧" and profiles[0]["gender"] == "man"
+    newest = profiles[1]
     assert newest["name"] == "カスタムキャラクター"
     assert newest["pronoun"] == "僕"
     assert newest["gender"] == "other"
-    assert base64.b64decode(newest["thumbnail"]) == b"new-png"
-    assert items[1]["name"] == "旧" and items[1]["gender"] == "man"
 
 
-def test_custom_character_profiles_skip_thumbnails_and_limit(history_dir) -> None:
-    custom_sessions.save_custom_character(
-        "old", b"old-png", {"id": "old", "name": "旧", "gender": "male"}
+def test_imported_preset_id_after_marking(history_dir) -> None:
+    _write_custom(history_dir, "abc-123", b"png", {"name": "サクラ"})
+    assert custom_sessions.imported_preset_id("abc-123") is None
+
+    custom_sessions.mark_custom_character_imported("abc-123", "preset-1")
+
+    assert custom_sessions.imported_preset_id("abc-123") == "preset-1"
+    assert custom_sessions.list_unimported_custom_character_profiles() == []
+    # 元の人物設定は残す
+    metadata = json.loads(
+        (history_dir / "custom" / "abc-123.json").read_text(encoding="utf-8")
     )
-    custom_sessions.save_custom_character(
-        "new", b"new-png", {"id": "new", "name": "サクラ", "pronoun": "私"}
-    )
-    old_png = custom_sessions.custom_character_image_path("old")
-    os.utime(old_png, (time.time() - 100, time.time() - 100))
-
-    profiles = custom_sessions.list_custom_character_profiles()
-    assert [item["id"] for item in profiles] == ["new", "old"]
-    assert "thumbnail" not in profiles[0]
-    assert profiles[0]["name"] == "サクラ" and profiles[0]["pronoun"] == "私"
-    assert profiles[1]["gender"] == "man"
-    limited = custom_sessions.list_custom_character_profiles(1)
-    assert [item["id"] for item in limited] == ["new"]
-
-
-def test_load_custom_character_profile(history_dir) -> None:
-    custom_sessions.save_custom_character(
-        "abc-123", b"png", {"id": "abc-123", "name": "サクラ", "gender": "female"}
-    )
-    profile = custom_sessions.load_custom_character_profile("abc-123")
-    assert profile is not None
-    assert profile["name"] == "サクラ" and profile["gender"] == "woman"
-    assert custom_sessions.load_custom_character_profile("missing") is None
+    assert metadata["name"] == "サクラ"
+    assert custom_sessions.imported_preset_id("missing") is None
     # パスとして危険な ID は読まない
-    assert custom_sessions.load_custom_character_profile("../abc-123") is None
-    assert custom_sessions.load_custom_character_profile(None) is None
+    assert custom_sessions.imported_preset_id("../abc-123") is None
+    assert custom_sessions.imported_preset_id(None) is None

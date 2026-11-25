@@ -347,7 +347,9 @@ export const promptExpander = {
     regenerateTitle:
       "Generate again with this entry's prompt and settings, using a new random seed",
     useAsSource: "Use as i2i source",
-    useInGame: "Use in normal play",
+    makeCharacter: "Make a character",
+    makingCharacter: "Making the character...",
+    makeCharacterFailed: "Could not make the character",
     useInAdventure: "Use in TSF Scenario",
     delete: "Delete",
     deleteConfirm: "Delete this entry and its image?",

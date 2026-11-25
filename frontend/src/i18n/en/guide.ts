@@ -34,7 +34,17 @@ export const guide = {
   characters: {
     title: "Characters",
     desc: "Create and manage characters. With a portrait (an uploaded image works too), you can start a play with that character. Set a name, personality, speech style, look and voice, and you can talk with them as that character in Character Chat.",
-    note: 'Starting a play from your own image has moved here from "Or use your own image" on the new-play screen. That entry on the new-play screen is deprecated and will be removed in v0.12.0.',
+    note: 'To start from your own image, upload it as the portrait and press "Play as this character". "Or use your own image" on the new-play screen was removed in v0.12.0 and moved here.',
+    details: [
+      {
+        heading: "Characters made earlier",
+        items: [
+          'Characters made with "Use your own image" on the new-play screen in v0.11.0 or earlier are imported into this screen automatically at startup. Their name, pronoun, personality, gender, attitude toward TSF, description (as the memo) and appearance tags carry over.',
+          "If such a customer was already booked in the salon, they visit as the imported character.",
+          'A play with such a character that Serena recommended earlier in Character Chat cannot be started from the proposal card. Start it with "Play as this character" on the Characters screen.',
+        ],
+      },
+    ],
   },
   records: {
     title: "Endings & Achievements",
@@ -96,6 +106,12 @@ export const guide = {
         items: [
           'Pick a reference image under "Precise reference", separate from the i2i source, to keep the face or clothes consistent. Each reference costs 5 extra Anlas. Available with V4.5 and V5 (except economy mode).',
           'V5 offers the "Outfit" reference type and "Also reference outfit", with strength up to 5.0. With V5 it cannot be combined with inpainting.',
+        ],
+      },
+      {
+        heading: "Using entries elsewhere",
+        items: [
+          'Press "Make a character" on an entry to create a character with that image as the portrait and open the Characters screen. The appearance tags come from the prompt of the entry.',
         ],
       },
     ],

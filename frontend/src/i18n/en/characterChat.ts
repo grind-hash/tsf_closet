@@ -249,6 +249,8 @@ export const characterChat = {
     start: "Start playing with this character",
     starting: "Preparing the play...",
     startFailed: "Could not start the play.",
+    legacyCharacter:
+      'This character has moved to the Characters screen. Start it from "Play as this character" there.',
     selfProfileMissing:
       "Character settings for Self Mode are not configured yet, so this cannot start. Please set them up in settings first.",
   },

@@ -250,6 +250,8 @@ export const characterChat = {
     start: "このキャラクターでプレイを始める",
     starting: "プレイを準備しています...",
     startFailed: "プレイを開始できませんでした。",
+    legacyCharacter:
+      "このキャラクターはキャラクター画面へ移りました。キャラクター画面の「このキャラでプレイ」から始めてください。",
     selfProfileMissing:
       "自分自身モードのキャラ設定が未登録のため始められません。先に設定画面で登録してください。",
   },

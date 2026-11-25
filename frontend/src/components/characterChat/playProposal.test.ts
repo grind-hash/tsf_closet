@@ -35,24 +35,35 @@ describe("toPlayProposal", () => {
     });
   });
 
-  it("accepts a custom character in self mode with an empty reason", () => {
+  it("accepts a preset character in self mode with an empty reason", () => {
     const proposal = toPlayProposal(
       metaWith({
         ...VALID,
         reason: "",
-        character: { source: "custom", id: "c-1", name: "サクラ" },
+        character: { source: "preset", id: "p-1", name: "サクラ" },
         self_mode: true,
         first_instruction: { instruction_type: "conversation", text: "話す" },
       }),
     );
     expect(proposal?.character).toEqual({
-      source: "custom",
-      id: "c-1",
+      source: "preset",
+      id: "p-1",
       name: "サクラ",
     });
     expect(proposal?.self_mode).toBe(true);
     expect(proposal?.reason).toBe("");
     expect(proposal?.first_instruction.instruction_type).toBe("conversation");
+  });
+
+  it("keeps a v0.11.0 proposal for a saved custom character", () => {
+    // カードを出して、キャラクター画面から始めるよう案内する
+    const proposal = toPlayProposal(
+      metaWith({
+        ...VALID,
+        character: { source: "custom", id: "c-1", name: "サクラ" },
+      }),
+    );
+    expect(proposal?.character.source).toBe("custom");
   });
 
   it("returns null when there is no proposal", () => {
@@ -79,7 +90,7 @@ describe("toPlayProposal", () => {
     ["a missing character", { ...VALID, character: null }],
     [
       "an unknown character source",
-      { ...VALID, character: { ...VALID.character, source: "preset" } },
+      { ...VALID, character: { ...VALID.character, source: "favorite" } },
     ],
     [
       "an empty character id",

@@ -91,6 +91,20 @@ def portrait_png_bytes(path: Path) -> bytes:
         return converted.getvalue()
 
 
+async def list_playable_presets(db: AsyncSession, limit: int) -> list[dict[str, str]]:
+    """プレイを始められるキャラクター(立ち絵があるもの)の id と人物像。更新が新しい順に limit 件。"""
+    presets = sorted(
+        (
+            preset
+            for preset in await fetch_character_presets(db)
+            if preset_portrait_file(preset) is not None
+        ),
+        key=lambda preset: preset.updated_at,
+        reverse=True,
+    )[: max(0, limit)]
+    return [{"id": preset.id, **preset_play_profile(preset)} for preset in presets]
+
+
 async def list_salon_preset_customers(db: AsyncSession) -> list[dict[str, Any]]:
     """サロンに来店するキャラクター(来店する設定で、立ち絵があるもの)の id・名前・性別。"""
     presets = await fetch_character_presets(db)

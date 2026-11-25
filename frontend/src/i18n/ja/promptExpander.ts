@@ -344,7 +344,9 @@ export const promptExpander = {
     regenerateTitle:
       "このエントリのプロンプト・設定のまま、新しいシードで生成し直します",
     useAsSource: "i2i元にする",
-    useInGame: "通常プレイで使う",
+    makeCharacter: "キャラクターにする",
+    makingCharacter: "キャラクターを作っています...",
+    makeCharacterFailed: "キャラクターを作れませんでした",
     useInAdventure: "TSFシナリオで使う",
     delete: "削除",
     deleteConfirm: "このエントリと画像を削除しますか？",

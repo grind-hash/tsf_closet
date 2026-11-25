@@ -17,7 +17,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..consts.language import normalize_language
 from ..models import DIFFICULTY_PRESETS
-from ..schemas.characters import CharacterListResponse, GenerateBaseTagsRequest
+from ..schemas.characters import CharacterListResponse
 from ..schemas.common import ErrorResponse
 from ..schemas.conversation import SuggestInstructionRequest, SuggestInstructionResponse
 from ..schemas.gallery import GalleryEndingItem, GalleryResponse
@@ -36,7 +36,6 @@ from ..schemas.play import PlayRequest, PlayStreamRequest
 from ..schemas.session import (
     BranchSessionRequest,
     BranchSessionResponse,
-    CustomStartRequest,
     GameStartRequest,
     GameStartResponse,
     HistorySelectResponse,
@@ -60,9 +59,6 @@ from ..services.conversation_service import (
     ChatContext,
     SessionNotFoundError,
     conversation_service,
-)
-from ..services.custom_sessions import (
-    list_custom_characters as list_custom_character_items,
 )
 from ..services.endings import ENDINGS
 from ..services.mask_service import MaskError
@@ -316,41 +312,6 @@ async def start_game(request: GameStartRequest) -> GameStartResponse:
 
 
 @router.post(
-    "/start-custom",
-    response_model=GameStartResponse,
-    responses={400: {"model": ErrorResponse}},
-    summary="カスタム画像でセッション開始",
-    description="ユーザーがアップロードした画像でゲームセッションを開始",
-)
-async def start_game_custom(request: CustomStartRequest) -> GameStartResponse:
-    """カスタム画像でセッションを開始"""
-    from ..services.game_service import GameServiceError, game_service
-
-    try:
-        session, stats, difficulty = await game_service.start_custom_session(
-            custom_character_id=request.custom_character_id,
-            image=request.image,
-            name=request.name,
-            description=request.description,
-            pronoun=request.pronoun,
-            personality=request.personality,
-            gender=request.gender,
-            base_tags=request.base_tags,
-            tsf_attitude=request.tsf_attitude,
-            difficulty=request.difficulty,
-            nsfw_mode=request.nsfw_mode,
-            self_mode=request.self_mode,
-            use_saved_profile=request.use_saved_profile,
-        )
-    except GameServiceError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": exc.code or "invalid_request", "message": str(exc)},
-        ) from exc
-    return _game_start_response(session.id, difficulty, stats)
-
-
-@router.post(
     "/start-preset",
     response_model=GameStartResponse,
     responses={400: {"model": ErrorResponse}},
@@ -373,15 +334,6 @@ async def start_game_preset(request: PresetStartRequest) -> GameStartResponse:
             detail={"error": exc.code or "invalid_request", "message": str(exc)},
         ) from exc
     return _game_start_response(session.id, difficulty, stats)
-
-
-@router.get(
-    "/custom-characters",
-    summary="作成済みカスタムキャラクター一覧",
-    description="保存済みのカスタム画像とメタデータを返却",
-)
-async def list_custom_characters() -> dict:
-    return {"characters": list_custom_character_items()}
 
 
 @router.delete(
@@ -1238,54 +1190,6 @@ async def get_anlas_balance() -> AnlasBalanceResponse:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch Anlas balance: {e}",
-        ) from e
-
-
-# ── Base tags generation endpoint ──
-
-
-@router.post(
-    "/generate-base-tags",
-    summary="外見タグを自動生成",
-    description="キャラクター情報からDanbooru形式の英語外見タグをLLMで自動生成",
-)
-async def generate_base_tags(request: GenerateBaseTagsRequest) -> dict:
-    """Generate Danbooru-style base tags from character description via LLM."""
-    from ..services.llm_service import llm_service
-    from ..services.prompts import build_base_tags_generation_prompt
-
-    system_prompt, user_prompt = build_base_tags_generation_prompt(
-        name=request.name,
-        description=request.description,
-        gender=request.gender,
-        personality=request.personality,
-    )
-
-    # ユーザー設定からNovelAIテキストモデルを取得
-    user_settings = await session_store.get_user_settings()
-    effective_novelai_text_model = user_settings.get("novelai_text_model")
-
-    try:
-        result = await llm_service.generate_text(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            novelai_model_override=effective_novelai_text_model,
-        )
-        # Clean up: remove markdown formatting, extra whitespace
-        raw = result.content.strip()
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            lines = [line for line in lines if not line.strip().startswith("```")]
-            raw = "\n".join(lines).strip()
-        # Ensure single-line comma-separated format
-        tags = ", ".join(
-            tag.strip() for tag in raw.replace("\n", ",").split(",") if tag.strip()
-        )
-        return {"base_tags": tags}
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate base tags: {e}",
         ) from e
 
 

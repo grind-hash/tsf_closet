@@ -392,26 +392,6 @@
   border-top: 1px solid #394149;
 }
 
-/* 新規プレイの「作成したキャラクター」の取り込み(v0.12.0 で削除予定) */
-.characters__legacy {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--warning-border, rgba(255, 193, 7, 0.3));
-  border-radius: 10px;
-  background-color: var(--warning-bg, rgba(255, 193, 7, 0.1));
-}
-
-.characters__legacy p {
-  flex: 1 1 280px;
-  margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.6;
-}
-
 /* キャラクターでプレイを始めるダイアログ */
 .character-play-dialog__warning,
 .character-play-dialog__error {

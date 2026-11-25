@@ -57,7 +57,7 @@ class _Stubs:
         self.pool: list[Customer] = [
             Customer("template", "yuya", "水瀬ユウヤ", "man"),
             Customer("template", "emi", "星野エミ", "woman"),
-            Customer("custom", "custom-1", "サクラ", "woman"),
+            Customer("preset", "preset-9", "サクラ", "woman"),
         ]
 
 
@@ -79,15 +79,6 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
         session = await session_store.create_session(
             image_path="", character_id=character_id
         )
-        return session, None, "normal"
-
-    async def fake_start_custom_session(
-        *, custom_character_id, use_saved_profile, nsfw_mode, **_
-    ):
-        assert use_saved_profile is True
-        state.started.append(("custom", custom_character_id))
-        state.nsfw_modes.append(nsfw_mode)
-        session = await session_store.create_session(image_path="")
         return session, None, "normal"
 
     async def fake_create_request(
@@ -153,9 +144,6 @@ async def stubs(isolated_db, monkeypatch) -> _Stubs:
     monkeypatch.setattr(salon_module.game_service, "start_session", fake_start_session)
     monkeypatch.setattr(
         salon_module.game_service, "start_preset_session", fake_start_preset_session
-    )
-    monkeypatch.setattr(
-        salon_module.game_service, "start_custom_session", fake_start_custom_session
     )
     monkeypatch.setattr(
         salon_module.session_request_service, "create_request", fake_create_request
@@ -477,7 +465,7 @@ async def test_close_week_settles_costs_and_books_next_week(stubs) -> None:
 async def test_regular_customer_shows_visit_number_and_previous_review(
     stubs, monkeypatch
 ) -> None:
-    stubs.pool = [Customer("custom", "c1", "サクラ")]
+    stubs.pool = [Customer("preset", "c1", "サクラ")]
     run = await salon_service.create_run("店")
     visit = _booked(run)[0]
     started = await salon_service.start_visit(run["id"], visit["id"], language="ja")
@@ -487,7 +475,7 @@ async def test_regular_customer_shows_visit_number_and_previous_review(
     closed = (await salon_service.close_week(run["id"]))["run"]
 
     returning = _booked(closed)[0]
-    assert stubs.started == [("custom", "c1")]
+    assert stubs.started == [("preset", "c1")]
     assert returning["visit_number"] == 2
     assert returning["previous_review"] == "すてきな髪飾りでした。また来ます。"
     # 願いを叶えていないので、元の姿で来る
@@ -943,6 +931,64 @@ async def test_character_maker_customer_starts_from_the_character(stubs) -> None
     await salon_service.start_visit(run["id"], visit["id"], language="ja")
 
     assert stubs.started == [("preset", "preset-1")]
+
+
+async def test_legacy_custom_customer_is_served_as_the_imported_character(
+    stubs, monkeypatch
+) -> None:
+    # v0.11.0 以前に予約された、保存済みカスタムキャラのお客様
+    monkeypatch.setattr(
+        salon_module,
+        "imported_preset_id",
+        lambda custom_id: {"custom-1": "preset-1"}.get(custom_id),
+    )
+    stubs.pool = [Customer("custom", "custom-1", "サクラ")]
+    run = await salon_service.create_run("店")
+    visit = _booked(run)[0]
+
+    await salon_service.start_visit(run["id"], visit["id"], language="ja")
+
+    # 取り込み先のキャラクターで迎え、予約の表示はそのまま
+    assert stubs.started == [("preset", "preset-1")]
+    assert _booked(run)[0]["customer"]["source"] == "custom"
+
+
+async def test_legacy_custom_customer_without_import_cannot_be_served(
+    stubs, monkeypatch
+) -> None:
+    monkeypatch.setattr(salon_module, "imported_preset_id", lambda _custom_id: None)
+    stubs.pool = [Customer("custom", "custom-2", "アオイ")]
+    run = await salon_service.create_run("店")
+    visit = _booked(run)[0]
+
+    with pytest.raises(SalonError) as error:
+        await salon_service.start_visit(run["id"], visit["id"], language="ja")
+
+    assert error.value.code == "customer_unavailable"
+    assert stubs.started == []
+
+
+def test_booked_keys_exclude_the_imported_character_of_a_legacy_customer(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        salon_module,
+        "imported_preset_id",
+        lambda custom_id: {"custom-1": "preset-1"}.get(custom_id),
+    )
+    kept = [
+        SimpleNamespace(customer_source="custom", customer_id="custom-1"),
+        SimpleNamespace(customer_source="custom", customer_id="custom-2"),
+        SimpleNamespace(customer_source="template", customer_id="yuya"),
+    ]
+
+    # 前の週の姿のまま来るお客様と、同じ人を取り込み先のキャラクターとして重ねて予約しない
+    assert salon_module._booked_customer_keys(kept) == {
+        ("custom", "custom-1"),
+        ("preset", "preset-1"),
+        ("custom", "custom-2"),
+        ("template", "yuya"),
+    }
 
 
 async def _serve_sensitive(

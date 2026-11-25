@@ -94,7 +94,15 @@ export interface CharacterChatPlayProposal {
   title: string;
   /** 160 文字以内 */
   reason: string;
-  character: { source: "template" | "custom"; id: string; name: string };
+  /**
+   * custom は v0.11.0 以前の提案(新規プレイで保存したカスタムキャラ)。v0.12.0 でキャラクター
+   * 画面へ取り込んだため、このカードからは始められない
+   */
+  character: {
+    source: "template" | "preset" | "custom";
+    id: string;
+    name: string;
+  };
   self_mode: boolean;
   first_instruction: {
     instruction_type: CharacterChatProposalInstructionType;
