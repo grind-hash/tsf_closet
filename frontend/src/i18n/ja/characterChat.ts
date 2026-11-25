@@ -62,6 +62,8 @@ export const characterChat = {
     adventureRedrawFromScene: "場面の画像から立ち絵を描く",
     adventureRedrawFromSceneHint:
       "相手が写る最新の場面画像を参照に、外見タグから全身の立ち絵を描きます（画像生成の待ち時間がかかります）。",
+    preciseEconomyHint:
+      "V5 Full の節約モードでは精密参照は使えません。V4.5 か V5（節約モード以外）のモデルで使えます。",
     adventurePreciseToggle: "精密参照を使う",
     adventurePreciseHint:
       "ONにすると場面画像を精密参照（character reference）として送り、参照1枚あたり Anlas を追加消費します。",

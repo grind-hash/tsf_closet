@@ -923,14 +923,14 @@ test("the economy V5 model warns that the negative prompt is ignored without a m
   await expect(warning).toHaveCount(0);
 });
 
-test("precise reference is V4.5-only, needs an image and an Anlas confirm, and is sent with generate", async ({
+test("precise reference is off in economy mode, needs an image and an Anlas confirm, and is sent with generate", async ({
   page,
 }) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
   const state = await mockPromptExpanderApis(page);
   await openSession(page);
 
-  const heading = page.getByRole("button", { name: "精密参照（V4.5 系のみ）" });
+  const heading = page.getByRole("button", { name: "精密参照", exact: true });
   await expect(heading).toHaveAttribute("aria-expanded", "false");
   const section = page.locator(
     ".prompt-expander__section[data-section-id='reference']",
@@ -943,17 +943,27 @@ test("precise reference is V4.5-only, needs an image and an Anlas confirm, and i
   await expect(heading).toHaveAttribute("aria-expanded", "true");
   await expect(section).toContainText("参照 1 枚あたり +5 Anlas");
 
-  // V5 では無効になり理由が出る（設定は保持される）
-  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  // V5 Full の節約モードでは無効になり理由が出る（設定は保持される）
+  await page
+    .getByLabel("画像モデル")
+    .selectOption("nai-diffusion-5-full-medium");
   await expect(toggle).toBeDisabled();
-  await expect(section).toContainText("V4.5 専用（現在のモデルでは無効）");
+  await expect(section).toContainText("節約モードでは無効");
   await expect(
-    page.getByText(
-      /精密参照画像（NovelAI character reference）は NAI Diffusion V4\.5 系モデル専用です/,
-    ),
+    page.getByText(/V5 Full の節約モードでは精密参照は使えません/),
   ).toBeVisible();
+  // V5 Full では使え、衣装の種別と「衣装も参照する」が操作できる
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await expect(toggle).toBeEnabled();
+  await expect(section.getByRole("radio", { name: "衣装" })).toBeEnabled();
+  await expect(
+    section.getByRole("checkbox", { name: "衣装も参照する" }),
+  ).toBeEnabled();
+  await expect(page.getByLabel(/参照強度/)).toHaveAttribute("max", "5");
   await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
   await expect(toggle).toBeEnabled();
+  // V4.5 では衣装の種別は選べない
+  await expect(section.getByRole("radio", { name: "衣装" })).toBeDisabled();
 
   // トグル ON にしても参照画像が無ければ有効にならない
   await section
@@ -1438,7 +1448,7 @@ test("composer sections collapse, expand and persist to localStorage", async ({
     /キャラクタープロンプト/,
     /i2i設定/,
     /インペイント（部分修正）/,
-    /精密参照（V4.5 系のみ）/,
+    /精密参照/,
   ]);
 
   const paramsToggle = page.getByRole("button", { name: "生成パラメータ" });
@@ -2041,21 +2051,23 @@ test("dropping an image and choosing inpaint turns inpaint on and opens the mask
   await expect(section).toBeInViewport();
 });
 
-test("dropping an image and choosing precise reference is V4.5-only and turns the reference on", async ({
+test("dropping an image and choosing precise reference is off in economy mode and turns the reference on", async ({
   page,
 }) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
   const state = await mockPromptExpanderApis(page);
   await openSession(page);
 
-  // V5 では精密参照の選択肢が無効になり理由が出る
-  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  // V5 Full の節約モードでは精密参照の選択肢が無効になり理由が出る
+  await page
+    .getByLabel("画像モデル")
+    .selectOption("nai-diffusion-5-full-medium");
   let dialog = await dropImageOnScreen(page, "dropped-ref.png");
   const referenceChoice = dialog.getByRole("button", {
     name: /^精密参照にする/,
   });
   await expect(referenceChoice).toBeDisabled();
-  await expect(dialog).toContainText("V4.5");
+  await expect(dialog).toContainText("節約モード");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
 
@@ -2074,7 +2086,7 @@ test("dropping an image and choosing precise reference is V4.5-only and turns th
       state.settingsBodies.some((b) => b.use_precise_reference === true),
     )
     .toBe(true);
-  const heading = page.getByRole("button", { name: "精密参照（V4.5 系のみ）" });
+  const heading = page.getByRole("button", { name: "精密参照", exact: true });
   await expect(heading).toHaveAttribute("aria-expanded", "true");
   const section = page.locator(
     ".prompt-expander__section[data-section-id='reference']",

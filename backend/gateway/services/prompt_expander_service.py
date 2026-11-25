@@ -25,7 +25,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..consts.novelai_models import get_image_model_info
+from ..consts.novelai_models import (
+    PRECISE_REFERENCE_STRENGTH_MAX,
+    get_image_model_info,
+    precise_reference_format,
+)
 from ..consts.novelai_text_models import (
     DEFAULT_NOVELAI_TEXT_MODEL,
     NOVELAI_TEXT_MODEL_LABELS,
@@ -57,6 +61,7 @@ from ..consts.prompt_expander import (
     normalize_manga_panel_count,
     normalize_reference_type,
     normalize_transparent_emphasis,
+    reference_strength_max,
     supports_manga_mode,
     supports_precise_reference,
     transparent_background_tags,
@@ -137,11 +142,16 @@ class PromptExpanderSettings(BaseModel):
     manga_reading_direction: str = DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION
     # 【】が無くても LLM がナレーション枠を足してよいか（記法で書いたものは常に描く）
     manga_narration: bool = False
-    # 精密参照（V4.5 系のみ）。参照画像自体はセッション内状態で、設定には保存しない
+    # 精密参照（V5 節約モード以外）。参照画像自体はセッション内状態で、設定には保存しない
     use_precise_reference: bool = False
     reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    # 衣装も参照するか（V5 のキャラ系の参照だけ効く）
+    reference_include_outfit: bool = False
+    # V5 は 5.0 まで上げられる。V4.5 で生成するときの上限は生成時に検証する
     reference_strength: float = Field(
-        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH, ge=0.0, le=1.0
+        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+        ge=0.0,
+        le=PRECISE_REFERENCE_STRENGTH_MAX["v5"],
     )
     reference_fidelity: float = Field(
         DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY, ge=0.0, le=1.0
@@ -466,6 +476,7 @@ def entry_to_dict(entry: PromptExpanderEntry) -> dict[str, Any]:
         "reference_history_id": entry.reference_history_id,
         "reference_entry_id": entry.reference_entry_id,
         "reference_type": entry.reference_type,
+        "reference_include_outfit": entry.reference_include_outfit,
         "reference_strength": entry.reference_strength,
         "reference_fidelity": entry.reference_fidelity,
         "inpaint": bool(entry.inpaint),
@@ -1239,12 +1250,14 @@ class GenerateParams:
     # 漫画モードで拡張したプロンプトかどうか（エントリのバッジ・復元用。生成には影響しない）
     manga_mode: bool = False
     manga_panel_count: int | None = None
-    # 精密参照（character reference）。V4.5 系のみ。reference_kind != "none" が唯一の有効判定
+    # 精密参照（character reference）。V5 節約モード以外。reference_kind != "none" が唯一の有効判定
     reference_kind: str = "none"
     reference_history_id: str | None = None
     reference_entry_id: str | None = None
     reference_image: str | None = None
     reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    # 衣装も参照するか（V5 のキャラ系の参照だけ効く）
+    reference_include_outfit: bool = False
     reference_strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
     reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
     # 背景透過（接尾辞は保存せず、送信時に image_model から導出して付与する）
@@ -1280,6 +1293,37 @@ async def _resolve_inpaint_mask(
     return path.read_bytes()
 
 
+def _validate_precise_reference(params: GenerateParams) -> None:
+    """精密参照の指定がモデルで送れるかを確かめ、送れなければ 422 用のエラーにする。"""
+    reference_format = (
+        precise_reference_format(params.image_model)
+        if supports_precise_reference(params.image_model)
+        else None
+    )
+    if reference_format is None:
+        raise PromptExpanderError(
+            "precise_reference_unsupported_model",
+            "精密参照画像は V5 Full の節約モードでは使えません",
+        )
+    if reference_format == "v4_5" and params.reference_type == "costume":
+        raise PromptExpanderError(
+            "precise_reference_type_unsupported",
+            "衣装の精密参照は NAI Diffusion V5 でのみ使えます",
+        )
+    if params.reference_strength > reference_strength_max(params.image_model):
+        raise PromptExpanderError(
+            "precise_reference_strength_out_of_range",
+            "このモデルでは精密参照の強度を 1.0 より大きくできません",
+        )
+    if reference_format == "v5" and (
+        params.inpaint_mask or params.inpaint_mask_entry_id
+    ):
+        raise PromptExpanderError(
+            "precise_reference_inpaint_unsupported",
+            "NAI Diffusion V5 では精密参照とインペイントを同時に使えません",
+        )
+
+
 async def generate_entry(
     session_id: str,
     params: GenerateParams,
@@ -1309,13 +1353,10 @@ async def generate_entry(
             "too_many_characters",
             f"このモデルで指定できるキャラクタープロンプトは最大{limit}件です",
         )
-    # 精密参照は V5 系で API 非対応。料金と結果に影響するので黙って落とさず拒否する
+    # 精密参照は料金と結果に影響するので、モデルで送れない指定は黙って落とさず拒否する
     reference_requested = params.reference_kind != "none"
-    if reference_requested and not supports_precise_reference(params.image_model):
-        raise PromptExpanderError(
-            "precise_reference_requires_v45",
-            "精密参照画像は NAI Diffusion V4.5 系モデルでのみ使えます",
-        )
+    if reference_requested:
+        _validate_precise_reference(params)
 
     async with async_session_factory() as db:
         await PromptExpanderService.get_session(
@@ -1380,12 +1421,14 @@ async def generate_entry(
     )
     has_reference = reference.image_bytes is not None
     reference_type = normalize_reference_type(params.reference_type)
+    reference_is_v5 = precise_reference_format(params.image_model) == "v5"
     character_references: list[dict[str, Any]] | None = None
     if has_reference:
         character_references = [
             {
                 "image": reference.image_bytes,
                 "type": reference_type,
+                "include_outfit": params.reference_include_outfit,
                 "strength": params.reference_strength,
                 "fidelity": params.reference_fidelity,
             }
@@ -1469,8 +1512,18 @@ async def generate_entry(
                 else None
             ),
             reference_type=reference_type if has_reference else None,
+            # V5 は衣装の有無を残し、廃止された忠実度は残さない。V4.5 はその逆
+            reference_include_outfit=(
+                params.reference_include_outfit
+                if has_reference and reference_is_v5
+                else None
+            ),
             reference_strength=params.reference_strength if has_reference else None,
-            reference_fidelity=params.reference_fidelity if has_reference else None,
+            reference_fidelity=(
+                params.reference_fidelity
+                if has_reference and not reference_is_v5
+                else None
+            ),
             inpaint=mask_bytes is not None,
             inpaint_mask_path=(
                 entry_mask_relpath(session_id, entry_id)

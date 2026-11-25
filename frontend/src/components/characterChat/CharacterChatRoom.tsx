@@ -62,7 +62,11 @@ export default function CharacterChatRoom({
 }: CharacterChatRoomProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { state: settingsState, loadMemoryText } = useSettings();
+  const {
+    state: settingsState,
+    loadMemoryText,
+    novelaiPreciseReferenceFormat,
+  } = useSettings();
   const { showNotification } = useNotification();
   const {
     activeThread,
@@ -218,8 +222,12 @@ export default function CharacterChatRoom({
   const adventure =
     thread?.kind === "adventure" ? (thread.adventure ?? null) : null;
   const preciseAvailable = settingsState.imageProvider === "novelai";
+  // 精密参照に非対応のモデル(V5 節約モード)では、選択は出すが送らない
+  const preciseUnsupportedModel =
+    preciseAvailable && novelaiPreciseReferenceFormat === null;
   const preciseEffective =
     preciseAvailable &&
+    !preciseUnsupportedModel &&
     (usePrecise ?? adventure?.use_precise_reference ?? false);
 
   // 3D モデル(VRM)。バックエンドが解決したモデル(明示 → 同梱 → run → 名前一致)があり、
@@ -460,6 +468,7 @@ export default function CharacterChatRoom({
                 expressionPortraits={thread.expression_portraits ?? {}}
                 portraitAvailable={Boolean(thread.portrait_url)}
                 preciseAvailable={preciseAvailable}
+                preciseUnsupportedModel={preciseUnsupportedModel}
                 onGenerateExpressions={handleGenerateExpressions}
               />
               <CharacterChatAppearanceMenu
@@ -496,6 +505,7 @@ export default function CharacterChatRoom({
                 }}
                 onRedrawFromScene={handleRedrawFromScene}
                 preciseAvailable={preciseAvailable && Boolean(adventure)}
+                preciseUnsupportedModel={preciseUnsupportedModel}
                 usePrecise={preciseEffective}
                 onUsePreciseChange={setUsePrecise}
               />

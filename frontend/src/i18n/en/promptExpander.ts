@@ -42,7 +42,7 @@ export const promptExpander = {
     sectionCharacters: "Character prompts",
     sectionI2i: "i2i settings",
     sectionInpaint: "Inpaint (partial redraw)",
-    sectionReference: "Precise reference (V4.5 only)",
+    sectionReference: "Precise reference",
     mangaToggle: "Comic mode",
     mangaSummaryOff: "Off",
     mangaSummaryUnsupported: "V5 only (inactive with this model)",
@@ -214,12 +214,29 @@ export const promptExpander = {
     transparentTailNone: "none (already in the field)",
     referenceToggle: "Use precise reference",
     referenceSummaryOff: "Off",
-    referenceSummaryUnsupported: "V4.5 only (inactive with this model)",
+    referenceSummaryUnsupported: "inactive in economy mode",
+    referenceSummaryInpaintV5: "inactive during V5 inpainting",
+    referenceSummaryCostumeV45: "outfit is V5 only (inactive with this model)",
     referenceSummaryNoImage: "no reference image",
     referenceSummaryOn:
       "{{type}} · strength {{strength}} · fidelity {{fidelity}} · +{{cost}} Anlas",
-    referenceRequiresV45:
-      "Precise reference images (NovelAI character reference) work only with NAI Diffusion V4.5 models. With V5 the settings are kept but not used for generation.",
+    referenceSummaryOnV5: "{{type}} · strength {{strength}} · +{{cost}} Anlas",
+    referenceTypeWithOutfit: "{{type}} (with outfit)",
+    referenceUnsupportedModel:
+      "Precise references are not available in V5 Full economy mode. The settings are kept but not used for generation. Use a V4.5 model or a V5 model other than economy mode.",
+    referenceInpaintV5:
+      "With V5, precise references cannot be combined with inpainting. While inpainting, images are generated without the precise reference.",
+    referenceCostumeV5Only:
+      "Outfit references only work with V5. They are not used with the current model.",
+    referenceIncludeOutfit: "Also reference outfit",
+    referenceIncludeOutfitHint:
+      "When ON, draws clothing close to what the character in the reference image wears.",
+    referenceIncludeOutfitCharacterOnly:
+      "Only used with Character and Character + style references.",
+    referenceIncludeOutfitV5Only: "Only takes effect with V5.",
+    referenceStrengthClamped: "Sent as {{value}} with this model.",
+    referenceFidelityV5Unused:
+      "V5 does not use fidelity (adjust with strength only).",
     referenceHint:
       "Locks the face and body of the person in the reference image. It is independent of the i2i source, so you can set only a reference and generate standing-picture variants (new pose / outfit) with text-to-image.",
     referenceNoImage: "Select a reference image to enable it.",
@@ -233,11 +250,12 @@ export const promptExpander = {
       character: "Character",
       style: "Style",
       characterStyle: "Character + style",
+      costume: "Outfit",
     },
     referenceStrength: "Reference strength",
     referenceFidelity: "Fidelity",
     referenceDisabledReason:
-      "Select a reference image to adjust strength and fidelity.",
+      "Select a reference image to adjust strength and the other options.",
     generate: "Generate",
     expanding: "Converting…",
     expandingHint:
@@ -323,6 +341,7 @@ export const promptExpander = {
     referenceDetail: "Precise reference",
     referenceDetailValue:
       "{{type}} · strength {{strength}} · fidelity {{fidelity}}",
+    referenceDetailValueV5: "{{type}} · strength {{strength}}",
     restore: "Restore to fields",
     regenerate: "Regenerate with this prompt",
     regenerateTitle:

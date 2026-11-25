@@ -7,7 +7,6 @@ import { useTransformRequest } from "./useTransformRequest";
 const mocks = vi.hoisted(() => ({
   settings: {
     state: {} as Record<string, unknown>,
-    isNovelaiV5Active: false,
   },
 }));
 
@@ -16,40 +15,61 @@ vi.mock("../contexts/SettingsContext", async (importOriginal) => ({
   useSettings: () => mocks.settings,
 }));
 
-const REFERENCE = {
+type TestReference = {
+  enabled: boolean;
+  imageData: string;
+  type: string;
+  includeOutfit: boolean;
+  strength: number;
+  fidelity: number;
+};
+
+const REFERENCE: TestReference = {
   enabled: true,
   imageData: "data:image/png;base64,AAAA",
   type: "character&style",
+  includeOutfit: false,
   strength: 1,
   fidelity: 1,
 };
 
 function setSettings({
   preciseReferences = [REFERENCE],
-  isNovelaiV5Active = false,
+  model = "nai-diffusion-4-5-full",
+  curatedModel = "nai-diffusion-4-5-curated",
+  nsfwMode = true,
   usagePercent = 100,
+  maskDataUrl = null,
 }: {
-  preciseReferences?: (typeof REFERENCE)[];
-  isNovelaiV5Active?: boolean;
+  preciseReferences?: TestReference[];
+  model?: string;
+  curatedModel?: string;
+  nsfwMode?: boolean;
   usagePercent?: number;
+  maskDataUrl?: string | null;
 } = {}) {
   mocks.settings = {
     state: {
       imageProvider: "novelai",
+      nsfwMode,
+      novelaiImageModel: model,
+      novelaiCuratedImageModel: curatedModel,
       inpaintSettings: { i2iStrength: 0.5, inpaintNoise: 0 },
-      inpaintMask: { maskDataUrl: null, selectedMaskId: null },
-      inpaintEnabled: false,
+      inpaintMask: { maskDataUrl, selectedMaskId: null },
+      inpaintEnabled: maskDataUrl !== null,
       preciseReferences,
       anlasBalance: { usage: { percent: usagePercent, isNegative: false } },
     },
-    isNovelaiV5Active,
   };
 }
 
-function renderRequest() {
+function renderRequest(config?: Parameters<typeof useTransformRequest>[1]) {
   const onTransform = vi.fn();
   const hook = renderHook(
-    () => ({ request: useTransformRequest(onTransform), chat: useChat() }),
+    () => ({
+      request: useTransformRequest(onTransform, config),
+      chat: useChat(),
+    }),
     { wrapper: ChatProvider },
   );
   return { ...hook, onTransform };
@@ -81,6 +101,10 @@ function send(
 
 /** onTransform の第6引数(pendingToken) */
 const pendingTokenOf = (call: unknown[]) => call[5];
+/** onTransform の第4引数(TransformOptions)の精密参照 */
+const referencesOf = (call: unknown[]) =>
+  (call[3] as { characterReferences?: unknown[] } | undefined)
+    ?.characterReferences;
 
 beforeEach(() => {
   sessionStorage.clear();
@@ -128,7 +152,11 @@ describe("useTransformRequest", () => {
   });
 
   it("keeps the temp token through the V5 usage warning", () => {
-    setSettings({ isNovelaiV5Active: true, usagePercent: 0 });
+    setSettings({
+      preciseReferences: [],
+      model: "nai-diffusion-5-full",
+      usagePercent: 0,
+    });
     const { result, onTransform } = renderRequest();
 
     act(() => send(result.current, "walk", "token-4"));
@@ -156,7 +184,7 @@ describe("useTransformRequest", () => {
   });
 
   it("returns the message to the input when the V5 usage warning is cancelled", () => {
-    setSettings({ isNovelaiV5Active: true, usagePercent: 0 });
+    setSettings({ model: "nai-diffusion-5-full", usagePercent: 0 });
     const { result, onTransform } = renderRequest();
 
     act(() => send(result.current, "walk to the park", "token-6"));
@@ -168,5 +196,105 @@ describe("useTransformRequest", () => {
     expect(result.current.chat.state.messages).toHaveLength(0);
     expect(result.current.chat.state.pendingIdentities).toHaveLength(0);
     expect(result.current.chat.state.inputText).toBe("walk to the park");
+  });
+
+  it("continues to the precise reference confirmation after the V5 usage warning", () => {
+    setSettings({ model: "nai-diffusion-5-full", usagePercent: 0 });
+    const { result, onTransform } = renderRequest();
+
+    act(() => send(result.current, "walk", "token-7"));
+    expect(result.current.request.usageWarnPending).not.toBeNull();
+
+    act(() => result.current.request.handleUsageWarnConfirm(false));
+    expect(onTransform).not.toHaveBeenCalled();
+    expect(result.current.request.anlasConfirmPending?.anlasCost).toBe(5);
+
+    act(() => result.current.request.handleAnlasConfirm(false));
+    expect(onTransform).toHaveBeenCalledTimes(1);
+    expect(pendingTokenOf(onTransform.mock.calls[0])).toBe("token-7");
+  });
+
+  it("sends V5 references with the outfit flag and strength above 1", () => {
+    writeStorageFlag("session", "anlas_warn_suppressed", true);
+    setSettings({
+      model: "nai-diffusion-5-full",
+      preciseReferences: [
+        { ...REFERENCE, type: "character", includeOutfit: true, strength: 3 },
+        { ...REFERENCE, type: "costume", strength: 2 },
+      ],
+    });
+    const { result, onTransform } = renderRequest();
+
+    act(() => send(result.current, "walk", "token-8"));
+
+    expect(referencesOf(onTransform.mock.calls[0])).toEqual([
+      expect.objectContaining({
+        type: "character",
+        includeOutfit: true,
+        strength: 3,
+      }),
+      expect.objectContaining({ type: "costume", strength: 2 }),
+    ]);
+  });
+
+  it("drops costume references and clamps strength on V4.5", () => {
+    writeStorageFlag("session", "anlas_warn_suppressed", true);
+    setSettings({
+      preciseReferences: [
+        { ...REFERENCE, type: "character", strength: 3 },
+        { ...REFERENCE, type: "costume" },
+      ],
+    });
+    const { result, onTransform } = renderRequest();
+
+    act(() => send(result.current, "walk", "token-9"));
+
+    expect(referencesOf(onTransform.mock.calls[0])).toEqual([
+      expect.objectContaining({ type: "character", strength: 1 }),
+    ]);
+  });
+
+  it("does not send references or confirm on the economy model", () => {
+    setSettings({ model: "nai-diffusion-5-full-medium" });
+    const { result, onTransform } = renderRequest();
+
+    act(() => send(result.current, "walk", "token-10"));
+
+    expect(result.current.request.anlasConfirmPending).toBeNull();
+    expect(onTransform).toHaveBeenCalledTimes(1);
+    expect(referencesOf(onTransform.mock.calls[0])).toBeUndefined();
+  });
+
+  it("does not send references or confirm on V5 inpainting", () => {
+    setSettings({
+      model: "nai-diffusion-5-full",
+      maskDataUrl: "data:image/png;base64,MASK",
+    });
+    const { result, onTransform } = renderRequest();
+
+    act(() => send(result.current, "walk", "token-11"));
+
+    expect(result.current.request.anlasConfirmPending).toBeNull();
+    expect(onTransform).toHaveBeenCalledTimes(1);
+    expect(referencesOf(onTransform.mock.calls[0])).toBeUndefined();
+  });
+
+  it("decides references with the per-turn overrides", () => {
+    // Full 側は節約モード、Curated 側は V5。手番の上書きで NSFW OFF になれば参照を送る
+    setSettings({
+      model: "nai-diffusion-5-full-medium",
+      curatedModel: "nai-diffusion-5-curated",
+    });
+    const { result, onTransform } = renderRequest({
+      resolveTurnOverrides: () => ({ nsfwMode: false }),
+    });
+
+    act(() => send(result.current, "walk", "token-12"));
+    expect(result.current.request.anlasConfirmPending?.anlasCost).toBe(5);
+
+    act(() => result.current.request.handleAnlasConfirm(false));
+    const options = onTransform.mock.calls[0][3] as { nsfwMode?: boolean };
+    expect(options.nsfwMode).toBe(false);
+    expect(referencesOf(onTransform.mock.calls[0])).toHaveLength(1);
   });
 });

@@ -63,6 +63,8 @@ export const characterChat = {
     adventureRedrawFromScene: "Draw a portrait from the scene image",
     adventureRedrawFromSceneHint:
       "Draws a full-body portrait from the appearance tags, using the latest scene image with the partner as the reference (image generation takes a while).",
+    preciseEconomyHint:
+      "Precise references are not available in V5 Full economy mode. Use a V4.5 model or a V5 model other than economy mode.",
     adventurePreciseToggle: "Use precise reference",
     adventurePreciseHint:
       "When on, the scene image is sent as a character reference, which costs extra Anlas per reference.",

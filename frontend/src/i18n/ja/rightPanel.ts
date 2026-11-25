@@ -40,8 +40,10 @@ export const rightPanel = {
   maskSettingsHint: "インペイントマスクを編集",
   preciseReferences: "精密参照画像:",
   preciseReferenceAnlas: "参照画像1枚あたり +5 Anlas",
-  preciseReferenceV5Unavailable:
-    "V5モデルでは精密参照は利用できません。V4.5モデル選択時のみ有効です。",
+  preciseReferenceUnsupportedModel:
+    "V5 節約モードでは精密参照は使えません。V4.5 か V5（節約モード以外）のモデルで使えます。",
+  preciseReferenceInpaintV5:
+    "V5 ではインペイント（マスク使用）の手番に精密参照は送られません。",
   addReferenceImage: "📎 参照画像を追加",
   preciseRefDropHint: "または画像をここにドロップ",
   preciseRefDropActive: "ここに画像をドロップ",
@@ -50,8 +52,18 @@ export const rightPanel = {
   referenceTypeCharacterStyle: "キャラクター＆絵柄",
   referenceTypeCharacter: "キャラクター",
   referenceTypeStyle: "絵柄",
+  referenceTypeCostume: "衣装",
+  costumeV5Only: "衣装の参照は V5 だけで使えます。このモデルでは送られません。",
+  includeOutfit: "衣装も参照する",
+  includeOutfitHint:
+    "ONにすると、参照画像のキャラクターが着ている服に近づけて描きます。",
+  includeOutfitCharacterOnly:
+    "キャラクター＆絵柄・キャラクターの参照でだけ使います。",
+  includeOutfitV5Only: "V5 のときだけ効きます。",
   strength: "強度",
+  strengthClamped: "このモデルでは {{value}} として送ります。",
   fidelity: "忠実度",
+  fidelityV5Unused: "V5 では忠実度は使われません（強度だけで調整します）。",
   clickToAddTitle: "クリックで追加: {{items}}",
   deletePresetAria: "{{name}}を削除",
   loadingDots: "...",

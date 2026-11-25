@@ -18,18 +18,27 @@ type TestFile = {
   size?: number;
 };
 
-// 実DBのユーザー設定(V5選択中など)に依存しないよう、画像モデルをV4.5に固定する
-// (V5実効時は精密参照セクションが無効化されるため)
+// 実DBのユーザー設定(節約モード選択中など)に依存しないよう、画像モデルをV4.5に固定する
+// (節約モード実効時は精密参照セクションが無効化され、V5 は UI の項目が変わるため)
 const V45_USER_SETTINGS: Record<string, unknown> = {
   novelai_image_model: "nai-diffusion-4-5-full",
   novelai_curated_image_model: "nai-diffusion-4-5-curated",
 };
 
-// nsfw OFF 既定のため curated 側を V5 にすると実効モデルが V5 になる
+// nsfw OFF にして curated 側を V5 にすると実効モデルが V5 Curated になる
 const V5_USER_SETTINGS: Record<string, unknown> = {
   nsfw_mode: false,
   novelai_curated_image_model: "nai-diffusion-5-curated",
 };
+
+// nsfw ON にして Full 側を節約モードにすると精密参照は使えない
+const ECONOMY_USER_SETTINGS: Record<string, unknown> = {
+  nsfw_mode: true,
+  novelai_image_model: "nai-diffusion-5-full-medium",
+};
+
+const ECONOMY_UNAVAILABLE_TEXT =
+  /節約モードでは精密参照は使えません|not available in V5 economy mode/;
 
 async function preparePlayPage(
   page: Page,
@@ -280,18 +289,54 @@ test.describe("画面全体への画像ドロップ", () => {
 });
 
 test.describe("V5モデル選択時の精密参照", () => {
-  test("実効モデルがV5のとき精密参照は無効化され説明が表示される", async ({
+  test("実効モデルがV5のとき衣装の参照・衣装トグル・強度5.0まで使え、忠実度は無効になる", async ({
     page,
   }) => {
     await preparePlayPage(page, V5_USER_SETTINGS);
     await openRightPanel(page);
+    const dropZone = page.getByTestId("precise-ref-drop-zone");
+    await expect(dropZone).toBeVisible();
+    await expect(page.locator(".right-panel__disabled-block")).toHaveCount(0);
+
+    await dropFiles(page, dropZone, [
+      { name: "v5.png", mimeType: "image/png", buffer: PNG_BYTES },
+    ]);
+    const card = page.locator(".right-panel__precise-ref-card");
+    await expect(card).toHaveCount(1);
+
+    // 衣装の種別を選べ、キャラ系では「衣装も参照する」を切り替えられる
+    const typeSelect = card.locator("select");
+    await expect(typeSelect.locator('option[value="costume"]')).toBeEnabled();
+    const outfit = card.getByTestId("precise-ref-include-outfit");
+    await expect(outfit).toBeEnabled();
+    await expect(outfit).not.toBeChecked();
+    // トグルスイッチは見た目用の要素で、実際の操作と同じくラベル側を押す
+    await card.locator(".right-panel__toggle").click();
+    await expect(outfit).toBeChecked();
+
+    // 絵柄・衣装では衣装トグルは効かないため無効になる
+    await typeSelect.selectOption("costume");
+    await expect(outfit).toBeDisabled();
+
+    // V5 の強度は 5.0 まで、既定は 1.0
+    const strength = card.getByTestId("precise-ref-strength");
+    await expect(strength).toHaveAttribute("max", "5");
+    await expect(strength).toHaveValue("1");
+    await expect(
+      card.getByText(/V5 では忠実度は使われません|V5 does not use fidelity/),
+    ).toBeVisible();
+  });
+});
+
+test.describe("V5節約モード選択時の精密参照", () => {
+  test("実効モデルが節約モードのとき精密参照は無効化され説明が表示される", async ({
+    page,
+  }) => {
+    await preparePlayPage(page, ECONOMY_USER_SETTINGS);
+    await openRightPanel(page);
 
     // 説明文言が表示され、操作ブロックが無効化されている
-    await expect(
-      page.getByText(
-        /V5モデルでは精密参照は利用できません|not available with V5/,
-      ),
-    ).toBeVisible();
+    await expect(page.getByText(ECONOMY_UNAVAILABLE_TEXT)).toBeVisible();
     const disabledBlock = page.locator(".right-panel__disabled-block");
     await expect(disabledBlock).toBeVisible();
     await expect(
@@ -299,31 +344,29 @@ test.describe("V5モデル選択時の精密参照", () => {
     ).toBeVisible();
   });
 
-  test("実効モデルがV5のとき画面ドロップは利用不可の案内を出して追加しない", async ({
+  test("実効モデルが節約モードのとき画面ドロップは利用不可の案内を出して追加しない", async ({
     page,
   }) => {
-    await preparePlayPage(page, V5_USER_SETTINGS);
+    await preparePlayPage(page, ECONOMY_USER_SETTINGS);
     await ensureRightPanelClosed(page);
 
     const overlay = page.getByTestId("precise-ref-drop-overlay");
     const content = page.locator(".main-layout__content");
     const dataTransfer = await createDataTransfer(page, [
-      { name: "v5.png", mimeType: "image/png", buffer: PNG_BYTES },
+      { name: "economy.png", mimeType: "image/png", buffer: PNG_BYTES },
     ]);
 
     await content.dispatchEvent("dragenter", { dataTransfer });
     await expect(overlay).toBeVisible();
     await expect(overlay).toHaveClass(/is-unavailable/);
-    await expect(overlay).toContainText(
-      /V5モデルでは精密参照は利用できません|not available with V5/,
-    );
+    await expect(overlay).toContainText(ECONOMY_UNAVAILABLE_TEXT);
     await content.dispatchEvent("drop", { dataTransfer });
     await dataTransfer.dispose();
 
     await expect(overlay).toBeHidden();
     await expect(
       page.locator(".notification-toast").filter({
-        hasText: /V5モデルでは精密参照は利用できません|not available with V5/,
+        hasText: ECONOMY_UNAVAILABLE_TEXT,
       }),
     ).toBeVisible();
     await expect(page.locator(".right-panel__precise-ref-card")).toHaveCount(0);

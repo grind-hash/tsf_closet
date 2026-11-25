@@ -156,10 +156,10 @@ def _png_bytes(color: tuple[int, int, int], size: tuple[int, int] = (64, 64)) ->
 async def test_novelai_v5_uses_sdk_base_model_and_wire_model(monkeypatch) -> None:
     """V5モデルはSDKパラメータへv4.5ベースを入れ、送信直前にreq.modelへ実名を書く。
 
-    また、V5では精密参照(character reference)を防御的に破棄する。
+    また、精密参照に非対応の節約モードでは参照を防御的に破棄する。
     """
     client = NovelAIImageClient(
-        api_key="test", nsfw_mode=True, model="nai-diffusion-5-full"
+        api_key="test", nsfw_mode=True, model="nai-diffusion-5-full-medium"
     )
     request = SimpleNamespace(model=None, action=None, parameters=SimpleNamespace())
     captured: dict = {}
@@ -192,8 +192,8 @@ async def test_novelai_v5_uses_sdk_base_model_and_wire_model(monkeypatch) -> Non
 
     assert captured["sdk_model"] == "nai-diffusion-4-5-full"
     assert captured["character_references"] is None
-    assert request.model == "nai-diffusion-5-full"
-    assert result.model == "nai-diffusion-5-full"
+    assert request.model == "nai-diffusion-5-full-medium"
+    assert result.model == "nai-diffusion-5-full-medium"
 
 
 async def _generate_with_sdk_conversion(

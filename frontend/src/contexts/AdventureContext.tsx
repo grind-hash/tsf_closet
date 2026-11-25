@@ -42,6 +42,7 @@ import {
 } from "../apis/avatars";
 import {
   isV5ImageModel,
+  preciseReferenceFormat,
   V5_USAGE_WARN_SUPPRESSED_KEY,
 } from "../constants/novelaiImageModels";
 import {
@@ -158,6 +159,11 @@ interface AdventureContextValue {
    */
   companionAvatarFailed: boolean;
   setCompanionAvatarFailed: (failed: boolean) => void;
+  /**
+   * 表示中の run の実効モデル(run 単位の上書きを含む)で精密参照が使えるか。
+   * NovelAI 以外のプロバイダーと V5 節約モードでは false
+   */
+  activeRunPreciseReferenceAvailable: boolean;
 }
 
 const AdventureContext = createContext<AdventureContextValue | null>(null);
@@ -512,6 +518,24 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
   );
 
   // 送信経路(選択肢・自由入力・ギフト・属性付与)が分散しても漏れないよう、
+  // run 単位のモデル上書きを含めた実効モデル。V5 判定と精密参照の可否に使う
+  const activeRunImageModel =
+    activeRun?.image_model_override ?? effectiveNovelaiImageModel;
+  const activeRunPreciseReferenceAvailable =
+    imageProvider === "novelai" &&
+    preciseReferenceFormat(activeRunImageModel) !== null;
+
+  // Anlasを消費するのはNovelAIプロバイダーの精密参照だけ。
+  // OpenRouter/セルフホストと、精密参照に非対応のモデル(V5 節約モード)では確認しない
+  const needsPreciseReferenceConfirm = useCallback(
+    () =>
+      activeRunPreciseReferenceAvailable &&
+      activeRun?.preset === "romance" &&
+      activeRun.use_precise_reference &&
+      !readStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY),
+    [activeRun, activeRunPreciseReferenceAvailable],
+  );
+
   // Anlas確認ガードもここで一元的に挟む
   const submitTurn = useCallback(
     async (
@@ -522,10 +546,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       if (!activeRun || streaming) return;
       // run 単位のモデル上書きを含めた実効モデルで V5 かを判定する
       const isV5ForActiveRun =
-        imageProvider === "novelai" &&
-        isV5ImageModel(
-          activeRun.image_model_override ?? effectiveNovelaiImageModel,
-        );
+        imageProvider === "novelai" && isV5ImageModel(activeRunImageModel);
       // V5 利用上限を使い切った状態での生成はAnlasを消費するため警告する
       const usageExhausted =
         anlasUsage != null &&
@@ -538,16 +559,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
         setPendingUsageWarnTurn({ input, inputKind, options });
         return;
       }
-      // Anlasを消費するのはNovelAIプロバイダーの精密参照だけ。
-      // OpenRouter/セルフホストでは確認ダイアログを出さない
-      // (V5実効時は精密参照が使われないため対象外)
-      if (
-        imageProvider === "novelai" &&
-        !isV5ForActiveRun &&
-        activeRun.preset === "romance" &&
-        activeRun.use_precise_reference &&
-        !readStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY)
-      ) {
+      if (needsPreciseReferenceConfirm()) {
         setPendingAnlasTurn({ input, inputKind, options });
         return;
       }
@@ -558,8 +570,9 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       streaming,
       performSubmitTurn,
       imageProvider,
-      effectiveNovelaiImageModel,
+      activeRunImageModel,
       anlasUsage,
+      needsPreciseReferenceConfirm,
     ],
   );
 
@@ -588,9 +601,14 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       }
       const { input, inputKind, options } = pendingUsageWarnTurn;
       setPendingUsageWarnTurn(null);
+      // 精密参照も使う手番なら、続けて Anlas の確認へ進む
+      if (needsPreciseReferenceConfirm()) {
+        setPendingAnlasTurn({ input, inputKind, options });
+        return;
+      }
       void performSubmitTurn(input, inputKind, options);
     },
-    [pendingUsageWarnTurn, performSubmitTurn],
+    [pendingUsageWarnTurn, performSubmitTurn, needsPreciseReferenceConfirm],
   );
 
   const cancelPendingUsageWarnTurn = useCallback(() => {
@@ -901,6 +919,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       avatarModels,
       refreshAvatarModels,
       companionAvatarFailed,
+      activeRunPreciseReferenceAvailable,
       setCompanionAvatarFailed,
     }),
     [
@@ -939,6 +958,7 @@ export function AdventureProvider({ children }: { children: ReactNode }) {
       avatarModels,
       refreshAvatarModels,
       companionAvatarFailed,
+      activeRunPreciseReferenceAvailable,
     ],
   );
 

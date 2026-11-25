@@ -47,6 +47,8 @@ import {
 } from "../apis/promptExpander";
 import {
   isV5ImageModel,
+  type PreciseReferenceFormat,
+  preciseReferenceFormat,
   V5_USAGE_WARN_SUPPRESSED_KEY,
 } from "../constants/novelaiImageModels";
 import {
@@ -69,6 +71,10 @@ import {
 import { usePersistedState } from "../hooks/usePersistedState";
 import type { AnlasBalance } from "../types";
 import { ApiError } from "../utils/http";
+import {
+  clampReferenceStrength,
+  isReferenceTypeSupported,
+} from "../utils/preciseReferences";
 import { readStorageFlag, writeStorageFlag } from "../utils/storage";
 import { useNotification } from "./NotificationContext";
 import { useSettings } from "./SettingsContext";
@@ -185,9 +191,13 @@ interface PromptExpanderContextValue {
   source: PromptExpanderSource | null;
   /** 精密参照に使う画像（i2i 元とは独立。セッション内だけ保持する） */
   reference: PromptExpanderSource | null;
-  /** 現在の画像モデルで精密参照が使えるか（V4.5 系のみ） */
+  /** 現在の画像モデルで精密参照が使えるか（V5 Full の節約モードは不可） */
   referenceSupported: boolean;
-  /** 精密参照が実際に生成へ載る状態か（設定 ON かつ V4.5 系かつ参照画像あり） */
+  /** 現在の画像モデルでの精密参照の送信形式（使えないモデルは null） */
+  referenceFormat: PreciseReferenceFormat | null;
+  /** V5 でインペイント中のため精密参照を送れない状態か */
+  referenceInpaintBlocked: boolean;
+  /** 精密参照が実際に生成へ載る状態か（設定 ON かつ対応モデル・種別かつ参照画像あり） */
   referenceActive: boolean;
   /** 精密参照で追加消費する Anlas（referenceActive のときだけ > 0） */
   referenceAnlasCost: number;
@@ -308,6 +318,7 @@ const DEFAULT_SETTINGS: PromptExpanderSettings = {
   manga_narration: false,
   use_precise_reference: false,
   reference_type: DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+  reference_include_outfit: false,
   reference_strength: DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
   reference_fidelity: DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
   transparent_background: false,
@@ -722,16 +733,24 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const effectivePositiveMode: PromptExpandMode = mangaActive
     ? "tags"
     : positiveMode;
-  // 精密参照は V4.5 系でだけ効く（V5 では設定を残したまま無効）。参照画像が無ければ載せない
-  const referenceSupported = supportsPreciseReference(settings.image_model);
-  const referenceActive =
-    settings.use_precise_reference && referenceSupported && reference !== null;
-  const referenceAnlasCost = referenceActive ? options.anlasPerReference : 0;
   // 背景透過はコマ枠を切り抜けないため漫画モードとは両立しない（設定は残す）
   const transparentActive = settings.transparent_background && !mangaActive;
   // インペイントは i2i 元をベース画像にするため、元画像とマスクの両方が要る
   const inpaintActive =
     settings.use_inpaint && source !== null && inpaintMask !== null;
+  // 精密参照は V5 Full の節約モードでは効かない（設定は残したまま無効）。
+  // V5 はインペイントと併用できず、衣装の参照は V5 だけ。参照画像が無ければ載せない
+  const referenceSupported = supportsPreciseReference(settings.image_model);
+  const referenceFormat = preciseReferenceFormat(settings.image_model);
+  const referenceInpaintBlocked = referenceFormat === "v5" && inpaintActive;
+  const referenceActive =
+    settings.use_precise_reference &&
+    referenceSupported &&
+    referenceFormat !== null &&
+    !referenceInpaintBlocked &&
+    isReferenceTypeSupported(settings.reference_type, referenceFormat) &&
+    reference !== null;
+  const referenceAnlasCost = referenceActive ? options.anlasPerReference : 0;
   const mangaRequest = useMemo<PromptExpanderMangaOptions>(
     () => ({
       panel_count: settings.manga_panel_count,
@@ -891,11 +910,17 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (settings.seed !== null && settings.seed !== undefined) {
         payload.seed = settings.seed;
       }
-      // 精密参照は i2i 元とは別の画像を、有効なとき（V4.5 かつ ON かつ選択済み）だけ載せる
-      if (referenceActive && reference) {
+      // 精密参照は i2i 元とは別の画像を、有効なとき（対応モデルかつ ON かつ選択済み）だけ
+      // 載せる。強度はモデルの上限に収める（V4.5 は 1.0、V5 は 5.0）
+      if (referenceActive && reference && referenceFormat !== null) {
         payload.reference_kind = reference.kind;
         payload.reference_type = settings.reference_type;
-        payload.reference_strength = settings.reference_strength;
+        payload.reference_include_outfit =
+          settings.reference_include_outfit ?? false;
+        payload.reference_strength = clampReferenceStrength(
+          settings.reference_strength,
+          referenceFormat,
+        );
         payload.reference_fidelity = settings.reference_fidelity;
         if (reference.kind === "history") {
           payload.reference_history_id = reference.historyId;
@@ -924,6 +949,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       mangaActive,
       reference,
       referenceActive,
+      referenceFormat,
       settings,
       source,
       transparentActive,
@@ -1308,9 +1334,16 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       }
       const payload = pendingUsageWarn;
       setPendingUsageWarn(null);
-      if (payload) {
-        await postGenerate(payload);
+      if (!payload) return;
+      // 精密参照も送る生成なら、続けて Anlas の確認へ進む
+      if (
+        (payload.reference_kind ?? "none") !== "none" &&
+        !readReferenceWarnSuppressed()
+      ) {
+        setPendingReferenceWarn(payload);
+        return;
       }
+      await postGenerate(payload);
     },
     [pendingUsageWarn, postGenerate],
   );
@@ -1402,6 +1435,13 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         if (entry.reference_type) {
           patch.reference_type = entry.reference_type;
         }
+        // 衣装の有無は V5 の参照のときだけ記録されている
+        if (
+          entry.reference_include_outfit !== null &&
+          entry.reference_include_outfit !== undefined
+        ) {
+          patch.reference_include_outfit = entry.reference_include_outfit;
+        }
         if (
           entry.reference_strength !== null &&
           entry.reference_strength !== undefined
@@ -1471,6 +1511,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (payload.reference_kind) {
         payload.reference_type =
           entry.reference_type ?? settings.reference_type;
+        payload.reference_include_outfit =
+          entry.reference_include_outfit ??
+          settings.reference_include_outfit ??
+          false;
         payload.reference_strength =
           entry.reference_strength ?? settings.reference_strength;
         payload.reference_fidelity =
@@ -1504,6 +1548,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       settings.image_model,
       settings.image_size,
       settings.reference_fidelity,
+      settings.reference_include_outfit,
       settings.reference_strength,
       settings.reference_type,
       settings.text_model,
@@ -1611,6 +1656,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       source,
       reference,
       referenceSupported,
+      referenceFormat,
+      referenceInpaintBlocked,
       referenceActive,
       referenceAnlasCost,
       transparentActive,
@@ -1700,6 +1747,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       source,
       reference,
       referenceSupported,
+      referenceFormat,
+      referenceInpaintBlocked,
       referenceActive,
       referenceAnlasCost,
       transparentActive,

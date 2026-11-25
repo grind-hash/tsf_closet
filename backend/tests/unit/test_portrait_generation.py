@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from gateway.services.portrait_generation import (
+    V5_AUTO_REFERENCE_STRENGTH,
     build_portrait_prompt,
+    character_reference_entry,
     generate_portrait_bytes,
 )
 
@@ -74,3 +76,70 @@ async def test_shared_portrait_generator_sends_built_prompt(monkeypatch) -> None
     )
     assert generate.await_args.kwargs["seed"] == 123
     assert generate.await_args.kwargs["character_references"] is None
+
+
+@pytest.mark.parametrize(
+    ("outfit_changed", "has_fresh_portrait", "include_outfit"),
+    [(False, False, True), (True, False, False), (True, True, True)],
+)
+def test_v5_character_reference_switches_outfit_flag(
+    outfit_changed: bool, has_fresh_portrait: bool, include_outfit: bool
+) -> None:
+    """V5 は強度を下げず、旧衣装を引き継ぐかを include_outfit で表す。"""
+    entry = character_reference_entry(
+        b"ref",
+        outfit_changed=outfit_changed,
+        has_fresh_portrait=has_fresh_portrait,
+        image_model="nai-diffusion-5-full",
+    )
+    assert entry == {
+        "image": b"ref",
+        "type": "character",
+        "include_outfit": include_outfit,
+        "strength": V5_AUTO_REFERENCE_STRENGTH,
+        "fidelity": 1.0,
+    }
+
+
+def test_v45_character_reference_keeps_weak_reference_on_outfit_change() -> None:
+    entry = character_reference_entry(
+        b"ref",
+        outfit_changed=True,
+        has_fresh_portrait=False,
+        image_model="nai-diffusion-4-5-full",
+    )
+    assert entry == {
+        "image": b"ref",
+        "type": "character",
+        "strength": 0.35,
+        "fidelity": 0.55,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("image_model", "expected_include_outfit"),
+    [("nai-diffusion-5-full", False), ("nai-diffusion-5-full-medium", None)],
+)
+async def test_portrait_reference_on_v5_models(
+    monkeypatch, image_model: str, expected_include_outfit: bool | None
+) -> None:
+    generate = AsyncMock(return_value=SimpleNamespace(images=[b"portrait"], cost_usd=0))
+    monkeypatch.setattr(
+        "gateway.services.portrait_generation.image_service.generate_image", generate
+    )
+    await generate_portrait_bytes(
+        tags="1girl, adult, dress",
+        nsfw_mode=True,
+        provider="novelai",
+        image_model=image_model,
+        reference_bytes=b"current-portrait",
+        use_character_reference=True,
+    )
+    references = generate.await_args.kwargs["character_references"]
+    if expected_include_outfit is None:
+        # 節約モードは精密参照に非対応
+        assert references is None
+    else:
+        assert references[0]["include_outfit"] is expected_include_outfit
+        assert references[0]["strength"] == V5_AUTO_REFERENCE_STRENGTH

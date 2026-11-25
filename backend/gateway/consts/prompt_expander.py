@@ -7,7 +7,12 @@ from __future__ import annotations
 
 from typing import Final
 
-from .novelai_models import is_v5_image_model
+from .novelai_models import (
+    PRECISE_REFERENCE_STRENGTH_MAX,
+    PRECISE_REFERENCE_TYPES,
+    is_v5_image_model,
+    precise_reference_format,
+)
 
 # 画像モデル（NovelAI のみ。NSFW は family から導出する）
 PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS: Final[tuple[str, ...]] = (
@@ -63,13 +68,16 @@ PROMPT_EXPANDER_BRUSH_SIZE_MIN: Final[int] = 4
 PROMPT_EXPANDER_BRUSH_SIZE_MAX: Final[int] = 96
 DEFAULT_PROMPT_EXPANDER_BRUSH_SIZE: Final[int] = 32
 
-# 精密参照（NovelAI character reference）。V4.5 系のみ対応で、1 枚あたり Anlas を消費する。
+# 精密参照（NovelAI character reference）。V4.5 系と V5 Full / Curated で使え、
+# 1 枚あたり Anlas を消費する。衣装（costume）と「衣装も参照する」は V5 のみ。
 # 立ち絵差分では同一性の固定が目的なので、既定強度は Adventure の立ち絵生成と同じにする
 PROMPT_EXPANDER_REFERENCE_TYPES: Final[tuple[str, ...]] = (
     "character",
     "style",
     "character&style",
+    "costume",
 )
+assert set(PROMPT_EXPANDER_REFERENCE_TYPES) == set(PRECISE_REFERENCE_TYPES)
 DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE: Final[str] = "character"
 DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH: Final[float] = 0.85
 DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY: Final[float] = 1.0
@@ -152,10 +160,17 @@ def supports_manga_mode(image_model: str | None) -> bool:
 
 
 def supports_precise_reference(image_model: str | None) -> bool:
-    """精密参照（character reference）は V4.5 系モデルのみ対応（V5 は API 非対応）。"""
-    return is_prompt_expander_image_model(image_model) and not is_v5_image_model(
-        image_model
+    """精密参照（character reference）を使えるモデルか。V5 Full の節約モードは非対応。"""
+    return (
+        is_prompt_expander_image_model(image_model)
+        and precise_reference_format(image_model) is not None
     )
+
+
+def reference_strength_max(image_model: str | None) -> float:
+    """モデルで送れる精密参照の強度の上限（V4.5 は 1.0、V5 は 5.0）。"""
+    reference_format = precise_reference_format(image_model) or "v4_5"
+    return PRECISE_REFERENCE_STRENGTH_MAX[reference_format]
 
 
 def normalize_reference_type(value: object) -> str:

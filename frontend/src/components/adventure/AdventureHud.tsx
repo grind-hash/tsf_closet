@@ -115,7 +115,7 @@ export default function AdventureHud({
 }: AdventureHudProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { activeRun } = useAdventure();
+  const { activeRun, activeRunPreciseReferenceAvailable } = useAdventure();
   const { state: settingsState } = useSettings();
   if (!activeRun) return null;
   const {
@@ -128,6 +128,9 @@ export default function AdventureHud({
     realityCosts,
     activeRealityCostCount,
   } = scene;
+  // 精密参照が実際に送られる run か(精密参照 ON かつ実効モデルが対応)
+  const preciseActive =
+    activeRun.use_precise_reference && activeRunPreciseReferenceAvailable;
   // HUD の V5 利用上限表示(実効モデルが V5 のときのみ)
   const hudUsage = runIsV5 ? (anlasBalance?.usage ?? null) : null;
   const hudUsageExhausted =
@@ -338,11 +341,12 @@ export default function AdventureHud({
               </span>
             </div>
           ))}
-        {(activeRun.use_precise_reference || runIsV5) &&
+        {(preciseActive || runIsV5) &&
           anlasBalance &&
           (sim ? (
             // romance では他のメトリクスと同じ共通タイルで並べる。
             // 精密参照ON時 / V5実効時だけ出るので、バッジで理由を示す
+            // (両方に当たるときは確実に消費する精密参照を示す)
             <HudTile
               className="adventure-hud__anlas-tile"
               title={t("adventure.anlasDetail", {
@@ -353,9 +357,9 @@ export default function AdventureHud({
               value={anlasBalance.totalAnlas.toLocaleString()}
               gaugeRatio={null}
               badge={
-                runIsV5
-                  ? t("adventure.anlasBadgeV5")
-                  : t("adventure.anlasBadge")
+                preciseActive
+                  ? t("adventure.anlasBadge")
+                  : t("adventure.anlasBadgeV5")
               }
             />
           ) : (

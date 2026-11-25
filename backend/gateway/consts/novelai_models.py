@@ -11,6 +11,9 @@ from typing import Literal
 
 from ..settings.config import settings
 
+# 精密参照の送信形式。モデルごとの対応は NovelAIImageModelInfo に持たせる
+PreciseReferenceFormat = Literal["v4_5", "v5"]
+
 
 @dataclass(frozen=True)
 class NovelAIImageModelInfo:
@@ -18,11 +21,14 @@ class NovelAIImageModelInfo:
 
     - inpaint_model: マスク付き生成時に使うモデル名
     - sdk_base_model: GenerateImageParams.model に渡す値。
-      novelai-sdk の Literal 制約 (v4.5 まで) を満たす必要があるため、
-      V5 モデルでは対応する v4.5 モデル名を入れ、実際の送信モデルは
-      リクエスト直前に req.model を上書きして差し替える。
+      V5 モデルでも対応する v4.5 モデル名を入れ、実際の送信モデルは
+      リクエスト直前に req.model を上書きして差し替える。novelai-sdk は
+      V5 Full / Curated の名前を受け付けるが、節約モードの名前は受け付けず、
+      精密参照も v4.5 系でしか組み立てないため、この方式を続けている。
     - family: "full" (NSFW 用) | "curated" (非 NSFW 用)
     - is_economy: 節約モード（steps 固定・独自ネガティブ不可）の蒸留モデルか
+    - precise_reference_format: 精密参照の送信形式。"v4_5"（SDK 経由・忠実度あり）、
+      "v5"（衣装参照あり・強度 5.0 まで・忠実度なし）、None（精密参照に非対応）
     """
 
     name: str
@@ -31,6 +37,7 @@ class NovelAIImageModelInfo:
     is_v5: bool
     family: str
     is_economy: bool = False
+    precise_reference_format: PreciseReferenceFormat | None = "v4_5"
 
 
 NOVELAI_IMAGE_MODELS: dict[str, NovelAIImageModelInfo] = {
@@ -56,6 +63,7 @@ NOVELAI_IMAGE_MODELS: dict[str, NovelAIImageModelInfo] = {
         sdk_base_model="nai-diffusion-4-5-full",
         is_v5=True,
         family="full",
+        precise_reference_format="v5",
     ),
     # V5 Full の節約モード（NovelAI の Medium effort）。steps 14・Euler Ancestral 固定で、
     # 独自ネガティブとプリセット変更は不可。節約版インペイントのモデル名が未確認のため、
@@ -67,6 +75,8 @@ NOVELAI_IMAGE_MODELS: dict[str, NovelAIImageModelInfo] = {
         is_v5=True,
         family="full",
         is_economy=True,
+        # 節約モードは NovelAI 側で精密参照に対応していない
+        precise_reference_format=None,
     ),
     # V5 Curated のインペイントは nai-diffusion-4-5-curated-inpainting を使う。
     # NovelAI 本家 UI が V5 Curated 選択時にこのモデルを用いる挙動を踏襲した意図的な設定。
@@ -76,6 +86,7 @@ NOVELAI_IMAGE_MODELS: dict[str, NovelAIImageModelInfo] = {
         sdk_base_model="nai-diffusion-4-5-curated",
         is_v5=True,
         family="curated",
+        precise_reference_format="v5",
     ),
 }
 
@@ -89,6 +100,12 @@ SFW_IMAGE_MODEL_OPTIONS = ("nai-diffusion-4-5-curated", "nai-diffusion-5-curated
 
 DEFAULT_NSFW_IMAGE_MODEL = "nai-diffusion-4-5-full"
 DEFAULT_SFW_IMAGE_MODEL = "nai-diffusion-4-5-curated"
+
+# 精密参照の種別（UI の選択肢）。衣装（costume）は V5 形式のみ
+PRECISE_REFERENCE_TYPES = ("character&style", "character", "style", "costume")
+PreciseReferenceType = Literal["character&style", "character", "style", "costume"]
+# 精密参照の強度の上限（送信形式ごと）
+PRECISE_REFERENCE_STRENGTH_MAX: dict[str, float] = {"v4_5": 1.0, "v5": 5.0}
 
 # 節約モードの固定値。steps は NovelAI 側で 14 固定、UC プリセットは公式 UI の
 # heavy（SDK 上の名前は "strong"）固定で、独自ネガティブは送らない
@@ -114,6 +131,7 @@ SfwImageModel = Literal["nai-diffusion-4-5-curated", "nai-diffusion-5-curated"]
 assert set(NovelAIImageModel.__args__) == set(NOVELAI_IMAGE_MODELS)  # type: ignore[attr-defined]
 assert NsfwImageModel.__args__ == NSFW_IMAGE_MODEL_OPTIONS  # type: ignore[attr-defined]
 assert SfwImageModel.__args__ == SFW_IMAGE_MODEL_OPTIONS  # type: ignore[attr-defined]
+assert PreciseReferenceType.__args__ == PRECISE_REFERENCE_TYPES  # type: ignore[attr-defined]
 
 
 def is_v5_image_model(name: str | None) -> bool:
@@ -132,12 +150,39 @@ def is_economy_image_model(name: str | None) -> bool:
     return info.is_economy if info else False
 
 
+def precise_reference_format(name: str | None) -> PreciseReferenceFormat | None:
+    """モデル名から精密参照の送信形式を返す。精密参照に非対応のモデルは None。
+
+    未知名・None は v4.5 相当として "v4_5" を返す。
+    """
+    if not name:
+        return "v4_5"
+    info = NOVELAI_IMAGE_MODELS.get(name)
+    return info.precise_reference_format if info else "v4_5"
+
+
 def supports_character_references(name: str | None) -> bool:
     """精密参照（character reference）を送れるモデルかどうかを返す。
 
-    V5 系モデルは精密参照に対応しないため False。未知名・None は v4.5 相当として True。
+    V4.5 系と V5 Full / Curated は True、V5 Full の節約モードは False。
+    未知名・None は v4.5 相当として True。
     """
-    return not is_v5_image_model(name)
+    return precise_reference_format(name) is not None
+
+
+def resolve_v5_reference_caption(reference_type: str, include_outfit: bool) -> str:
+    """V5 の精密参照で director_reference_descriptions に入れる base_caption を返す。
+
+    キャラ系の2種は「衣装も参照する」で caption が分かれる。絵柄・衣装は無視する。
+    未知の種別はキャラクター＆絵柄として扱う。
+    """
+    if reference_type == "character":
+        return "character_mainoutfit" if include_outfit else "character"
+    if reference_type == "style":
+        return "style"
+    if reference_type == "costume":
+        return "costume"
+    return "character&style" if include_outfit else "character&style_anyoutfit"
 
 
 def get_image_model_info(name: str, *, nsfw_mode: bool) -> NovelAIImageModelInfo:

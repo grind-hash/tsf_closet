@@ -118,7 +118,7 @@ export default function PromptExpanderDropChooserModal({
           title={
             referenceSupported
               ? undefined
-              : t("promptExpander.composer.referenceRequiresV45")
+              : t("promptExpander.composer.referenceUnsupportedModel")
           }
         >
           <span className="prompt-expander__drop-choice-title">
@@ -127,7 +127,7 @@ export default function PromptExpanderDropChooserModal({
           <span className="prompt-expander__drop-choice-desc">
             {referenceSupported
               ? t("promptExpander.drop.useAsReferenceDesc")
-              : t("promptExpander.composer.referenceRequiresV45")}
+              : t("promptExpander.composer.referenceUnsupportedModel")}
           </span>
         </button>
       </div>

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
+from ..consts.novelai_models import PRECISE_REFERENCE_STRENGTH_MAX, PreciseReferenceType
 from ..consts.play_limits import INSTRUCTION_MAX_LENGTH
 
 
@@ -80,14 +79,26 @@ class PlayRequest(BaseModel):
 
 
 class CharacterReferenceParam(BaseModel):
-    """NovelAI Character Reference parameter."""
+    """NovelAI の精密参照（character reference）1 件分。
+
+    強度の上限と衣装参照の可否はモデルで異なるため、ここでは V5 の範囲で受け付け、
+    V4.5 向けの丸め（強度 1.0・衣装参照の除外）は画像生成側で行う。
+    """
 
     image: str = Field(..., min_length=1, description="Base64 encoded image data")
-    type: Literal["character", "style", "character&style"] = Field(
-        "character&style", description="Reference type"
+    type: PreciseReferenceType = Field("character&style", description="Reference type")
+    include_outfit: bool = Field(
+        False, description="キャラ系の参照で衣装も参照するか（V5 のみ）"
     )
-    strength: float = Field(1.0, ge=0.0, le=1.0, description="Reference strength")
-    fidelity: float = Field(1.0, ge=0.0, le=1.0, description="Reference fidelity")
+    strength: float = Field(
+        1.0,
+        ge=0.0,
+        le=PRECISE_REFERENCE_STRENGTH_MAX["v5"],
+        description="Reference strength",
+    )
+    fidelity: float = Field(
+        1.0, ge=0.0, le=1.0, description="Reference fidelity（V4.5 のみ）"
+    )
 
 
 class PlayStreamRequest(BaseModel):

@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..consts.novelai_models import NovelAIImageModel
+from ..consts.novelai_models import PRECISE_REFERENCE_STRENGTH_MAX, NovelAIImageModel
 from ..consts.novelai_text_models import NovelAITextModel
 from ..consts.prompt_expander import (
     DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
@@ -51,7 +51,7 @@ MangaTextLanguageLiteral = Literal["auto", "ja", "en"]
 
 MangaReadingDirectionLiteral = Literal["rtl", "ltr"]
 
-ReferenceTypeLiteral = Literal["character", "style", "character&style"]
+ReferenceTypeLiteral = Literal["character", "style", "character&style", "costume"]
 
 TransparentEmphasisLiteral = Literal[0, 1, 2, 3]
 
@@ -127,6 +127,7 @@ class PromptExpanderSettingsModel(BaseModel):
     manga_narration: bool = False
     use_precise_reference: bool = False
     reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    reference_include_outfit: bool = False
     reference_strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
     reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
     transparent_background: bool = False
@@ -190,7 +191,10 @@ class PromptExpanderSettingsUpdateRequest(BaseModel):
     manga_narration: bool | None = None
     use_precise_reference: bool | None = None
     reference_type: ReferenceTypeLiteral | None = None
-    reference_strength: float | None = Field(None, ge=0.0, le=1.0)
+    reference_include_outfit: bool | None = None
+    reference_strength: float | None = Field(
+        None, ge=0.0, le=PRECISE_REFERENCE_STRENGTH_MAX["v5"]
+    )
     reference_fidelity: float | None = Field(None, ge=0.0, le=1.0)
     transparent_background: bool | None = None
     transparent_emphasis: TransparentEmphasisLiteral | None = None
@@ -245,6 +249,8 @@ class PromptExpanderEntryResponse(BaseModel):
     reference_history_id: str | None = None
     reference_entry_id: str | None = None
     reference_type: str | None = None
+    # 衣装も参照したか（V5 の参照のときだけ値を持つ）
+    reference_include_outfit: bool | None = None
     reference_strength: float | None = None
     reference_fidelity: float | None = None
     inpaint: bool = False
@@ -371,7 +377,8 @@ class PromptExpanderGenerateRequest(BaseModel):
         ge=PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
         le=PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
     )
-    # 精密参照（V4.5 系のみ）。reference_kind != "none" が「参照を送った」唯一の根拠
+    # 精密参照（V5 節約モード以外）。reference_kind != "none" が「参照を送った」唯一の根拠。
+    # 強度の上限・衣装参照の可否はモデルで異なるため、サービス側で検証する
     reference_kind: SourceKindLiteral = "none"
     reference_history_id: str | None = Field(None, max_length=80)
     reference_entry_id: str | None = Field(None, max_length=80)
@@ -379,8 +386,11 @@ class PromptExpanderGenerateRequest(BaseModel):
         None, max_length=PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN
     )
     reference_type: ReferenceTypeLiteral = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE  # type: ignore[assignment]
+    reference_include_outfit: bool = False
     reference_strength: float = Field(
-        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH, ge=0.0, le=1.0
+        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+        ge=0.0,
+        le=PRECISE_REFERENCE_STRENGTH_MAX["v5"],
     )
     reference_fidelity: float = Field(
         DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY, ge=0.0, le=1.0

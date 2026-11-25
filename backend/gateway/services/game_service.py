@@ -2148,7 +2148,7 @@ class GameService:
             novelai_image_model
         ):
             logger.info(
-                "Dropping %d character references (V5 model %s does not support them)",
+                "Dropping %d character references (model %s does not support them)",
                 len(character_references),
                 novelai_image_model,
             )

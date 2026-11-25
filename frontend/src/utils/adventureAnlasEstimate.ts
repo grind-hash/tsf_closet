@@ -1,7 +1,8 @@
 import type { AdventurePreset } from "../apis/adventure";
+import { ANLAS_PER_PRECISE_REFERENCE } from "./preciseReferences";
 
-/** NovelAI character reference 1指定あたりの追加Anlas消費量 */
-export const ANLAS_COST_PER_REFERENCE = 5;
+/** NovelAI character reference 1指定あたりの追加Anlas消費量（V4.5・V5 共通） */
+export const ANLAS_COST_PER_REFERENCE = ANLAS_PER_PRECISE_REFERENCE;
 
 export interface AdventureAnlasEstimate {
   min: number;
@@ -12,6 +13,8 @@ export interface AdventureAnlasEstimate {
  * 精密参照ON時の追加Anlas消費量を見積もる。
  *
  * 追加消費は character reference の指定数に比例し、背景生成は参照を使わない。
+ * 単価と参照数はモデル(V4.5 / V5 Full / V5 Curated)に依らない。Adventure は
+ * インペイントを使わないため、V5 で参照が落ちる手番もない。
  * 参照数の内訳 (backend/gateway/services/adventure_service.py):
  * - 主人公立ち絵: 1
  * - 攻略対象立ち絵 (romanceのみ。ターン中は非合成時のみ、開始時は常に生成): 1

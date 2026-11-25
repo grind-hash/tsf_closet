@@ -2823,8 +2823,11 @@ async def test_adventure_image_generation_uses_precise_reference_when_enabled(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_partner", [True, False])
+@pytest.mark.parametrize(
+    "curated_model", ["nai-diffusion-4-5-curated", "nai-diffusion-5-curated"]
+)
 async def test_adventure_romance_scene_partner_reference(
-    monkeypatch, tmp_path, with_partner
+    monkeypatch, tmp_path, with_partner, curated_model
 ) -> None:
     """合成シーンでは攻略対象が登場するターンだけ2枚目の参照を渡す。"""
     service = AdventureService()
@@ -2883,7 +2886,7 @@ async def test_adventure_romance_scene_partner_reference(
     )
     monkeypatch.setattr(
         "gateway.services.adventure_service.settings.novelai_curated_model",
-        "nai-diffusion-4-5-curated",
+        curated_model,
     )
 
     await service.generate_image("run-1", redraw_from_reference=True)
@@ -2895,9 +2898,14 @@ async def test_adventure_romance_scene_partner_reference(
         assert len(references) == 2
         assert references[1]["image"] == b"partner"
         assert references[1]["type"] == "character"
-        # 服装が変化し得るため攻略対象は常に弱参照
-        assert references[1]["strength"] == 0.35
-        assert references[1]["fidelity"] == 0.55
+        if curated_model == "nai-diffusion-5-curated":
+            # V5 は強度を下げず、開始素材の衣装を引き継がない
+            assert references[1]["strength"] == 1.0
+            assert references[1]["include_outfit"] is False
+        else:
+            # 服装が変化し得るため攻略対象は常に弱参照
+            assert references[1]["strength"] == 0.35
+            assert references[1]["fidelity"] == 0.55
     else:
         assert len(references) == 1
 
@@ -3034,6 +3042,34 @@ def test_romance_partner_scene_reference_prefers_override_visual_state(
     assert reference["image"] == b"partner"
     assert reference["strength"] == 0.35
     assert reference["fidelity"] == 0.55
+
+
+def test_romance_partner_scene_reference_on_v5_skips_old_outfit(tmp_path) -> None:
+    """V5 は開始素材を参照しても弱めず、衣装だけ引き継がない。"""
+    partner_path = tmp_path / "partner_initial.png"
+    partner_path.write_bytes(b"partner")
+    prompt = AdventureImagePromptOutput(
+        scene_tags="night club interior",
+        player_tags="young man",
+        npc_tags=["succubus dancer"],
+    )
+    state = json.loads(make_romance_scene_state(partner_path))
+    reference = _romance_partner_scene_reference(
+        state, prompt, image_model="nai-diffusion-5-full"
+    )
+    assert reference is not None
+    assert reference["include_outfit"] is False
+    assert reference["strength"] == 1.0
+
+    fresh = _romance_partner_scene_reference(
+        state,
+        prompt,
+        reference_override=b"partner-turn",
+        image_model="nai-diffusion-5-curated",
+    )
+    assert fresh is not None
+    assert fresh["image"] == b"partner-turn"
+    assert fresh["include_outfit"] is True
 
 
 def test_romance_partner_scene_reference_uses_turn_portrait_override(

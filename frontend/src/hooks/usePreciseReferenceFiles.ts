@@ -10,6 +10,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../contexts/SettingsContext";
 import { generateUUID } from "../utils/generateUUID";
+import { DEFAULT_PRECISE_REFERENCE_STRENGTH } from "../utils/preciseReferences";
 
 export const PRECISE_REFERENCE_ALLOWED_MIME_TYPES = [
   "image/png",
@@ -41,7 +42,8 @@ function readFileAsDataUrl(file: File): Promise<string | null> {
 
 export function usePreciseReferenceFiles() {
   const { t } = useTranslation();
-  const { state, addPreciseReference } = useSettings();
+  const { state, addPreciseReference, novelaiPreciseReferenceFormat } =
+    useSettings();
   const currentCount = state.preciseReferences.length;
 
   // ファイルを検証し、元の順序を保って追加する
@@ -92,7 +94,12 @@ export function usePreciseReferenceFiles() {
           imageData,
           fileName: file.name,
           type: "character&style",
-          strength: 0.6,
+          // 衣装は着せ替えで変えるため、既定ではキャラクターの服を引き継がない
+          includeOutfit: false,
+          strength:
+            DEFAULT_PRECISE_REFERENCE_STRENGTH[
+              novelaiPreciseReferenceFormat ?? "v4_5"
+            ],
           fidelity: 1.0,
           enabled: true,
         });
@@ -108,7 +115,7 @@ export function usePreciseReferenceFiles() {
 
       return { addedCount, error };
     },
-    [addPreciseReference, currentCount, t],
+    [addPreciseReference, currentCount, novelaiPreciseReferenceFormat, t],
   );
 
   return { addFiles };

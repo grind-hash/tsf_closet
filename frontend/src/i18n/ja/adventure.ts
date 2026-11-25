@@ -256,7 +256,7 @@ export const adventure = {
   imageModelHint:
     "このシナリオ専用のNovelAIモデルを選べます。既定では設定画面のモデル（NSFW設定に応じてFull/Curatedが切り替わる）を使います。Curated系は非NSFW向けです。",
   imageModelPlayHint:
-    "次回の画像生成から反映されます。Curated系は非NSFW向けです。V5系では精密参照が使えません。",
+    "次回の画像生成から反映されます。Curated系は非NSFW向けです。V5 Full の節約モードでは精密参照が使えません。",
   imageModelOtherProviderHint:
     "この設定はNovelAI画像プロバイダー専用です。現在のプロバイダー(OpenRouter/セルフホスト)では選択しても効果はありません。",
   preciseReference: "精密参照画像を使う",
@@ -266,8 +266,8 @@ export const adventure = {
     "次回の画像生成から反映されます。ONにすると参照1枚あたり5 Anlasを追加消費します。",
   preciseReferenceOtherProviderHint:
     "この設定はNovelAI画像プロバイダー専用です。現在のプロバイダー(OpenRouter/セルフホスト)では参照画像を追加費用なしで常に使うため、ON/OFFを切り替えても効果はなく、Anlasも消費しません。",
-  preciseReferenceV5Hint:
-    "V5モデルでは精密参照は利用できません。V4.5モデル選択時のみ有効です。",
+  preciseReferenceEconomyHint:
+    "V5 Full の節約モードでは精密参照は使えません。V4.5 か V5（節約モード以外）のモデルで使えます。",
   v5UsageExhaustedBody:
     "NAI Diffusion V5 の利用上限を使い切っています。このまま生成するとAnlasを消費します。続行しますか？",
   enableCompositeScene: "背景と人物を同時に描く",

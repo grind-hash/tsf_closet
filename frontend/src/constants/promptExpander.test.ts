@@ -74,11 +74,12 @@ describe("promptExpander constants", () => {
     expect(V5_USAGE_WARN_SUPPRESSED_KEY).toBe("v5_usage_warn_suppressed");
   });
 
-  it("gates precise reference to V4.5 and native transparency to V5", () => {
+  it("gates precise reference off economy mode and native transparency to V5", () => {
     expect(supportsPreciseReference("nai-diffusion-4-5-full")).toBe(true);
     expect(supportsPreciseReference("nai-diffusion-4-5-curated")).toBe(true);
-    expect(supportsPreciseReference("nai-diffusion-5-full")).toBe(false);
-    expect(supportsPreciseReference("nai-diffusion-5-curated")).toBe(false);
+    expect(supportsPreciseReference("nai-diffusion-5-full")).toBe(true);
+    expect(supportsPreciseReference("nai-diffusion-5-curated")).toBe(true);
+    expect(supportsPreciseReference("nai-diffusion-5-full-medium")).toBe(false);
     // 未知のモデル名・空は使えない扱い
     expect(supportsPreciseReference("unknown")).toBe(false);
     expect(supportsPreciseReference(null)).toBe(false);
@@ -91,6 +92,7 @@ describe("promptExpander constants", () => {
       "character",
       "style",
       "character&style",
+      "costume",
     ]);
     expect(PROMPT_EXPANDER_REFERENCE_TYPES).toContain(
       DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
@@ -98,6 +100,7 @@ describe("promptExpander constants", () => {
     // "&" は i18n のキーに使えないので写像する
     expect(referenceTypeI18nKey("character&style")).toBe("characterStyle");
     expect(referenceTypeI18nKey("style")).toBe("style");
+    expect(referenceTypeI18nKey("costume")).toBe("costume");
     expect(PROMPT_EXPANDER_ANLAS_PER_REFERENCE).toBe(5);
     expect(PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY).toBe(
       "prompt_expander_anlas_warn_suppressed",

@@ -14,7 +14,9 @@ from gateway.consts.novelai_models import (
     get_image_model_info,
     is_economy_image_model,
     is_v5_image_model,
+    precise_reference_format,
     resolve_user_image_model,
+    resolve_v5_reference_caption,
     supports_character_references,
 )
 from gateway.services.anlas_service import parse_novelai_usage
@@ -95,15 +97,42 @@ class TestRegistry:
         assert NsfwImageModel.__args__ == NSFW_IMAGE_MODEL_OPTIONS
         assert SfwImageModel.__args__ == SFW_IMAGE_MODEL_OPTIONS
 
-    def test_supports_character_references_is_false_only_for_v5(self) -> None:
-        assert not supports_character_references("nai-diffusion-5-full")
-        assert not supports_character_references("nai-diffusion-5-curated")
+    def test_supports_character_references_is_false_only_for_economy(self) -> None:
+        assert supports_character_references("nai-diffusion-5-full")
+        assert supports_character_references("nai-diffusion-5-curated")
         assert not supports_character_references("nai-diffusion-5-full-medium")
         assert supports_character_references("nai-diffusion-4-5-full")
         assert supports_character_references("nai-diffusion-4-5-curated")
         # 未登録名・未指定は v4.5 相当として扱う
         assert supports_character_references("unknown")
         assert supports_character_references(None)
+
+    def test_precise_reference_format_per_model(self) -> None:
+        assert precise_reference_format("nai-diffusion-5-full") == "v5"
+        assert precise_reference_format("nai-diffusion-5-curated") == "v5"
+        assert precise_reference_format("nai-diffusion-5-full-medium") is None
+        assert precise_reference_format("nai-diffusion-4-5-full") == "v4_5"
+        assert precise_reference_format("nai-diffusion-4-5-curated") == "v4_5"
+        assert precise_reference_format("unknown") == "v4_5"
+        assert precise_reference_format(None) == "v4_5"
+
+    @pytest.mark.parametrize(
+        ("reference_type", "include_outfit", "expected"),
+        [
+            ("character&style", True, "character&style"),
+            ("character&style", False, "character&style_anyoutfit"),
+            ("character", True, "character_mainoutfit"),
+            ("character", False, "character"),
+            ("style", True, "style"),
+            ("style", False, "style"),
+            ("costume", True, "costume"),
+            ("costume", False, "costume"),
+        ],
+    )
+    def test_resolve_v5_reference_caption(
+        self, reference_type: str, include_outfit: bool, expected: str
+    ) -> None:
+        assert resolve_v5_reference_caption(reference_type, include_outfit) == expected
 
 
 class TestResolveUserImageModel:

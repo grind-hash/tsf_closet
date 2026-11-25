@@ -390,9 +390,13 @@ export interface GallerySession {
 export type GalleryViewMode = "card" | "list";
 
 /**
- * 精密参照画像の参照種類
+ * 精密参照画像の参照種類。衣装（costume）は V5 のみ
  */
-export type PreciseReferenceType = "character" | "style" | "character&style";
+export type PreciseReferenceType =
+  | "character"
+  | "style"
+  | "character&style"
+  | "costume";
 
 /**
  * 精密参照画像（NovelAI Character Reference）
@@ -403,7 +407,10 @@ export interface PreciseReference {
   imageData: string;
   fileName: string;
   type: PreciseReferenceType;
+  /** キャラ系の参照で衣装も参照するか（V5 のみ有効） */
+  includeOutfit: boolean;
   strength: number;
+  /** 忠実度（V4.5 のみ有効。V5 では廃止） */
   fidelity: number;
   enabled: boolean;
 }

@@ -19,8 +19,6 @@ import {
 interface AdventureImageSettingsPopoverProps {
   /** 生成時間の見積もりに使う現在の設定 */
   imageSettings: AdventureTurnImageSettings;
-  /** run のモデル上書きを含めた実効モデルが V5 か(精密参照は非対応) */
-  runIsV5: boolean;
   isCompanion: boolean;
   drawPortraitEveryTurn: boolean;
   onDrawPortraitEveryTurnChange: (next: boolean) => void;
@@ -36,7 +34,6 @@ interface AdventureImageSettingsPopoverProps {
  */
 export default function AdventureImageSettingsPopover({
   imageSettings,
-  runIsV5,
   isCompanion,
   drawPortraitEveryTurn,
   onDrawPortraitEveryTurnChange,
@@ -45,8 +42,18 @@ export default function AdventureImageSettingsPopover({
   onOpenPromptPreview,
 }: AdventureImageSettingsPopoverProps) {
   const { t } = useTranslation();
-  const { activeRun, streaming, updateSettings, avatarModels } = useAdventure();
+  const {
+    activeRun,
+    streaming,
+    updateSettings,
+    avatarModels,
+    activeRunPreciseReferenceAvailable,
+  } = useAdventure();
   const { state: settingsState } = useSettings();
+  // 精密参照に非対応のモデル(V5 節約モード)では操作できない旨を出す
+  const preciseUnavailable =
+    settingsState.imageProvider === "novelai" &&
+    !activeRunPreciseReferenceAvailable;
   const [saving, setSaving] = useState(false);
   if (!activeRun) return null;
 
@@ -156,18 +163,18 @@ export default function AdventureImageSettingsPopover({
           />
         </label>
       )}
-      {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
+      {/* NovelAI以外では効果もAnlas消費もない旨、節約モードでは非対応の旨を明示する */}
       <AdventureToggleRow
         label={t("adventure.preciseReference")}
         hint={t(
-          runIsV5
-            ? "adventure.preciseReferenceV5Hint"
+          preciseUnavailable
+            ? "adventure.preciseReferenceEconomyHint"
             : settingsState.imageProvider === "novelai"
               ? "adventure.preciseReferencePlayHint"
               : "adventure.preciseReferenceOtherProviderHint",
         )}
-        checked={activeRun.use_precise_reference && !runIsV5}
-        disabled={busy || runIsV5}
+        checked={activeRun.use_precise_reference && !preciseUnavailable}
+        disabled={busy || preciseUnavailable}
         onChange={(next) => saveRunSettings({ use_precise_reference: next })}
       />
       <AdventureToggleRow

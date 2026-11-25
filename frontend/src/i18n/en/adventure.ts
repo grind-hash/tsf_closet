@@ -257,7 +257,7 @@ export const adventure = {
   imageModelHint:
     "Choose a NovelAI model used only for this scenario. By default it follows the model from the settings screen (Full/Curated depending on the NSFW setting). Curated models are for non-NSFW content.",
   imageModelPlayHint:
-    "Applies from the next image generation. Curated models are for non-NSFW content. Precise references are unavailable on V5 models.",
+    "Applies from the next image generation. Curated models are for non-NSFW content. Precise references are unavailable in V5 Full economy mode.",
   imageModelOtherProviderHint:
     "This option only applies to the NovelAI image provider. With your current provider (OpenRouter / self-hosted) it has no effect.",
   preciseReference: "Use precise character reference",
@@ -267,8 +267,8 @@ export const adventure = {
     "Applies from the next image generation. When on, each reference costs 5 extra Anlas.",
   preciseReferenceOtherProviderHint:
     "This option only applies to the NovelAI image provider. Your current provider (OpenRouter / self-hosted) always uses reference images at no extra cost, so toggling this has no effect and consumes no Anlas.",
-  preciseReferenceV5Hint:
-    "Precise references are not available with V5 models. They only take effect with V4.5 models.",
+  preciseReferenceEconomyHint:
+    "Precise references are not available in V5 Full economy mode. Use a V4.5 model or a V5 model other than economy mode.",
   v5UsageExhaustedBody:
     "You have used up the NAI Diffusion V5 usage limit. Generating now will consume Anlas. Continue?",
   enableCompositeScene: "Draw background and character together",
