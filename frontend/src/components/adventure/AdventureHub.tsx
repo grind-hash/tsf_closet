@@ -7,7 +7,7 @@ import type {
   AdventureRun,
   AdventureSpeechStyle,
 } from "../../apis/adventure";
-import { canActOnRun } from "../../apis/adventure";
+import { canActOnRun, fetchAdventureRunSetup } from "../../apis/adventure";
 import { getCharacterPreset } from "../../apis/characters";
 import { fetchGallerySessions } from "../../apis/gallery";
 import { fetchPromptExpanderEntry } from "../../apis/promptExpander";
@@ -51,10 +51,16 @@ import {
 } from "../../contexts/AdventureContext";
 import { useSettings } from "../../contexts/SettingsContext";
 import { useAdventureDrawPreferences } from "../../hooks/useAdventureDrawPreferences";
+import { useGallerySessionInfo } from "../../hooks/useGallerySessionInfo";
+import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { ROUTES } from "../../routes";
 import type { Character, GallerySession } from "../../types";
 import { estimateAdventureAnlas } from "../../utils/adventureAnlasEstimate";
-import { formatAnlasEstimate, mediaUrl } from "../../utils/adventureFormat";
+import { formatAnlasEstimate } from "../../utils/adventureFormat";
+import {
+  formValuesFromRunSetup,
+  romancePlayerSelectValue,
+} from "../../utils/adventureRunSetup";
 import {
   type AdventureSetupPrefs,
   normalizeNarrationPronoun,
@@ -87,6 +93,8 @@ import AdventureSessionPickerModal, {
   selectionFromPromptExpanderEntry,
   selectionFromSession,
 } from "./AdventureSessionPickerModal";
+import AdventureSourceSelectionCard from "./AdventureSourceSelectionCard";
+import { resolveRunSetupSelection } from "./adventureRunSetupSelections";
 
 // Adventure のセットアップ画面（開始素材・シナリオ・オプションの選択と保存済み Run の一覧）。
 
@@ -101,6 +109,7 @@ function SourceSelectionSummary({
   onOpenPicker: () => void;
 }) {
   const { t } = useTranslation();
+  const sessionInfo = useGallerySessionInfo(selection?.sessionId);
   if (!selection) {
     return (
       <button
@@ -113,29 +122,11 @@ function SourceSelectionSummary({
       </button>
     );
   }
-  // Prompt Expander 由来はキャラ名を持たないため、出どころのラベルを主見出しにする
-  const name =
-    selection.origin === "prompt_expander"
-      ? t("adventure.sourcePicker.promptExpanderOrigin")
-      : (selection.characterName ?? t("adventure.unnamedCharacter"));
-  const state =
-    selection.pointLabel ??
-    (selection.origin === "character"
-      ? t("adventure.sourcePicker.characterOrigin")
-      : t("adventure.currentState"));
   return (
-    <div
-      className="adventure-source-summary"
-      role="group"
-      aria-label={t("adventure.selectedSourceSummary", { name, state })}
+    <AdventureSourceSelectionCard
+      selection={selection}
+      sessionInfo={sessionInfo}
     >
-      <span className="adventure-source-summary__thumb">
-        <img src={mediaUrl(selection.thumbnailUrl)} alt="" />
-      </span>
-      <span className="adventure-source-summary__text">
-        <strong>{name}</strong>
-        <span>{state}</span>
-      </span>
       <button
         type="button"
         className="adventure-source-summary__change"
@@ -144,7 +135,7 @@ function SourceSelectionSummary({
       >
         {t("adventure.sourcePicker.change")}
       </button>
-    </div>
+    </AdventureSourceSelectionCard>
   );
 }
 
@@ -162,10 +153,17 @@ function AdventureRunRow({
   run,
   onResume,
   onDelete,
+  onCopySetup,
+  copying = false,
+  copyDisabled = false,
 }: {
   run: AdventureRun;
   onResume: () => void;
   onDelete?: () => void;
+  /** 設定を作成フォームへ写す。作品シナリオの run とバナーでは渡さない */
+  onCopySetup?: () => void;
+  copying?: boolean;
+  copyDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -198,6 +196,20 @@ function AdventureRunRow({
         <button type="button" onClick={onResume}>
           {t("adventure.resume")}
         </button>
+        {onCopySetup && (
+          <button
+            type="button"
+            className="adventure-run-item__copy"
+            onClick={onCopySetup}
+            disabled={copyDisabled}
+            aria-busy={copying || undefined}
+          >
+            {copying && <span className="adventure-setup-generator__spinner" />}
+            {copying
+              ? t("adventure.copySetup.loading")
+              : t("adventure.copySetup.button")}
+          </button>
+        )}
         {onDelete && (
           <button type="button" className="is-danger" onClick={onDelete}>
             {t("adventure.delete")}
@@ -358,6 +370,17 @@ export default function AdventureHub() {
       ? saved.slice(0, ROMANCE_PLAYER_NAME_MAX_LENGTH)
       : "";
   });
+  // 遊んだシナリオの設定を写している run と、写した結果の案内
+  const [copyingRunId, setCopyingRunId] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState<
+    | { kind: "copied"; title: string; notes: string[] }
+    | { kind: "failed" }
+    | null
+  >(null);
+  const copyNoticeRef = useRef<HTMLDivElement | null>(null);
+  // 写した語り・口調が見えるよう、物語の演出の折りたたみを開くために使う
+  const storyOptionsRef = useRef<HTMLDetailsElement | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   // 既存の送信・保存ロジックは選択オブジェクトから派生したIDを参照する
   const sourceSessionId = sourceSelection?.sessionId ?? "";
@@ -694,6 +717,140 @@ export default function AdventureHub() {
     setPickerTarget(null);
   };
 
+  // 写し終えたら案内(フォームの先頭)まで戻す
+  useEffect(() => {
+    if (!copyNotice) return;
+    copyNoticeRef.current?.scrollIntoView({
+      block: "start",
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
+  }, [copyNotice, prefersReducedMotion]);
+
+  // 遊んだシナリオの設定を作成フォームへ写す。開始素材・主人公は先にすべて取り直し、
+  // 欄を空にする既存ハンドラ(開始素材・ミッションの変更)は通さずに一度に入れる。
+  // 取り直せなかった項目は今の選択を残して案内に出す(別の候補へは倒さない)
+  const handleCopyRunSetup = async (run: AdventureRun) => {
+    if (copyingRunId) return;
+    setCopyingRunId(run.id);
+    try {
+      const setup = await fetchAdventureRunSetup(run.id);
+      const values = formValuesFromRunSetup(setup);
+      const playerTarget =
+        values.player && values.player.kind !== "template"
+          ? values.player
+          : null;
+      const [source, player] = await Promise.all([
+        values.source
+          ? resolveRunSetupSelection(values.source)
+          : Promise.resolve(null),
+        playerTarget
+          ? resolveRunSetupSelection(playerTarget)
+          : Promise.resolve(null),
+      ]);
+      const notes: string[] = [];
+
+      setStartMode("generated");
+      setSelectedTemplateId("");
+      setSelectedReplayRunId("");
+      setPreset(values.preset);
+      if (values.source) {
+        if (source) {
+          setSourceSelection(source);
+        } else {
+          notes.push(t("adventure.copySetup.missingSource"));
+        }
+      }
+      setScenarioSetting(values.scenarioSetting);
+      setScenarioObjective(values.scenarioObjective);
+      setScenarioConstraints(values.scenarioConstraints);
+      if (values.scenarioMaxTurns !== null) {
+        setScenarioMaxTurns(values.scenarioMaxTurns);
+      }
+      if (values.romanceDays !== null) setRomanceDays(values.romanceDays);
+      if (values.companionTurns !== null) {
+        setCompanionTurns(values.companionTurns);
+      }
+      setDetailsOpen(true);
+      setNarrationVoice(values.narrationVoice);
+      setSpeechStyle(values.speechStyle);
+      setSpeechCustom(values.speechCustom);
+      setPartnerSpeechStyle(values.partnerSpeechStyle);
+      if (storyOptionsRef.current) storyOptionsRef.current.open = true;
+
+      // 主人公。取り直せた場合だけ主人公セレクトごと入れ替える
+      let playerApplied = false;
+      let playerDefaultName = "";
+      let playerPronoun = "";
+      if (values.player?.kind === "template") {
+        const templateId = values.player.characterId;
+        setRomancePlayerId(templateId);
+        playerApplied = true;
+        playerDefaultName =
+          playerCharacters.find((character) => character.id === templateId)
+            ?.name ?? "";
+      } else if (values.player && player) {
+        setRomancePlayerId(romancePlayerSelectValue(values.player));
+        if (values.player.kind === "character") {
+          setPlayerCharacterSelection(player);
+          playerPronoun = player.characterPronoun ?? "";
+        } else {
+          setPlayerSelection(player);
+        }
+        playerApplied = true;
+        playerDefaultName = player.characterName ?? "";
+      } else if (values.player) {
+        notes.push(t("adventure.copySetup.missingPlayer"));
+      }
+      if (playerApplied) {
+        // 既定名への追従(呼び名の effect)で写した呼び名が消えないよう、基準を新しい既定名に合わせる
+        previousPlayerDefaultNameRef.current = playerDefaultName;
+        setRomancePlayerName(values.romancePlayerName);
+      }
+
+      // 一人称はキャラクターに合わせて書き換わる effect があるため、基準を写した後の
+      // キャラクターに合わせてから写した値を入れる
+      const nextSource = values.source && source ? source : sourceSelection;
+      const nextPersona =
+        values.preset === "romance"
+          ? playerApplied
+            ? playerPronoun
+            : romancePlayerId === ROMANCE_PLAYER_CHARACTER_VALUE
+              ? (playerCharacterSelection?.characterPronoun ?? "")
+              : ""
+          : nextSource?.origin === "character"
+            ? (nextSource.characterPronoun ?? "")
+            : "";
+      previousPersonaPronounRef.current = nextPersona;
+      setNarrationPronoun(values.narrationPronoun);
+
+      // 対面会話モードは写さないため、元の run と食い違うときは長さの単位が変わることを知らせる
+      if (
+        setup.preset === "romance" &&
+        setup.companion_mode !== companionMode
+      ) {
+        notes.push(
+          setup.companion_mode
+            ? t("adventure.copySetup.companionWasOn", {
+                turns: values.companionTurns ?? setup.max_turns,
+              })
+            : t("adventure.copySetup.companionWasOff", {
+                days: values.romanceDays ?? setup.total_days ?? "",
+              }),
+        );
+      }
+      setCopyNotice({
+        kind: "copied",
+        title: setup.title || run.title,
+        notes,
+      });
+    } catch (caught: unknown) {
+      console.warn("Failed to copy adventure setup:", caught);
+      setCopyNotice({ kind: "failed" });
+    } finally {
+      setCopyingRunId(null);
+    }
+  };
+
   const effectiveMaxTurns = clampMaxTurns(
     Number.parseInt(scenarioMaxTurns, 10),
   );
@@ -907,6 +1064,45 @@ export default function AdventureHub() {
           >
             {error}
           </button>
+        )}
+
+        {copyNotice && (
+          <div
+            ref={copyNoticeRef}
+            className={`adventure-copy-notice${
+              copyNotice.kind === "failed" ? " is-failed" : ""
+            }`}
+            role="status"
+          >
+            <div className="adventure-copy-notice__body">
+              {copyNotice.kind === "copied" ? (
+                <>
+                  <p>
+                    {t("adventure.copySetup.copied", {
+                      title: copyNotice.title,
+                    })}
+                  </p>
+                  {copyNotice.notes.length > 0 && (
+                    <ul>
+                      {copyNotice.notes.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <p>{t("adventure.copySetup.failed")}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              className="adventure-copy-notice__close"
+              onClick={() => setCopyNotice(null)}
+              aria-label={t("adventure.copySetup.close")}
+            >
+              ✕
+            </button>
+          </div>
         )}
 
         <section className="adventure-card adventure-card--source">
@@ -1351,7 +1547,10 @@ export default function AdventureHub() {
             </div>
           )}
 
-          <details className="adventure-setup-details-wrapper">
+          <details
+            ref={storyOptionsRef}
+            className="adventure-setup-details-wrapper"
+          >
             <summary>{t("adventure.storyOptions")}</summary>
             <div className="adventure-setup-details adventure-story-options">
               <fieldset className="adventure-narration-voice">
@@ -1601,6 +1800,14 @@ export default function AdventureHub() {
                   key={run.id}
                   run={run}
                   onResume={() => navigate(`/adventure/${run.id}`)}
+                  // 作品シナリオは舞台が固定で「同じシナリオをもう一度」があるため写さない
+                  onCopySetup={
+                    run.scenario_template_id
+                      ? undefined
+                      : () => void handleCopyRunSetup(run)
+                  }
+                  copying={copyingRunId === run.id}
+                  copyDisabled={copyingRunId !== null}
                   onDelete={() => {
                     if (window.confirm(t("adventure.deleteConfirm"))) {
                       void removeRun(run.id);

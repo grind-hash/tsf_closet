@@ -64,6 +64,7 @@ from gateway.services.adventure_service import (
     _romance_partner_scene_reference,
     _romance_replay_player_selection,
     _romance_template_player_appearance,
+    _run_setup_inputs,
     _sanitize_choices,
     _strip_clothing_tags_for_equipment_scenario,
     _template_visual_style,
@@ -6389,6 +6390,158 @@ def test_speech_rule_names_the_player_inside_dialogue() -> None:
         }
     )
     assert "「ユウヤ」" in rule
+
+
+def _setup_run(**overrides: object) -> SimpleNamespace:
+    """_run_setup_inputs に渡す run の最小構成。"""
+    values: dict[str, object] = {
+        "id": "run-1",
+        "title": "恋愛シミュレーション",
+        "preset": "romance",
+        "objective": "7日以内に想いを通わせる",
+        "constraints_json": json.dumps(["門限は22時", " ", "嘘はつかない"]),
+        "max_turns": 14,
+        "source_session_id": "session-1",
+        "source_history_id": "history-1",
+        "source_prompt_expander_entry_id": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_run_setup_inputs_returns_romance_form_values() -> None:
+    state = {
+        "setting": "海辺の町",
+        "narration_voice": "first_person",
+        "narration_pronoun": "俺",
+        "player_speech_style": "custom",
+        "player_speech_custom": "ぶっきらぼう",
+        "sim": {
+            "player_character_id": "session:player-session",
+            "player_history_id": "player-history",
+            "player_name": "ユウ",
+            "partner_speech_style": "敬語",
+            "total_days": 5,
+        },
+    }
+    opening_state = {"sim": {"total_days": 7}}
+
+    setup = _run_setup_inputs(_setup_run(), state, {}, opening_state)
+
+    assert setup["preset"] == "romance"
+    assert setup["setting"] == "海辺の町"
+    assert setup["objective"] == "7日以内に想いを通わせる"
+    assert setup["constraints"] == ["門限は22時", "嘘はつかない"]
+    # 現実改変で日数が変わっても、開幕時点の日数を返す
+    assert setup["total_days"] == 7
+    assert setup["companion_mode"] is False
+    assert setup["source_session_id"] == "session-1"
+    assert setup["source_history_id"] == "history-1"
+    assert setup["source_prompt_expander_entry_id"] is None
+    assert setup["source_character_preset_id"] is None
+    assert setup["narration_voice"] == "first_person"
+    assert setup["narration_pronoun"] == "俺"
+    assert setup["player_speech_style"] == "custom"
+    assert setup["player_speech_custom"] == "ぶっきらぼう"
+    assert setup["partner_speech_style"] == "敬語"
+    # 主人公の時点 ID は公開の sim ビューに出ないため、ここで返す
+    assert setup["romance_player_session_id"] == "player-session"
+    assert setup["romance_player_history_id"] == "player-history"
+    assert setup["romance_player_character_id"] is None
+    assert setup["romance_player_name"] == "ユウ"
+
+
+def test_run_setup_inputs_falls_back_to_current_days_without_opening_state() -> None:
+    state = {"sim": {"player_character_id": "char2", "total_days": 5}}
+
+    setup = _run_setup_inputs(_setup_run(), state, {}, None)
+
+    assert setup["total_days"] == 5
+    assert setup["romance_player_character_id"] == "char2"
+
+
+def test_run_setup_inputs_prefers_character_preset_source_from_snapshot() -> None:
+    # キャラクター由来の開始素材は列に無く snapshot にだけ残る。
+    # セッションの ID は混ぜず、キャラクターだけを返す
+    snapshot = {
+        "source_character_preset_id": "preset-1",
+        "source_session_id": "session-x",
+    }
+
+    setup = _run_setup_inputs(
+        _setup_run(source_session_id=None, source_history_id=None),
+        {"sim": {}},
+        snapshot,
+    )
+
+    assert setup["source_character_preset_id"] == "preset-1"
+    assert setup["source_session_id"] is None
+    assert setup["source_history_id"] is None
+    assert setup["source_prompt_expander_entry_id"] is None
+
+
+def test_run_setup_inputs_returns_deleted_session_ids_from_snapshot() -> None:
+    # セッション削除で列が NULL になっても、写す側で案内できるよう元の ID を返す
+    snapshot = {
+        "source_session_id": "gone-session",
+        "source_history_id": "gone-history",
+    }
+
+    setup = _run_setup_inputs(
+        _setup_run(source_session_id=None, source_history_id=None),
+        {"sim": {}},
+        snapshot,
+    )
+
+    assert setup["source_session_id"] == "gone-session"
+    assert setup["source_history_id"] == "gone-history"
+
+
+def test_run_setup_inputs_omits_romance_fields_for_other_presets() -> None:
+    state = {
+        "setting": "研究所",
+        "scenario_template_id": None,
+        # 恋愛以外の run に sim が残っていても主人公欄へは写さない
+        "sim": {"player_character_id": "char2", "player_name": "ユウ"},
+    }
+
+    setup = _run_setup_inputs(
+        _setup_run(
+            preset="escape",
+            max_turns=12,
+            source_session_id=None,
+            source_history_id=None,
+            source_prompt_expander_entry_id="pe-1",
+        ),
+        state,
+        {},
+    )
+
+    assert setup["preset"] == "escape"
+    assert setup["max_turns"] == 12
+    assert setup["total_days"] is None
+    assert setup["source_prompt_expander_entry_id"] == "pe-1"
+    assert setup["romance_player_character_id"] is None
+    assert setup["romance_player_name"] == ""
+    assert setup["partner_speech_style"] == ""
+
+
+@pytest.mark.asyncio
+async def test_get_run_setup_reads_opening_state(monkeypatch) -> None:
+    service = AdventureService()
+    run = _setup_run(
+        state_json=json.dumps(
+            {"sim": {"player_character_id": "char2", "total_days": 4}}
+        ),
+        snapshot_json=json.dumps({}),
+        opening_state_json=json.dumps({"state": {"sim": {"total_days": 7}}}),
+    )
+    monkeypatch.setattr(service, "get_run_orm", AsyncMock(return_value=run))
+
+    setup = await service.get_run_setup("run-1")
+
+    assert setup["total_days"] == 7
+    assert setup["romance_player_character_id"] == "char2"
 
 
 def test_romance_replay_player_name_restores_stored_name() -> None:

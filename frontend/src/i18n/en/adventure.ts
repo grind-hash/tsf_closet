@@ -33,6 +33,9 @@ export const adventure = {
       "You play as this character. Their name, personality, speech, and background apply to the protagonist.",
     characterPartnerHint:
       "This character becomes the romance partner, with their own name, personality, and speech.",
+    sessionMeta: "{{items}} images · started {{date}}",
+    currentHeading: "Selected",
+    openSelectedHistory: "View its moments",
   },
   startMode: "Start Mode",
   startModes: {
@@ -349,6 +352,22 @@ export const adventure = {
   resume: "Resume",
   delete: "Delete",
   deleteConfirm: "Delete this scenario?",
+  copySetup: {
+    button: "Copy settings to a new scenario",
+    loading: "Loading…",
+    copied:
+      'Copied the settings of "{{title}}". You can still edit everything, including the setting, goal and constraints, before you start.',
+    failed: "Could not load the scenario settings.",
+    missingSource:
+      "The starting session could not be found, so the current choice is kept. Please choose it again.",
+    missingPlayer:
+      "The protagonist could not be found, so the current choice is kept. Please choose again.",
+    companionWasOn:
+      "The original scenario used face-to-face mode ({{turns}} turns). Turn face-to-face mode on to play the same length.",
+    companionWasOff:
+      "The original scenario did not use face-to-face mode ({{days}} days). Turn face-to-face mode off to play it the same way.",
+    close: "Close notice",
+  },
   loading: "Loading scenario...",
   back: "Back to scenarios",
   remaining: "Turns Left",

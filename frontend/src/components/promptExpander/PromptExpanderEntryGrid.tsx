@@ -49,11 +49,14 @@ function GridImage({ entry }: { entry: PromptExpanderEntry }) {
 interface PromptExpanderEntryGridProps {
   selectedEntryId?: string | null;
   onSelect: (entry: PromptExpanderEntry) => void;
+  /** 1ページ目の読み込みを終えたとき(失敗も含む)に呼ぶ。選択中へフォーカスを当てる合図に使う */
+  onLoaded?: () => void;
 }
 
 export default function PromptExpanderEntryGrid({
   selectedEntryId,
   onSelect,
+  onLoaded,
 }: PromptExpanderEntryGridProps) {
   const { t } = useTranslation();
   const [items, setItems] = useState<PromptExpanderEntry[]>([]);
@@ -61,6 +64,7 @@ export default function PromptExpanderEntryGrid({
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [firstPageLoaded, setFirstPageLoaded] = useState(false);
 
   const loadPage = useCallback(async (nextPage: number) => {
     setLoading(true);
@@ -76,12 +80,17 @@ export default function PromptExpanderEntryGrid({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+      if (nextPage === 1) setFirstPageLoaded(true);
     }
   }, []);
 
   useEffect(() => {
     void loadPage(1);
   }, [loadPage]);
+
+  useEffect(() => {
+    if (firstPageLoaded) onLoaded?.();
+  }, [firstPageLoaded, onLoaded]);
 
   const [scrollRoot, setScrollRoot] = useState<Element | null>(null);
   const wrapRef = useCallback((node: HTMLDivElement | null) => {
@@ -117,6 +126,7 @@ export default function PromptExpanderEntryGrid({
                 {/* 画像を <button> で包むと右クリックの画像保存が効かないため div[role=button] にする */}
                 <div
                   className={`prompt-expander__entry-grid-item ${selected ? "is-selected" : ""} ${entry.transparent_background ? "is-transparent" : ""}`}
+                  data-selected={selected || undefined}
                   role="button"
                   tabIndex={0}
                   onClick={() => onSelect(entry)}

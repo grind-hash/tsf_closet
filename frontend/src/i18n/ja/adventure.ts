@@ -32,6 +32,9 @@ export const adventure = {
       "このキャラクター本人として遊びます。名前・性格・口調・知識が主人公に反映されます",
     characterPartnerHint:
       "このキャラクターが攻略対象になります。名前・性格・口調はキャラクターの設定を使います",
+    sessionMeta: "{{items}}枚・{{date}}開始",
+    currentHeading: "選択中",
+    openSelectedHistory: "時点の一覧を見る",
   },
   startMode: "開始方式",
   startModes: {
@@ -348,6 +351,22 @@ export const adventure = {
   resume: "再開",
   delete: "削除",
   deleteConfirm: "このシナリオを削除しますか？",
+  copySetup: {
+    button: "設定を写して新しく作る",
+    loading: "読み込み中…",
+    copied:
+      "遊んだシナリオ「{{title}}」の設定を写しました。舞台・ゴール・制約も含め、始める前に書き換えられます。",
+    failed: "シナリオの設定を読み込めませんでした。",
+    missingSource:
+      "開始セッションが見つからなかったため、今の選択のままです。選び直してください。",
+    missingPlayer:
+      "主人公が見つからなかったため、今の選択のままです。選び直してください。",
+    companionWasOn:
+      "元のシナリオは対面会話モード（{{turns}}ターン）でした。同じ長さで遊ぶときは、対面会話モードをONにしてください。",
+    companionWasOff:
+      "元のシナリオは対面会話モードではありません（{{days}}日）。同じ形で遊ぶときは、対面会話モードをOFFにしてください。",
+    close: "案内を閉じる",
+  },
   loading: "シナリオを読み込み中...",
   back: "シナリオ一覧へ戻る",
   remaining: "残り手番",

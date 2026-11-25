@@ -121,6 +121,27 @@
   overscroll-behavior: contain;
 }
 
+/* 一覧の先頭の「選択中」カード。一覧の選択中と同じ枠色で示す */
+.adventure-session-picker__current {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #30373d;
+}
+
+.adventure-session-picker__current h3 {
+  margin: 0;
+  color: #bbc3ca;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.adventure-session-picker__current .adventure-source-summary {
+  max-width: none;
+  border-color: #efb85a;
+}
+
 .adventure-session-picker__cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -366,5 +387,14 @@
 
   .adventure-session-picker__grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* 名前・枚数・開始日が折れないよう、選択中カードのボタンは2段目に全幅で置く */
+  .adventure-session-picker__current .adventure-source-summary {
+    flex-wrap: wrap;
+  }
+
+  .adventure-session-picker__current .adventure-source-summary__change {
+    flex-basis: 100%;
   }
 }

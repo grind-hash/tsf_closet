@@ -23,6 +23,17 @@ export function mediaUrl(url: string): string {
   return url.startsWith("/") ? `${API_BASE}${url}` : url;
 }
 
+/** セッションの開始日などを、表示言語に合わせた年月日で出す */
+export function formatSessionDate(iso: string, locale: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(locale.startsWith("en") ? "en-US" : "ja-JP", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
 /** 口調をUIへ1行で出す。custom は自由入力本文、空の攻略対象は「自動」表記 */
 export function speechStyleLabel(
   style: AdventureSpeechStyle,

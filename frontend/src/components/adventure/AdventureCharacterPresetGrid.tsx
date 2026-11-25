@@ -9,6 +9,8 @@ import { mediaUrl } from "../../utils/adventureFormat";
 interface AdventureCharacterPresetGridProps {
   selectedPresetId: string | null;
   onSelect: (preset: CharacterPreset) => void;
+  /** 一覧の読み込みを終えたとき(失敗も含む)に呼ぶ。選択中へフォーカスを当てる合図に使う */
+  onLoaded?: () => void;
 }
 
 /**
@@ -18,6 +20,7 @@ interface AdventureCharacterPresetGridProps {
 export default function AdventureCharacterPresetGrid({
   selectedPresetId,
   onSelect,
+  onLoaded,
 }: AdventureCharacterPresetGridProps) {
   const { t } = useTranslation();
   const [presets, setPresets] = useState<CharacterPreset[] | null>(null);
@@ -36,6 +39,11 @@ export default function AdventureCharacterPresetGrid({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadFinished = presets !== null || failed;
+  useEffect(() => {
+    if (loadFinished) onLoaded?.();
+  }, [loadFinished, onLoaded]);
 
   if (failed) {
     return (

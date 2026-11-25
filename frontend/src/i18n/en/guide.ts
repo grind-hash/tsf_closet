@@ -39,6 +39,14 @@ export const guide = {
     desc: "A standalone novel game that starts from a transformed state. Five mission types including a romance simulation, with reality alteration and automatic BGM selection.",
     note: 'Each turn runs text and image generation, so wait times are longer than in normal play. You can preview the BGM with "BGM Test" in the menu.',
     open: "Open TSF Scenario",
+    details: [
+      {
+        heading: "Starting a scenario",
+        items: [
+          'Press "Copy settings to a new scenario" under "Saved Scenarios" to fill the setup screen with the starting session, mission, setting, goal, constraints, story options, protagonist, name and length (days or turns) of a scenario you played. You can edit everything before you start. For authored scenarios, use "Play this scenario again" instead.',
+        ],
+      },
+    ],
   },
   talk: {
     title: "Talk & Face-to-Face Mode",

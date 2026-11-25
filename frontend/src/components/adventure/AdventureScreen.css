@@ -838,6 +838,64 @@ button:disabled {
   color: #f0a7ad;
 }
 
+.adventure-run-item__actions button.adventure-run-item__copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.adventure-run-item__actions button[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* 遊んだシナリオの設定を写した結果の案内(作成フォームの先頭) */
+.adventure-copy-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid #3f6b80;
+  border-radius: 6px;
+  color: #d6e7ef;
+  background: #1b2a33;
+  scroll-margin-top: 16px;
+}
+
+.adventure-copy-notice.is-failed {
+  border-color: #8d4f55;
+  color: #ffd7da;
+  background: #4b272b;
+}
+
+.adventure-copy-notice__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.adventure-copy-notice__body p,
+.adventure-copy-notice__body ul {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.adventure-copy-notice__body ul {
+  margin-top: 6px;
+  padding-left: 1.2em;
+  color: #f1c27d;
+}
+
+.adventure-copy-notice__close {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 2px 8px;
+  border: none;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
 .adventure-error {
   width: 100%;
   margin: 12px 0;
@@ -3296,77 +3354,6 @@ button:disabled {
   color: #aeb7bf;
 }
 
-/* 開始セッションの選択中サマリ(サムネイル+名前+時点ラベル+変更ボタン) */
-.adventure-source-summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  max-width: min(100%, 560px);
-  margin: 0;
-  padding: 8px;
-  border: 1px solid #394149;
-  border-radius: 6px;
-  background: #1c2228;
-}
-
-.adventure-source-summary__thumb {
-  display: block;
-  flex: 0 0 auto;
-  width: 56px;
-  aspect-ratio: 3 / 4;
-  overflow: hidden;
-  border-radius: 4px;
-  background: #1a1f24;
-}
-
-.adventure-source-summary__thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center top;
-}
-
-.adventure-source-summary__text {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 2px;
-  min-width: 0;
-}
-
-.adventure-source-summary__text strong {
-  overflow: hidden;
-  font-size: 0.9rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.adventure-source-summary__text span {
-  color: #bbc3ca;
-  font-size: 0.78rem;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-
-.adventure-source-summary__change {
-  flex: 0 0 auto;
-  padding: 8px 14px;
-  border: 1px solid #4a535c;
-  border-radius: 6px;
-  color: #e9edf0;
-  background: #242b31;
-  cursor: pointer;
-}
-
-.adventure-source-summary__change:hover:not(:disabled) {
-  border-color: #efb85a;
-}
-
-.adventure-source-summary__change:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 /* 横幅が足りない場合は縦積みに戻す */
 @media (max-width: 1023px) {
   .adventure-play {
@@ -3725,10 +3712,17 @@ button:disabled {
 
   .adventure-run-item__actions {
     grid-column: 1 / -1;
+    flex-wrap: wrap;
   }
 
   .adventure-run-item__actions button {
     flex: 1;
+  }
+
+  /* 長い文言が折れないよう、狭い画面では再開・削除の下の段に全幅で置く */
+  .adventure-run-item__actions button.adventure-run-item__copy {
+    order: 1;
+    flex-basis: 100%;
   }
 }
 

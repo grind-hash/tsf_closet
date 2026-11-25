@@ -77,6 +77,26 @@ export async function fetchGallerySessions(
 }
 
 /**
+ * セッション1件の一覧用の情報(名前・枚数・開始日・最新画像)を取得する。
+ * 一覧のどのページにあるかによらず引ける。無ければ null
+ */
+export async function fetchGallerySession(
+  sessionId: string,
+): Promise<GallerySession | null> {
+  const params = new URLSearchParams({
+    page: "1",
+    page_size: "1",
+    session_id: sessionId,
+  });
+  const data = await requestJson<GallerySessionsResponse>(
+    `${API_BASE}/gallery/sessions?${params}`,
+    undefined,
+    { fallbackMessage: "セッションの取得に失敗しました" },
+  );
+  return data.sessions[0] ?? null;
+}
+
+/**
  * ギャラリー一覧を取得
  */
 export async function fetchGalleryList(
