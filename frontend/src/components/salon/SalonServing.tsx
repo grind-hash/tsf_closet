@@ -26,7 +26,7 @@ import { usePersistedState } from "../../hooks/usePersistedState";
 import { usePlayTurn } from "../../hooks/usePlayTurn";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import {
-  type TransformHandler,
+  type TransformOptions,
   useTransformRequest,
 } from "../../hooks/useTransformRequest";
 import { getSalonRunPath } from "../../routes";
@@ -120,42 +120,27 @@ export default function SalonServing({
   const range = rangeState?.visitId === visitId ? rangeState : null;
   // マスクを使えるのは NovelAI だけ
   const activeRange = isNovelAI ? range : null;
-  const salonTurn = useCallback<TransformHandler>(
-    (
-      instruction,
-      costumeImage,
-      transformationType,
-      options,
-      instructionType,
-      ...rest
-    ) =>
-      playTurn(
-        instruction,
-        costumeImage,
-        transformationType,
-        {
-          ...options,
-          nsfwMode: adultTurn,
-          // マスクは接客画面で選んだ範囲だけを送り、通常プレイのマスクは使わない。
-          // 体験の場面は構図が変わるため、範囲を選んでいても全体を描く
-          maskImage:
-            instructionType === "action" ? undefined : activeRange?.maskDataUrl,
-          maskId:
-            instructionType === "action"
-              ? undefined
-              : (activeRange?.maskId ?? undefined),
-          // 体験の場面(行動の手番)は、主人公と相手役のタグを書き分けて描く。
-          // 混ざると主人公の髪型などが相手役へ移り、主人公の性別が入れ替わって見える
-          ...(instructionType === "action"
-            ? { enableMultiplePeople: true }
-            : {}),
-        },
-        instructionType,
-        ...rest,
-      ),
-    [playTurn, adultTurn, activeRange],
+  // サロンの手番ごとの上書き。精密参照の送信可否と Anlas の枚数もこの上書きで決まる
+  const resolveSalonTurnOverrides = useCallback(
+    (instructionType: string): TransformOptions => ({
+      nsfwMode: adultTurn,
+      // マスクは接客画面で選んだ範囲だけを送り、通常プレイのマスクは使わない。
+      // 体験の場面は構図が変わるため、範囲を選んでいても全体を描く
+      maskImage:
+        instructionType === "action" ? undefined : activeRange?.maskDataUrl,
+      maskId:
+        instructionType === "action"
+          ? undefined
+          : (activeRange?.maskId ?? undefined),
+      // 体験の場面(行動の手番)は、主人公と相手役のタグを書き分けて描く。
+      // 混ざると主人公の髪型などが相手役へ移り、主人公の性別が入れ替わって見える
+      ...(instructionType === "action" ? { enableMultiplePeople: true } : {}),
+    }),
+    [adultTurn, activeRange],
   );
-  const transformRequest = useTransformRequest(salonTurn);
+  const transformRequest = useTransformRequest(playTurn, {
+    resolveTurnOverrides: resolveSalonTurnOverrides,
+  });
   const [act, setAct] = useState<SalonAct | null>(null);
   const [blocked, setBlocked] = useState<"notFound" | "closed" | null>(null);
   const [question, setQuestion] = useState("");

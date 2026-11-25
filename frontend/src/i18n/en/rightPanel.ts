@@ -40,8 +40,10 @@ export const rightPanel = {
   maskSettingsHint: "Edit inpaint masks",
   preciseReferences: "Precise Reference Images:",
   preciseReferenceAnlas: "+5 Anlas per reference image",
-  preciseReferenceV5Unavailable:
-    "Precise references are not available with V5 models. They only take effect with V4.5 models.",
+  preciseReferenceUnsupportedModel:
+    "Precise references are not available in V5 economy mode. Use a V4.5 model or a V5 model other than economy mode.",
+  preciseReferenceInpaintV5:
+    "With V5, precise references are not sent on turns that use inpainting (a mask).",
   addReferenceImage: "📎 Add Reference Image",
   preciseRefDropHint: "or drop images here",
   preciseRefDropActive: "Drop images here",
@@ -50,8 +52,19 @@ export const rightPanel = {
   referenceTypeCharacterStyle: "Character & Style",
   referenceTypeCharacter: "Character",
   referenceTypeStyle: "Style",
+  referenceTypeCostume: "Outfit",
+  costumeV5Only:
+    "Outfit references only work with V5. They are not sent with this model.",
+  includeOutfit: "Also reference outfit",
+  includeOutfitHint:
+    "When ON, draws clothing close to what the character in the reference image wears.",
+  includeOutfitCharacterOnly:
+    "Only used with Character & Style and Character references.",
+  includeOutfitV5Only: "Only takes effect with V5.",
   strength: "Strength",
+  strengthClamped: "Sent as {{value}} with this model.",
   fidelity: "Fidelity",
+  fidelityV5Unused: "V5 does not use fidelity (adjust with strength only).",
   clickToAddTitle: "Click to add: {{items}}",
   deletePresetAria: "Delete {{name}}",
   loadingDots: "...",

@@ -1,6 +1,6 @@
 // Prompt Expander の定数（バックエンド consts/prompt_expander.py のミラー）
 
-import { isV5ImageModel } from "./novelaiImageModels";
+import { isV5ImageModel, preciseReferenceFormat } from "./novelaiImageModels";
 
 /** Prompt Expander で選択できる NovelAI 画像モデル（表示順） */
 export const PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS = [
@@ -117,11 +117,12 @@ export function supportsMangaMode(model: string | null | undefined): boolean {
   return isV5ImageModel(model);
 }
 
-/** 精密参照（NovelAI character reference）の種別 */
+/** 精密参照（NovelAI character reference）の種別。衣装（costume）は V5 のみ */
 export const PROMPT_EXPANDER_REFERENCE_TYPES = [
   "character",
   "style",
   "character&style",
+  "costume",
 ] as const;
 export type PromptExpanderReferenceType =
   (typeof PROMPT_EXPANDER_REFERENCE_TYPES)[number];
@@ -136,14 +137,14 @@ export const PROMPT_EXPANDER_ANLAS_PER_REFERENCE = 5;
 export const PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY =
   "prompt_expander_anlas_warn_suppressed";
 
-/** 精密参照を使える画像モデルか（V4.5 系のみ。V5 は API 非対応） */
+/** 精密参照を使える画像モデルか（V5 Full の節約モードは非対応） */
 export function supportsPreciseReference(
   model: string | null | undefined,
 ): boolean {
   return (
     (PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS as readonly string[]).includes(
       model ?? "",
-    ) && !isV5ImageModel(model)
+    ) && preciseReferenceFormat(model) !== null
   );
 }
 
@@ -161,7 +162,8 @@ export function usesNativeTransparency(
 export type PromptExpanderReferenceTypeI18nKey =
   | "character"
   | "style"
-  | "characterStyle";
+  | "characterStyle"
+  | "costume";
 
 export function referenceTypeI18nKey(
   type: PromptExpanderReferenceType | string,
@@ -169,7 +171,10 @@ export function referenceTypeI18nKey(
   if (type === "character&style") {
     return "characterStyle";
   }
-  return type === "style" ? "style" : "character";
+  if (type === "style" || type === "costume") {
+    return type;
+  }
+  return "character";
 }
 
 /**

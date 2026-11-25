@@ -57,6 +57,12 @@ import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
 import { openPromptExpanderSection } from "../../hooks/usePersistedSectionState";
 import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
 import {
+  clampReferenceStrength,
+  isReferenceTypeSupported,
+  PRECISE_REFERENCE_STRENGTH_MAX,
+  referenceTypeUsesOutfit,
+} from "../../utils/preciseReferences";
+import {
   FavoritePromptInsertButton,
   FavoritePromptSaveButton,
 } from "../favoritePrompts/FavoritePromptButtons";
@@ -233,6 +239,8 @@ export default function PromptExpanderComposer() {
     reference,
     clearReference,
     referenceSupported,
+    referenceFormat,
+    referenceInpaintBlocked,
     transparentActive,
     inpaintMask,
     inpaintActive,
@@ -477,21 +485,49 @@ export default function PromptExpanderComposer() {
   const referenceKindLabel = reference
     ? t(`promptExpander.composer.sourceKind.${reference.kind}`)
     : null;
-  const referenceTypeLabel = t(
+  const referenceIsV5 = referenceFormat === "v5";
+  const referenceUsesOutfit = referenceTypeUsesOutfit(settings.reference_type);
+  const referenceIncludeOutfit = settings.reference_include_outfit ?? false;
+  const referenceTypeName = t(
     `promptExpander.composer.referenceType.${referenceTypeI18nKey(settings.reference_type)}`,
   );
+  const referenceTypeLabel =
+    referenceIsV5 && referenceUsesOutfit && referenceIncludeOutfit
+      ? t("promptExpander.composer.referenceTypeWithOutfit", {
+          type: referenceTypeName,
+        })
+      : referenceTypeName;
+  // 強度スライダーの上限はモデルで変わる（V4.5 は 1.0、V5 は 5.0）
+  const referenceStrengthMax =
+    PRECISE_REFERENCE_STRENGTH_MAX[referenceFormat ?? "v4_5"];
+  const referenceCostumeUnsupported =
+    referenceFormat !== null &&
+    !isReferenceTypeSupported(settings.reference_type, referenceFormat);
   const referenceSummary = !referenceSupported
     ? t("promptExpander.composer.referenceSummaryUnsupported")
     : !settings.use_precise_reference
       ? t("promptExpander.composer.referenceSummaryOff")
-      : !reference
-        ? t("promptExpander.composer.referenceSummaryNoImage")
-        : t("promptExpander.composer.referenceSummaryOn", {
-            type: referenceTypeLabel,
-            strength: settings.reference_strength.toFixed(2),
-            fidelity: settings.reference_fidelity.toFixed(2),
-            cost: options.anlasPerReference,
-          });
+      : referenceCostumeUnsupported
+        ? t("promptExpander.composer.referenceSummaryCostumeV45")
+        : referenceInpaintBlocked
+          ? t("promptExpander.composer.referenceSummaryInpaintV5")
+          : !reference
+            ? t("promptExpander.composer.referenceSummaryNoImage")
+            : referenceIsV5
+              ? t("promptExpander.composer.referenceSummaryOnV5", {
+                  type: referenceTypeLabel,
+                  strength: settings.reference_strength.toFixed(2),
+                  cost: options.anlasPerReference,
+                })
+              : t("promptExpander.composer.referenceSummaryOn", {
+                  type: referenceTypeLabel,
+                  strength: Math.min(
+                    settings.reference_strength,
+                    referenceStrengthMax,
+                  ).toFixed(2),
+                  fidelity: settings.reference_fidelity.toFixed(2),
+                  cost: options.anlasPerReference,
+                });
   // 背景透過の説明はモデル世代と漫画モードで切り替える（スイッチ自体は常に操作できる）
   const transparentHint = mangaActive
     ? t("promptExpander.composer.transparentHintManga")
@@ -1385,7 +1421,7 @@ export default function PromptExpanderComposer() {
         </span>
       </PromptExpanderSection>
 
-      {/* ⑦ 精密参照（V4.5 系のみ）。i2i 元とは別の参照画像で人物の同一性を固定する */}
+      {/* ⑦ 精密参照（V5 節約モード以外）。i2i 元とは別の参照画像で人物の同一性を固定する */}
       <PromptExpanderSection
         id="reference"
         title={t("promptExpander.composer.sectionReference")}
@@ -1405,7 +1441,7 @@ export default function PromptExpanderComposer() {
               title={
                 referenceSupported
                   ? undefined
-                  : t("promptExpander.composer.referenceRequiresV45")
+                  : t("promptExpander.composer.referenceUnsupportedModel")
               }
             />
           </>
@@ -1413,7 +1449,12 @@ export default function PromptExpanderComposer() {
       >
         {!referenceSupported && (
           <p className="prompt-expander__hint prompt-expander__hint--warning">
-            {t("promptExpander.composer.referenceRequiresV45")}
+            {t("promptExpander.composer.referenceUnsupportedModel")}
+          </p>
+        )}
+        {referenceInpaintBlocked && settings.use_precise_reference && (
+          <p className="prompt-expander__hint prompt-expander__hint--warning">
+            {t("promptExpander.composer.referenceInpaintV5")}
           </p>
         )}
         <p className="prompt-expander__hint">
@@ -1483,24 +1524,57 @@ export default function PromptExpanderComposer() {
             role="radiogroup"
             aria-label={t("promptExpander.composer.referenceTypeLabel")}
           >
-            {PROMPT_EXPANDER_REFERENCE_TYPES.map((type) => (
-              <label
-                key={type}
-                className={`prompt-expander__radio ${settings.reference_type === type ? "is-active" : ""}`}
-              >
-                <input
-                  type="radio"
-                  name="prompt-expander-reference-type"
-                  value={type}
-                  checked={settings.reference_type === type}
-                  onChange={() => void updateSettings({ reference_type: type })}
-                />
-                {t(
-                  `promptExpander.composer.referenceType.${referenceTypeI18nKey(type)}`,
-                )}
-              </label>
-            ))}
+            {PROMPT_EXPANDER_REFERENCE_TYPES.map((type) => {
+              // 衣装の参照は V5 のみ。選択中なら他モデルでも表示だけは残す
+              const typeDisabled =
+                referenceFormat !== null &&
+                !isReferenceTypeSupported(type, referenceFormat) &&
+                settings.reference_type !== type;
+              return (
+                <label
+                  key={type}
+                  className={`prompt-expander__radio ${settings.reference_type === type ? "is-active" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="prompt-expander-reference-type"
+                    value={type}
+                    checked={settings.reference_type === type}
+                    disabled={typeDisabled}
+                    onChange={() =>
+                      void updateSettings({ reference_type: type })
+                    }
+                  />
+                  {t(
+                    `promptExpander.composer.referenceType.${referenceTypeI18nKey(type)}`,
+                  )}
+                </label>
+              );
+            })}
           </div>
+          {referenceCostumeUnsupported && (
+            <span className="prompt-expander__hint prompt-expander__hint--warning">
+              {t("promptExpander.composer.referenceCostumeV5Only")}
+            </span>
+          )}
+        </div>
+        {/* 衣装も参照する（V5 のキャラ系の参照だけ効く。他は無効にして理由を出す） */}
+        <div className="prompt-expander__field">
+          <PromptExpanderSwitch
+            checked={referenceIncludeOutfit}
+            onChange={(checked) =>
+              void updateSettings({ reference_include_outfit: checked })
+            }
+            label={t("promptExpander.composer.referenceIncludeOutfit")}
+            disabled={!referenceIsV5 || !referenceUsesOutfit}
+          />
+          <span className="prompt-expander__hint">
+            {!referenceUsesOutfit
+              ? t("promptExpander.composer.referenceIncludeOutfitCharacterOnly")
+              : referenceIsV5
+                ? t("promptExpander.composer.referenceIncludeOutfitHint")
+                : t("promptExpander.composer.referenceIncludeOutfitV5Only")}
+          </span>
         </div>
         <div className="prompt-expander__field">
           <label
@@ -1515,9 +1589,9 @@ export default function PromptExpanderComposer() {
             type="range"
             className="prompt-expander__range"
             min={0}
-            max={1}
+            max={referenceStrengthMax}
             step={0.05}
-            value={settings.reference_strength}
+            value={Math.min(settings.reference_strength, referenceStrengthMax)}
             disabled={!reference}
             title={
               reference
@@ -1530,6 +1604,17 @@ export default function PromptExpanderComposer() {
               })
             }
           />
+          {referenceFormat !== null &&
+            settings.reference_strength > referenceStrengthMax && (
+              <span className="prompt-expander__hint">
+                {t("promptExpander.composer.referenceStrengthClamped", {
+                  value: clampReferenceStrength(
+                    settings.reference_strength,
+                    referenceFormat,
+                  ).toFixed(2),
+                })}
+              </span>
+            )}
           <label
             className="prompt-expander__label"
             htmlFor="prompt-expander-reference-fidelity"
@@ -1545,7 +1630,7 @@ export default function PromptExpanderComposer() {
             max={1}
             step={0.05}
             value={settings.reference_fidelity}
-            disabled={!reference}
+            disabled={!reference || referenceIsV5}
             title={
               reference
                 ? undefined
@@ -1557,6 +1642,11 @@ export default function PromptExpanderComposer() {
               })
             }
           />
+          {referenceIsV5 && (
+            <span className="prompt-expander__hint">
+              {t("promptExpander.composer.referenceFidelityV5Unused")}
+            </span>
+          )}
           {!reference && (
             <span className="prompt-expander__hint">
               {t("promptExpander.composer.referenceDisabledReason")}

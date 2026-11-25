@@ -1472,6 +1472,7 @@ def _romance_partner_scene_reference(
     image_prompt: AdventureImagePromptOutput,
     *,
     reference_override: bytes | None = None,
+    image_model: str | None = None,
 ) -> dict[str, Any] | None:
     """合成シーン用に攻略対象の character reference を組み立てる。
 
@@ -1514,15 +1515,12 @@ def _romance_partner_scene_reference(
     )
     if not partner_tags:
         return None
-    strength, fidelity = _character_reference_strength(
-        outfit_changed=True, has_fresh_portrait=reference_override is not None
+    return _character_reference_entry(
+        reference_bytes,
+        outfit_changed=True,
+        has_fresh_portrait=reference_override is not None,
+        image_model=image_model,
     )
-    return {
-        "image": reference_bytes,
-        "type": "character",
-        "strength": strength,
-        "fidelity": fidelity,
-    }
 
 
 _GENDER_TAG_PATTERN = re.compile(
@@ -7198,6 +7196,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                             character_reference_image_override is not None
                             and character_reference_is_fresh
                         ),
+                        image_model=effective_image_model,
                     )
                 ]
                 # romance では攻略対象がシーンに登場するターンに限り、
@@ -7206,6 +7205,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                     state,
                     image_prompt,
                     reference_override=partner_reference_image_override,
+                    image_model=effective_image_model,
                 )
                 if partner_reference is not None:
                     character_references.append(partner_reference)
@@ -7707,6 +7707,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                             reference_path.read_bytes(),
                             outfit_changed=outfit_changed,
                             has_fresh_portrait=False,
+                            image_model=effective_image_model,
                         )
                     ]
                 result = await self._dispatch_image_generation(
@@ -7850,6 +7851,7 @@ All values must be concise English comma-separated tags. scene_tags contains onl
                         reference_path.read_bytes(),
                         outfit_changed=True,
                         has_fresh_portrait=False,
+                        image_model=effective_image_model,
                     )
                 ]
             result = await self._dispatch_image_generation(

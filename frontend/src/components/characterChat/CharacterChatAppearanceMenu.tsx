@@ -38,6 +38,8 @@ interface CharacterChatAppearanceMenuProps {
   onRedrawFromScene?: () => void;
   /** NovelAI のときだけ精密参照(Anlas 消費)の選択を出す */
   preciseAvailable?: boolean;
+  /** 精密参照に非対応のモデル(V5 節約モード)。選択は無効にして理由を出す */
+  preciseUnsupportedModel?: boolean;
   usePrecise?: boolean;
   onUsePreciseChange?: (next: boolean) => void;
 }
@@ -63,6 +65,7 @@ export default function CharacterChatAppearanceMenu({
   onAdventureMode,
   onRedrawFromScene,
   preciseAvailable = false,
+  preciseUnsupportedModel = false,
   usePrecise = false,
   onUsePreciseChange,
 }: CharacterChatAppearanceMenuProps) {
@@ -373,13 +376,18 @@ export default function CharacterChatAppearanceMenu({
                           {t("characterChat.room.adventurePreciseToggle")}
                         </strong>
                         <small>
-                          {t("characterChat.room.adventurePreciseHint")}
+                          {t(
+                            preciseUnsupportedModel
+                              ? "characterChat.room.preciseEconomyHint"
+                              : "characterChat.room.adventurePreciseHint",
+                          )}
                         </small>
                       </span>
                       <input
                         type="checkbox"
                         className="character-chat__switch-input"
                         checked={usePrecise}
+                        disabled={preciseUnsupportedModel}
                         onChange={(event) =>
                           onUsePreciseChange?.(event.target.checked)
                         }

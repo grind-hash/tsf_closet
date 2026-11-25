@@ -250,7 +250,7 @@ export default function PromptExpanderScreen() {
         onConfirm={handleUsageConfirm}
         onCancel={cancelUsageWarn}
       />
-      {/* 精密参照の Anlas 確認。V5 上限警告とはモデル系統で排他だが、同時表示は避ける */}
+      {/* 精密参照の Anlas 確認。V5 上限警告を確定した後に続けて出す（同時には出さない） */}
       <AnlasConfirmDialog
         open={pendingUsageWarn === null && pendingReferenceWarn !== null}
         body={t("promptExpander.reference.anlasBody", {

@@ -41,6 +41,8 @@ interface CharacterChatExpressionMenuProps {
   portraitAvailable: boolean;
   /** NovelAI のときだけ精密参照(Anlas 消費)の選択を出す */
   preciseAvailable: boolean;
+  /** 精密参照に非対応のモデル(V5 節約モード)。選択は無効にして理由を出す */
+  preciseUnsupportedModel?: boolean;
   /** 表情差分を描く(精密参照の確認は呼び出し側で挟む) */
   onGenerateExpressions: (expressions: string[], usePrecise: boolean) => void;
 }
@@ -58,6 +60,7 @@ export default function CharacterChatExpressionMenu({
   expressionPortraits,
   portraitAvailable,
   preciseAvailable,
+  preciseUnsupportedModel = false,
   onGenerateExpressions,
 }: CharacterChatExpressionMenuProps) {
   const { t } = useTranslation();
@@ -234,13 +237,18 @@ export default function CharacterChatExpressionMenu({
                       {t("characterChat.room.adventurePreciseToggle")}
                     </strong>
                     <small>
-                      {t("characterChat.room.expressionPreciseHint")}
+                      {t(
+                        preciseUnsupportedModel
+                          ? "characterChat.room.preciseEconomyHint"
+                          : "characterChat.room.expressionPreciseHint",
+                      )}
                     </small>
                   </span>
                   <input
                     type="checkbox"
                     className="character-chat__switch-input"
-                    checked={usePrecise}
+                    checked={usePrecise && !preciseUnsupportedModel}
+                    disabled={preciseUnsupportedModel}
                     onChange={(event) => setUsePrecise(event.target.checked)}
                   />
                   <span className="character-chat__switch" />
@@ -270,7 +278,9 @@ export default function CharacterChatExpressionMenu({
                       PORTRAIT_EXPRESSIONS.filter((key) =>
                         chosen.includes(key),
                       ),
-                      preciseAvailable && usePrecise,
+                      preciseAvailable &&
+                        !preciseUnsupportedModel &&
+                        usePrecise,
                     );
                     setSelected(null);
                   }}

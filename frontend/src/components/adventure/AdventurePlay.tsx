@@ -94,6 +94,7 @@ export default function AdventurePlay({ runId }: { runId: string }) {
     clearError,
     companionAvatarFailed,
     setCompanionAvatarFailed,
+    activeRunPreciseReferenceAvailable,
   } = useAdventure();
   const streamingNarrative = useAdventureStreamingNarrative();
   const { showNotification } = useNotification();
@@ -185,9 +186,12 @@ export default function AdventurePlay({ runId }: { runId: string }) {
   // 精密参照ONのrunではAnlasを消費するため残高を表示する。
   // streamingがfalseへ戻るたび(=各ストリーム完了後)に再取得する。
   // Anlasを消費するのはNovelAIプロバイダーのときだけ
-  const usePreciseReference = activeRun?.use_precise_reference ?? false;
+  // 精密参照に非対応のモデル(V5 節約モード)では ON でも参照は送られない
+  const usePreciseReference =
+    (activeRun?.use_precise_reference ?? false) &&
+    activeRunPreciseReferenceAvailable;
   // run 単位のモデル上書きを含めた実効モデルでV5判定する。
-  // ギアの表示・精密参照の可否・利用上限表示の出し分けに使う
+  // 利用上限表示の出し分けに使う
   const runIsV5 =
     settingsState.imageProvider === "novelai" &&
     isV5ImageModel(
@@ -811,7 +815,6 @@ export default function AdventurePlay({ runId }: { runId: string }) {
           >
             <AdventureImageSettingsPopover
               imageSettings={playImageSettings}
-              runIsV5={runIsV5}
               isCompanion={isCompanion}
               drawPortraitEveryTurn={drawPortraitEveryTurn}
               onDrawPortraitEveryTurnChange={setDrawPortraitEveryTurn}

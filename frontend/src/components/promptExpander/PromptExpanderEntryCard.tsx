@@ -287,13 +287,31 @@ export default function PromptExpanderEntryCard({
               <>
                 <dt>{t("promptExpander.entry.referenceDetail")}</dt>
                 <dd>
-                  {t("promptExpander.entry.referenceDetailValue", {
-                    type: t(
+                  {(() => {
+                    const typeName = t(
                       `promptExpander.composer.referenceType.${referenceTypeI18nKey(entry.reference_type)}`,
-                    ),
-                    strength: (entry.reference_strength ?? 0).toFixed(2),
-                    fidelity: (entry.reference_fidelity ?? 0).toFixed(2),
-                  })}
+                    );
+                    const strength = (entry.reference_strength ?? 0).toFixed(2);
+                    // V5 の参照は忠実度を持たず、衣装の有無を記録している
+                    if (entry.reference_fidelity === null) {
+                      return t("promptExpander.entry.referenceDetailValueV5", {
+                        type: entry.reference_include_outfit
+                          ? t(
+                              "promptExpander.composer.referenceTypeWithOutfit",
+                              {
+                                type: typeName,
+                              },
+                            )
+                          : typeName,
+                        strength,
+                      });
+                    }
+                    return t("promptExpander.entry.referenceDetailValue", {
+                      type: typeName,
+                      strength,
+                      fidelity: entry.reference_fidelity.toFixed(2),
+                    });
+                  })()}
                 </dd>
               </>
             )}

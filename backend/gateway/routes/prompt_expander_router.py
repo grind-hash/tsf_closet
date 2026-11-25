@@ -85,7 +85,12 @@ def _http_error(exc: PromptExpanderError) -> HTTPException:
         "too_many_characters": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "unsupported_image_model": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "manga_requires_v5": status.HTTP_422_UNPROCESSABLE_ENTITY,
-        "precise_reference_requires_v45": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "precise_reference_unsupported_model": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "precise_reference_type_unsupported": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "precise_reference_strength_out_of_range": (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+        ),
+        "precise_reference_inpaint_unsupported": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "inpaint_requires_source": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "invalid_llm_output": status.HTTP_502_BAD_GATEWAY,
         "llm_failed": status.HTTP_502_BAD_GATEWAY,
@@ -288,6 +293,7 @@ async def generate_image(session_id: str, body: PromptExpanderGenerateRequest):
         reference_entry_id=body.reference_entry_id,
         reference_image=body.reference_image,
         reference_type=body.reference_type,
+        reference_include_outfit=body.reference_include_outfit,
         reference_strength=body.reference_strength,
         reference_fidelity=body.reference_fidelity,
         transparent_background=body.transparent_background,

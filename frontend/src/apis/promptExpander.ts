@@ -51,6 +51,8 @@ export interface PromptExpanderSettings {
   /** 精密参照（V4.5 系のみ）の UI トグル。参照画像そのものはセッション内状態 */
   use_precise_reference: boolean;
   reference_type: PromptExpanderReferenceType;
+  /** 衣装も参照するか（V5 のキャラ系の参照だけ効く） */
+  reference_include_outfit?: boolean;
   reference_strength: number;
   reference_fidelity: number;
   /** 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き） */
@@ -133,7 +135,10 @@ export interface PromptExpanderEntry {
   reference_history_id: string | null;
   reference_entry_id: string | null;
   reference_type: PromptExpanderReferenceType | null;
+  /** 衣装も参照したか（V5 の参照のときだけ値を持つ） */
+  reference_include_outfit?: boolean | null;
   reference_strength: number | null;
+  /** 忠実度（V4.5 の参照のときだけ値を持つ） */
   reference_fidelity: number | null;
   /** インペイント（部分修正）で生成したか。マスクは mask_url から取得できる */
   inpaint: boolean;
@@ -217,6 +222,7 @@ export interface PromptExpanderGenerateRequest {
   /** reference_kind="upload" のときに必須（base64 または data URL） */
   reference_image?: string;
   reference_type?: PromptExpanderReferenceType;
+  reference_include_outfit?: boolean;
   reference_strength?: number;
   reference_fidelity?: number;
   transparent_background?: boolean;

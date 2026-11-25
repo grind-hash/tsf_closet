@@ -506,14 +506,28 @@ function Probe() {
       <button
         type="button"
         onClick={() =>
-          // 設定モックはステートレスなので、V5 切替と参照 ON を 1 回の PUT で送る
+          // 設定モックはステートレスなので、V5 切替と参照の設定を 1 回の PUT で送る
           void ctx.updateSettings({
             image_model: "nai-diffusion-5-full",
             use_precise_reference: true,
+            reference_type: "costume",
+            reference_include_outfit: true,
+            reference_strength: 3,
           })
         }
       >
         reference-on-v5
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx.updateSettings({
+            image_model: "nai-diffusion-5-full-medium",
+            use_precise_reference: true,
+          })
+        }
+      >
+        reference-on-economy
       </button>
       <button
         type="button"
@@ -1240,7 +1254,43 @@ describe("PromptExpanderContext", () => {
     expect(screen.getByTestId("pending-usage").textContent).toBe("no");
   });
 
-  it("precise reference is sent only with the toggle on, a V4.5 model and a selected image, and waits for the Anlas confirm", async () => {
+  it("continues from the V5 usage warning to the precise reference confirm", async () => {
+    mockState.imageModel = "nai-diffusion-5-full";
+    mockState.anlasUsagePercent = 0;
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-reference" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "reference-on" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("reference-active").textContent).toBe("on"),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("pending-usage").textContent).toBe("yes"),
+    );
+    // 上限警告を確定しても、精密参照の Anlas 確認を飛ばさない
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "usage-confirm" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("pending-reference").textContent).toBe("yes"),
+    );
+    expect(findCalls("/generate", "POST")).toHaveLength(0);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "reference-confirm" }),
+      );
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    expect(lastBody("/generate", "POST").reference_kind).toBe("entry");
+  });
+
+  it("precise reference is sent only with the toggle on, a supported model and a selected image, and waits for the Anlas confirm", async () => {
     await openSessionAndWait();
     fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
     // 参照画像だけ選んでもトグルが OFF なら載らない
@@ -1293,9 +1343,27 @@ describe("PromptExpanderContext", () => {
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(3));
     expect(screen.getByTestId("pending-reference").textContent).toBe("no");
 
-    // V5 に切り替えると設定は残るが参照は載らない
+    // V5 では衣装の参照・衣装トグル・1.0 を超える強度も送る
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "reference-on-v5" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("reference-active").textContent).toBe("on"),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(4));
+    const v5Body = lastBody("/generate", "POST");
+    expect(v5Body.reference_type).toBe("costume");
+    expect(v5Body.reference_include_outfit).toBe(true);
+    expect(v5Body.reference_strength).toBe(3);
+
+    // V5 Full の節約モードに切り替えると設定は残るが参照は載らない
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "reference-on-economy" }),
+      );
     });
     await waitFor(() =>
       expect(screen.getByTestId("reference-active").textContent).toBe("off"),
@@ -1303,7 +1371,7 @@ describe("PromptExpanderContext", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
-    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(4));
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(5));
     expect(lastBody("/generate", "POST")).not.toHaveProperty("reference_kind");
   });
 

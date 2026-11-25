@@ -119,6 +119,8 @@ export const characters = {
     generatingHint:
       "画像生成には1分ほどかかることがあります。描き終わるまでこの画面を開いたままにしてください。",
     needTags: "外見タグを入れると描けます。",
+    preciseEconomyHint:
+      "V5 Full の節約モードでは精密参照は使えません。V4.5 か V5（節約モード以外）のモデルで使えます。",
     precise: "精密参照を使う",
     preciseHint:
       "いまの立ち絵を精密参照（character reference）として送り、参照1枚あたり Anlas を追加消費します。",

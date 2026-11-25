@@ -254,7 +254,7 @@ Text generation (mood text) can also be switched via `FEELING_PROVIDER`.
 >
 > - The image models used for NSFW and SFW (V4.5 Full / V5 Full / V4.5 Curated / V5 Curated) can each be selected in the settings screen.
 > - Remaining V5 usage is displayed (generation after the cap consumes Anlas).
-> - Precise reference is available only with V4.5 models.
+> - Precise reference is available with V4.5 and V5 (Full / Curated); V5 Full economy mode is not supported. With V5 you can choose the "Outfit" reference type and "Also reference outfit", and strength goes up to 5.0 (fidelity was removed in V5). It cannot be combined with V5 inpainting.
 
 ---
 
@@ -364,7 +364,7 @@ An experimental screen that expands natural-language instructions into NovelAI p
 - Output format is selectable (Japanese text / tags). History is managed per session with restore, regenerate, use-as-i2i-source, and hand-off to normal play / TSF Scenario
 - Character prompts are supported (up to 22 slots on V5 models, 6 on V4.5). Preferred character ideas can be suggested from memory and inserted into slots
 - Manga (panel) mode (NAI Diffusion V5 models only): choose panel count, layout, reading order (Japanese right-to-left by default), and dialogue language. A synopsis can be drafted into notation-annotated script
-- Inpainting (partial fixes), precise reference (V4.5 models only; each reference costs additional Anlas), transparent backgrounds, and drag & drop onto the screen are supported
+- Inpainting (partial fixes), precise reference (all models except V5 Full economy mode; each reference costs additional Anlas; cannot be combined with inpainting on V5), transparent backgrounds, and drag & drop onto the screen are supported
 
 <!-- TODO: screenshot repo_resources/screen11_prompt_expander.png (manga mode) -->
 

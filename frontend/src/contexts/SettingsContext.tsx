@@ -31,6 +31,9 @@ import {
   DEFAULT_NSFW_IMAGE_MODEL,
   DEFAULT_SFW_IMAGE_MODEL,
   isV5ImageModel,
+  type PreciseReferenceFormat,
+  preciseReferenceFormat,
+  resolveEffectiveNovelaiImageModel,
 } from "../constants/novelaiImageModels";
 import i18n from "../i18n";
 import type {
@@ -684,6 +687,11 @@ interface SettingsContextType {
   effectiveNovelaiImageModel: string;
   /** NovelAIプロバイダーかつ実効モデルがV5系のとき true */
   isNovelaiV5Active: boolean;
+  /**
+   * 実効モデルでの精密参照の送信形式。NovelAI 以外のプロバイダーと、
+   * 精密参照に非対応のモデル（V5 節約モード）では null
+   */
+  novelaiPreciseReferenceFormat: PreciseReferenceFormat | null;
   setTtsEnabled: (enabled: boolean) => void;
   setTtsUseGpu: (enabled: boolean) => void;
   setTtsEngineDir: (engineDir: string) => void;
@@ -1396,12 +1404,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // 現在のNSFW設定で実際に使われるNovelAI画像モデルとV5判定
-  const effectiveNovelaiImageModel = state.nsfwMode
-    ? state.novelaiImageModel
-    : state.novelaiCuratedImageModel;
+  const effectiveNovelaiImageModel = resolveEffectiveNovelaiImageModel(state);
   const isNovelaiV5Active =
     state.imageProvider === "novelai" &&
     isV5ImageModel(effectiveNovelaiImageModel);
+  const novelaiPreciseReferenceFormat =
+    state.imageProvider === "novelai"
+      ? preciseReferenceFormat(effectiveNovelaiImageModel)
+      : null;
 
   const value = useMemo<SettingsContextType>(
     () => ({
@@ -1468,6 +1478,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setNovelaiCuratedImageModel,
       effectiveNovelaiImageModel,
       isNovelaiV5Active,
+      novelaiPreciseReferenceFormat,
       setTtsEnabled,
       setTtsUseGpu,
       setTtsEngineDir,
@@ -1545,6 +1556,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setNovelaiCuratedImageModel,
       effectiveNovelaiImageModel,
       isNovelaiV5Active,
+      novelaiPreciseReferenceFormat,
       setTtsEnabled,
       setTtsUseGpu,
       setTtsEngineDir,

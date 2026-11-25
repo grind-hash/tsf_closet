@@ -13,7 +13,11 @@ from typing import Any
 
 from PIL import Image
 
-from ..consts.novelai_models import is_v5_image_model, supports_character_references
+from ..consts.novelai_models import (
+    is_v5_image_model,
+    precise_reference_format,
+    supports_character_references,
+)
 from ..settings.config import settings
 from .clothing_layers import (
     merge_negative_prompt,
@@ -33,6 +37,11 @@ class PortraitGenerationError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+# V5 の自動参照（立ち絵・Adventure）の強度。実生成で衣装 OFF でも顔・髪型が保たれ、
+# 衣装 ON で服も引き継がれることを確かめた値
+V5_AUTO_REFERENCE_STRENGTH = 1.0
 
 
 def character_reference_strength(
@@ -56,9 +65,26 @@ REDRAW_REFERENCE_INSTRUCTION = (
 
 
 def character_reference_entry(
-    image_bytes: bytes, *, outfit_changed: bool, has_fresh_portrait: bool
+    image_bytes: bytes,
+    *,
+    outfit_changed: bool,
+    has_fresh_portrait: bool,
+    image_model: str | None,
 ) -> dict[str, Any]:
-    """NovelAI の character reference 1 件分（強度・忠実度込み）。"""
+    """NovelAI の character reference 1 件分（強度・忠実度込み）。
+
+    V5 形式は「衣装も参照する」で旧衣装の引き継ぎを切り替えられるため、強度は
+    下げずに include_outfit で表す。V4.5 形式は衣装変更時に弱参照へ落とす。
+    """
+    include_outfit = has_fresh_portrait or not outfit_changed
+    if precise_reference_format(image_model) == "v5":
+        return {
+            "image": image_bytes,
+            "type": "character",
+            "include_outfit": include_outfit,
+            "strength": V5_AUTO_REFERENCE_STRENGTH,
+            "fidelity": 1.0,
+        }
     strength, fidelity = character_reference_strength(
         outfit_changed=outfit_changed, has_fresh_portrait=has_fresh_portrait
     )
@@ -159,7 +185,10 @@ async def generate_portrait_bytes(
             # 服装は変わり得るため弱めに参照する(Adventure の攻略対象立ち絵と同じ)
             character_references = [
                 character_reference_entry(
-                    reference_bytes, outfit_changed=True, has_fresh_portrait=False
+                    reference_bytes,
+                    outfit_changed=True,
+                    has_fresh_portrait=False,
+                    image_model=image_model,
                 )
             ]
         result = await image_service.generate_image(
@@ -256,7 +285,10 @@ async def generate_expression_bytes(
         if use_character_reference and supports_character_references(image_model):
             character_references = [
                 character_reference_entry(
-                    reference_bytes, outfit_changed=False, has_fresh_portrait=True
+                    reference_bytes,
+                    outfit_changed=False,
+                    has_fresh_portrait=True,
+                    image_model=image_model,
                 )
             ]
         result = await image_service.generate_image(

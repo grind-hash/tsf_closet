@@ -119,6 +119,8 @@ export const characters = {
     generatingHint:
       "Image generation can take about a minute. Keep this screen open until it finishes.",
     needTags: "Enter appearance tags to draw a portrait.",
+    preciseEconomyHint:
+      "Precise references are not available in V5 Full economy mode. Use a V4.5 model or a V5 model other than economy mode.",
     precise: "Use precise reference",
     preciseHint:
       "Sends the current portrait as a precise reference (character reference); each reference costs extra Anlas.",

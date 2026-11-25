@@ -17,15 +17,19 @@ from typing import Any, Literal
 import httpx
 from novelai import AsyncNovelAI
 from novelai._utils.converter import async_convert_user_params_to_api_request
+from novelai._utils.image import crop_and_resize
 from novelai.exceptions import NovelAIError
 from novelai.types import Character, CharacterReference, GenerateImageParams, I2iParams
+from novelai.types.api.image import ReferenceCaption, ReferenceConditionInput
 from PIL import Image, ImageFilter
 
 from ..consts.novelai_models import (
     NOVELAI_ECONOMY_STEPS,
     NOVELAI_ECONOMY_UC_PRESET,
+    PRECISE_REFERENCE_STRENGTH_MAX,
     get_image_model_info,
     is_economy_image_model,
+    resolve_v5_reference_caption,
 )
 from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MASK_GRID_DIVISOR as MASK_GRID_DIVISOR,
@@ -77,6 +81,87 @@ def _normalize_alpha_image(image: Image.Image) -> Image.Image:
     table = [0 if value < ALPHA_SNAP_THRESHOLD else value for value in range(256)]
     image.putalpha(alpha.point(table))
     return image
+
+
+# V4.5 形式（SDK の CharacterReference）で送れる精密参照の種別
+_V4_5_REFERENCE_TYPES = ("character&style", "character", "style")
+
+
+def _reference_image_bytes(image: bytes | str) -> bytes:
+    """精密参照の画像（bytes か base64 文字列）を bytes にそろえる。"""
+    if isinstance(image, str):
+        return base64.b64decode(image)
+    return image
+
+
+def _clamp_reference_strength(value: object, reference_format: str) -> float:
+    """精密参照の強度を送信形式の範囲に収め、小数第2位に丸める。"""
+    try:
+        strength = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        strength = 1.0
+    upper = PRECISE_REFERENCE_STRENGTH_MAX[reference_format]
+    return round(min(max(strength, 0.0), upper), 2)
+
+
+def _prepare_v5_reference_image(image_bytes: bytes) -> str:
+    """V5 の精密参照画像を送信用の base64 に整形する。
+
+    透過部分は白背景に合成してから、SDK の V4.5 経路と同じ 1024x1536 の
+    黒余白付きリサイズにかける。透過 PNG の RGB は透明部分に任意の色が残るため、
+    そのまま RGB 化すると背景が乱れる。
+    """
+    image = Image.open(BytesIO(image_bytes))
+    has_alpha = image.mode in ("RGBA", "LA", "PA") or (
+        image.mode == "P" and "transparency" in image.info
+    )
+    if has_alpha:
+        rgba = image.convert("RGBA")
+        flattened = Image.new("RGB", rgba.size, (255, 255, 255))
+        flattened.paste(rgba, mask=rgba.getchannel("A"))
+        image = flattened
+    else:
+        image = image.convert("RGB")
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    return crop_and_resize(base64.b64encode(buf.getvalue()).decode("utf-8"))
+
+
+def _apply_v5_director_references(
+    parameters: Any, references: list[dict[str, Any]]
+) -> None:
+    """V5 の精密参照を変換後の API パラメータへ直接設定する。
+
+    novelai-sdk の CharacterReference / ReferenceCaption は V4.5 の3種と強度 1.0 までしか
+    受け付けないため、検証を通さない model_construct で組み立てる。忠実度は V5 で
+    廃止されたため secondary_strength は 0 固定。params_version と
+    normalize_reference_strength_multiple は NovelAI 公式 UI の V5 リクエストに合わせる。
+    """
+    images: list[str] = []
+    descriptions: list[ReferenceConditionInput] = []
+    strengths: list[float] = []
+    for ref in references:
+        images.append(_prepare_v5_reference_image(_reference_image_bytes(ref["image"])))
+        caption = resolve_v5_reference_caption(
+            str(ref.get("type", "character&style")),
+            bool(ref.get("include_outfit", False)),
+        )
+        descriptions.append(
+            ReferenceConditionInput.model_construct(
+                caption=ReferenceCaption.model_construct(
+                    base_caption=caption, char_captions=[]
+                ),
+                legacy_uc=False,
+            )
+        )
+        strengths.append(_clamp_reference_strength(ref.get("strength", 1.0), "v5"))
+    parameters.director_reference_images = images
+    parameters.director_reference_descriptions = descriptions
+    parameters.director_reference_strength_values = strengths
+    parameters.director_reference_secondary_strength_values = [0.0] * len(images)
+    parameters.director_reference_information_extracted = [1.0] * len(images)
+    parameters.params_version = 4
+    parameters.normalize_reference_strength_multiple = True
 
 
 @dataclass
@@ -633,32 +718,55 @@ class NovelAIImageClient:
             f"[Inpaint Debug] use_inpaint={use_inpaint}, model={model_to_use}, action={action_to_use}, strength={strength}, economy={economy}"
         )
 
-        # V5系モデルは精密参照（character reference）非対応のため防御的に破棄する
-        if character_references and model_info.is_v5:
+        # 精密参照の送信形式は要求モデルで決める（インペイントでは送信モデルが変わる）
+        reference_format = model_info.precise_reference_format
+        if character_references and reference_format is None:
             logger.warning(
-                "Character references are not supported by V5 models; dropping %d references",
+                "Precise references are not supported by %s; dropping %d references",
+                wire_model,
+                len(character_references),
+            )
+            character_references = None
+        if character_references and use_inpaint and model_info.is_v5:
+            # V5 系は精密参照つきインペイントに未対応（NovelAI 公式）。V5 Curated の
+            # インペイントは V4.5 のモデルで送るが、要求モデルに合わせて同じく送らない
+            logger.warning(
+                "Precise references are not supported for V5 inpainting; dropping %d references",
                 len(character_references),
             )
             character_references = None
 
-        # Build SDK CharacterReference objects from request dicts
+        # V5 形式は SDK を通さず、変換後のリクエストへ直接設定する
+        v5_references: list[dict[str, Any]] | None = None
         sdk_char_refs: list[CharacterReference] | None = None
-        if character_references:
+        if character_references and reference_format == "v5":
+            v5_references = list(character_references)
+            logger.info("V5 precise references: %d items", len(v5_references))
+        elif character_references:
             sdk_char_refs = []
             for ref in character_references:
-                image_data = ref["image"]
-                # Base64 string -> bytes for SDK
-                if isinstance(image_data, str):
-                    image_data = base64.b64decode(image_data)
+                ref_type = ref.get("type", "character&style")
+                if ref_type not in _V4_5_REFERENCE_TYPES:
+                    # 衣装参照は V5 のみ。SDK の Literal 検証で落ちるため送らない
+                    logger.warning(
+                        "Precise reference type %s is not supported by %s; dropping it",
+                        ref_type,
+                        wire_model,
+                    )
+                    continue
                 sdk_char_refs.append(
                     CharacterReference(
-                        image=image_data,
-                        type=ref.get("type", "character&style"),
-                        strength=ref.get("strength", 1.0),
+                        image=_reference_image_bytes(ref["image"]),
+                        type=ref_type,
+                        strength=_clamp_reference_strength(
+                            ref.get("strength", 1.0), "v4_5"
+                        ),
                         fidelity=ref.get("fidelity", 1.0),
                     )
                 )
             logger.info("Character references: %d items", len(sdk_char_refs))
+            if not sdk_char_refs:
+                sdk_char_refs = None
 
         # Determine the seed to use
         actual_seed = seed if seed is not None else random.randint(0, 999999999)
@@ -714,6 +822,8 @@ class NovelAIImageClient:
             # ここでモデルとアクションを上書きする（リクエスト直前）
             req.model = model_to_use
             req.action = action_to_use
+            if v5_references:
+                _apply_v5_director_references(req.parameters, v5_references)
             if transparent_background and model_info.is_v5 and not use_inpaint:
                 # SDK の入力検証は V5 のモデル名でないと透過指定を拒むため、
                 # ベースモデル名で組み立てた変換後のリクエストへ直接設定する

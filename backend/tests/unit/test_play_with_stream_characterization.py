@@ -678,13 +678,28 @@ async def test_action_surroundings_image_on_novelai(monkeypatch, tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_character_references_dropped_on_v5_model(monkeypatch) -> None:
+async def test_character_references_dropped_on_economy_model(monkeypatch) -> None:
     store = FakeSessionStore()
-    store.user_settings["novelai_curated_image_model"] = "nai-diffusion-5-curated"
+    store.user_settings["nsfw_mode"] = True
+    store.user_settings["novelai_image_model"] = "nai-diffusion-5-full-medium"
     harness = _build(monkeypatch, provider="novelai", store=store)
     await _run(harness, character_references=[{"image": "abc", "type": "character"}])
 
     assert harness.image_calls[0]["character_references"] is None
+    assert harness.image_calls[0]["novelai_image_model_override"] == (
+        "nai-diffusion-5-full-medium"
+    )
+
+
+@pytest.mark.asyncio
+async def test_character_references_kept_on_v5_curated_model(monkeypatch) -> None:
+    store = FakeSessionStore()
+    store.user_settings["novelai_curated_image_model"] = "nai-diffusion-5-curated"
+    harness = _build(monkeypatch, provider="novelai", store=store)
+    refs = [{"image": "abc", "type": "costume", "include_outfit": False}]
+    await _run(harness, character_references=refs)
+
+    assert harness.image_calls[0]["character_references"] == refs
     assert harness.image_calls[0]["novelai_image_model_override"] == (
         "nai-diffusion-5-curated"
     )

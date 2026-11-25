@@ -86,6 +86,7 @@ export default function GamePlayScreen({
     togglePanel,
     setPanelOpen,
     isNovelaiV5Active,
+    novelaiPreciseReferenceFormat,
   } = useSettings();
   const sessionId = gameState.sessionId;
   const currentImageUrl = gameState.currentImage;
@@ -183,7 +184,9 @@ export default function GamePlayScreen({
   // 画面全体への画像ドロップ → 精密参照画像に追加(NovelAI 選択時のみ受け付ける)
   const { addFiles: addPreciseReferenceFiles } = usePreciseReferenceFiles();
   const isPreciseRefDropEnabled = imageProvider === "novelai";
-  const canAddPreciseReference = isPreciseRefDropEnabled && !isNovelaiV5Active;
+  // 精密参照に非対応のモデル（V5 節約モード）では追加させない
+  const canAddPreciseReference =
+    isPreciseRefDropEnabled && novelaiPreciseReferenceFormat !== null;
   const [pendingPreciseRefScroll, setPendingPreciseRefScroll] = useState(false);
 
   const handleScreenPreciseRefDrop = useCallback(
@@ -192,7 +195,7 @@ export default function GamePlayScreen({
         showNotification(
           "warning",
           t("gameplay.preciseRefDropResultTitle"),
-          t("rightPanel.preciseReferenceV5Unavailable"),
+          t("rightPanel.preciseReferenceUnsupportedModel"),
         );
         return;
       }
@@ -707,7 +710,7 @@ export default function GamePlayScreen({
           title={
             canAddPreciseReference
               ? t("gameplay.preciseRefDropTitle")
-              : t("rightPanel.preciseReferenceV5Unavailable")
+              : t("rightPanel.preciseReferenceUnsupportedModel")
           }
           hint={
             canAddPreciseReference

@@ -89,18 +89,27 @@ def test_precise_reference_and_transparency_helpers():
         TRANSPARENT_BACKGROUND_TAGS_V5,
         TRANSPARENT_BACKGROUND_TAGS_V45,
         normalize_reference_type,
+        reference_strength_max,
         supports_precise_reference,
         transparent_background_tags,
     )
 
-    # 精密参照は V4.5 系だけ（V5 は API 非対応、未知名・None も不可）
+    # 精密参照は V4.5 系と V5 Full / Curated（節約モード・未知名・None は不可）
     assert supports_precise_reference("nai-diffusion-4-5-full")
     assert supports_precise_reference("nai-diffusion-4-5-curated")
-    assert not supports_precise_reference("nai-diffusion-5-full")
-    assert not supports_precise_reference("nai-diffusion-5-curated")
+    assert supports_precise_reference("nai-diffusion-5-full")
+    assert supports_precise_reference("nai-diffusion-5-curated")
+    assert not supports_precise_reference("nai-diffusion-5-full-medium")
     assert not supports_precise_reference(None)
     assert not supports_precise_reference("nai-diffusion-3")
-    assert PROMPT_EXPANDER_REFERENCE_TYPES == ("character", "style", "character&style")
+    assert reference_strength_max("nai-diffusion-4-5-full") == 1.0
+    assert reference_strength_max("nai-diffusion-5-full") == 5.0
+    assert PROMPT_EXPANDER_REFERENCE_TYPES == (
+        "character",
+        "style",
+        "character&style",
+        "costume",
+    )
     assert normalize_reference_type("style") == "style"
     assert normalize_reference_type("vibe") == DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
     assert normalize_reference_type(None) == "character"

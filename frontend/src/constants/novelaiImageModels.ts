@@ -35,6 +35,42 @@ export function isEconomyImageModel(name: string | null | undefined): boolean {
   return name ? ECONOMY_IMAGE_MODELS.has(name) : false;
 }
 
+/**
+ * 精密参照の送信形式。"v4_5" は忠実度あり・強度 1.0 まで、"v5" は衣装参照あり・
+ * 強度 5.0 まで・忠実度なし。バックエンド NovelAIImageModelInfo.precise_reference_format のミラー
+ */
+export type PreciseReferenceFormat = "v4_5" | "v5";
+
+const V5_PRECISE_REFERENCE_MODELS = new Set<string>([
+  "nai-diffusion-5-full",
+  "nai-diffusion-5-curated",
+]);
+
+/**
+ * モデル名から精密参照の送信形式を返す。節約モードは精密参照に非対応のため null。
+ * 未知名・空は v4.5 相当として "v4_5"（バックエンドと同じ扱い）
+ */
+export function preciseReferenceFormat(
+  name: string | null | undefined,
+): PreciseReferenceFormat | null {
+  if (!name) return "v4_5";
+  if (ECONOMY_IMAGE_MODELS.has(name)) return null;
+  return V5_PRECISE_REFERENCE_MODELS.has(name) ? "v5" : "v4_5";
+}
+
+/** NSFW 設定から実際に使われる NovelAI 画像モデルを返す（Full 側 / Curated 側） */
+export function resolveEffectiveNovelaiImageModel({
+  nsfwMode,
+  novelaiImageModel,
+  novelaiCuratedImageModel,
+}: {
+  nsfwMode: boolean;
+  novelaiImageModel: string;
+  novelaiCuratedImageModel: string;
+}): string {
+  return nsfwMode ? novelaiImageModel : novelaiCuratedImageModel;
+}
+
 // V5 利用上限使い切り警告の抑止キー（ブラウザセッション単位、sessionStorage）。
 // 通常ゲーム / TSFシナリオ / Prompt Expander で共有する
 export const V5_USAGE_WARN_SUPPRESSED_KEY = "v5_usage_warn_suppressed";

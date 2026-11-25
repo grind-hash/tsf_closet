@@ -3,17 +3,38 @@ import { useSettings } from "../../../contexts/SettingsContext";
 import { usePreciseReferenceDropZone } from "../../../hooks/usePreciseReferenceDropZone";
 import { PRECISE_REFERENCE_SECTION_ID } from "../../../hooks/usePreciseReferenceFiles";
 import type { PreciseReferenceType } from "../../../types";
+import {
+  clampReferenceStrength,
+  isReferenceTypeSupported,
+  PRECISE_REFERENCE_STRENGTH_MAX,
+  referenceTypeUsesOutfit,
+} from "../../../utils/preciseReferences";
 
-/** 精密参照画像(character reference / vibe transfer)の追加と各画像の設定 */
+const noteStyle = {
+  display: "block",
+  fontSize: "0.7rem",
+  marginTop: "0.15rem",
+} as const;
+
+/**
+ * 精密参照画像(character reference)の追加と各画像の設定。
+ * 項目はモデルで出し分けず、効かない組み合わせは無効表示と注記で伝える
+ */
 export default function PreciseReferencesPanel() {
   const { t } = useTranslation();
   const {
     state: settingsState,
     updatePreciseReference,
     removePreciseReference,
-    isNovelaiV5Active,
+    novelaiPreciseReferenceFormat: format,
   } = useSettings();
   const dropZone = usePreciseReferenceDropZone();
+  const unsupported = format === null;
+  const isV5 = format === "v5";
+  const strengthMax = PRECISE_REFERENCE_STRENGTH_MAX[format ?? "v4_5"];
+  const inpaintActive =
+    settingsState.inpaintEnabled &&
+    Boolean(settingsState.inpaintMask.maskDataUrl);
 
   return (
     <div
@@ -25,26 +46,26 @@ export default function PreciseReferencesPanel() {
       <label className="right-panel__label">
         {t("rightPanel.preciseReferences")}
       </label>
-      {isNovelaiV5Active ? (
+      <small
+        className="right-panel__hint"
+        style={{ marginBottom: "0.5rem", display: "block" }}
+      >
+        {unsupported
+          ? t("rightPanel.preciseReferenceUnsupportedModel")
+          : t("rightPanel.preciseReferenceAnlas")}
+      </small>
+      {isV5 && inpaintActive && (
         <small
           className="right-panel__hint"
+          data-testid="precise-ref-inpaint-v5-note"
           style={{ marginBottom: "0.5rem", display: "block" }}
         >
-          {t("rightPanel.preciseReferenceV5Unavailable")}
-        </small>
-      ) : (
-        <small
-          className="right-panel__hint"
-          style={{ marginBottom: "0.5rem", display: "block" }}
-        >
-          {t("rightPanel.preciseReferenceAnlas")}
+          {t("rightPanel.preciseReferenceInpaintV5")}
         </small>
       )}
       <div
-        className={
-          isNovelaiV5Active ? "right-panel__disabled-block" : undefined
-        }
-        aria-disabled={isNovelaiV5Active || undefined}
+        className={unsupported ? "right-panel__disabled-block" : undefined}
+        aria-disabled={unsupported || undefined}
       >
         <input
           ref={dropZone.inputRef}
@@ -207,7 +228,57 @@ export default function PreciseReferencesPanel() {
                   <option value="style">
                     {t("rightPanel.referenceTypeStyle")}
                   </option>
+                  <option value="costume" disabled={!isV5}>
+                    {t("rightPanel.referenceTypeCostume")}
+                  </option>
                 </select>
+                {format !== null &&
+                  !isReferenceTypeSupported(ref.type, format) && (
+                    <small className="right-panel__hint" style={noteStyle}>
+                      {t("rightPanel.costumeV5Only")}
+                    </small>
+                  )}
+              </div>
+
+              {/* 衣装も参照する（V5 のキャラ系の参照だけ有効） */}
+              <div
+                className="right-panel__form-group"
+                style={{ marginBottom: "0.3rem" }}
+              >
+                <label
+                  className="right-panel__toggle"
+                  style={{
+                    opacity:
+                      isV5 && referenceTypeUsesOutfit(ref.type) ? 1 : 0.5,
+                  }}
+                >
+                  <span
+                    className="right-panel__toggle-label"
+                    style={{ fontSize: "0.75rem" }}
+                  >
+                    {t("rightPanel.includeOutfit")}
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="right-panel__toggle-input"
+                    data-testid="precise-ref-include-outfit"
+                    checked={ref.includeOutfit}
+                    disabled={!isV5 || !referenceTypeUsesOutfit(ref.type)}
+                    onChange={(e) =>
+                      updatePreciseReference(ref.id, {
+                        includeOutfit: e.target.checked,
+                      })
+                    }
+                  />
+                  <span className="right-panel__toggle-switch" />
+                </label>
+                <small className="right-panel__hint" style={noteStyle}>
+                  {!referenceTypeUsesOutfit(ref.type)
+                    ? t("rightPanel.includeOutfitCharacterOnly")
+                    : isV5
+                      ? t("rightPanel.includeOutfitHint")
+                      : t("rightPanel.includeOutfitV5Only")}
+                </small>
               </div>
 
               {/* Strength slider */}
@@ -224,22 +295,33 @@ export default function PreciseReferencesPanel() {
                 <input
                   type="range"
                   className="right-panel__slider"
+                  data-testid="precise-ref-strength"
                   min={0}
-                  max={1}
+                  max={strengthMax}
                   step={0.05}
-                  value={ref.strength}
+                  value={Math.min(ref.strength, strengthMax)}
                   onChange={(e) =>
                     updatePreciseReference(ref.id, {
                       strength: parseFloat(e.target.value),
                     })
                   }
                 />
+                {format !== null && ref.strength > strengthMax && (
+                  <small className="right-panel__hint" style={noteStyle}>
+                    {t("rightPanel.strengthClamped", {
+                      value: clampReferenceStrength(
+                        ref.strength,
+                        format,
+                      ).toFixed(2),
+                    })}
+                  </small>
+                )}
               </div>
 
-              {/* Fidelity slider */}
+              {/* Fidelity slider（V5 では廃止） */}
               <div
                 className="right-panel__form-group"
-                style={{ marginBottom: 0 }}
+                style={{ marginBottom: 0, opacity: isV5 ? 0.5 : 1 }}
               >
                 <label
                   className="right-panel__label"
@@ -254,12 +336,18 @@ export default function PreciseReferencesPanel() {
                   max={1}
                   step={0.05}
                   value={ref.fidelity}
+                  disabled={isV5}
                   onChange={(e) =>
                     updatePreciseReference(ref.id, {
                       fidelity: parseFloat(e.target.value),
                     })
                   }
                 />
+                {isV5 && (
+                  <small className="right-panel__hint" style={noteStyle}>
+                    {t("rightPanel.fidelityV5Unused")}
+                  </small>
+                )}
               </div>
             </div>
           </div>

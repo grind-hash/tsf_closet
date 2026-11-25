@@ -43,7 +43,7 @@ export const promptExpander = {
     sectionCharacters: "キャラクタープロンプト",
     sectionI2i: "i2i設定",
     sectionInpaint: "インペイント（部分修正）",
-    sectionReference: "精密参照（V4.5 系のみ）",
+    sectionReference: "精密参照",
     mangaToggle: "漫画モード",
     mangaSummaryOff: "OFF",
     mangaSummaryUnsupported: "V5 専用（現在のモデルでは無効）",
@@ -213,12 +213,29 @@ export const promptExpander = {
     transparentTailNone: "なし（すべて欄に入力済み）",
     referenceToggle: "精密参照を使う",
     referenceSummaryOff: "OFF",
-    referenceSummaryUnsupported: "V4.5 専用（現在のモデルでは無効）",
+    referenceSummaryUnsupported: "節約モードでは無効",
+    referenceSummaryInpaintV5: "V5 のインペイント中は無効",
+    referenceSummaryCostumeV45: "衣装は V5 専用（現在のモデルでは無効）",
     referenceSummaryNoImage: "参照画像なし",
     referenceSummaryOn:
       "{{type}} · 強度 {{strength}} · 忠実度 {{fidelity}} · +{{cost}} Anlas",
-    referenceRequiresV45:
-      "精密参照画像（NovelAI character reference）は NAI Diffusion V4.5 系モデル専用です。V5 系では設定は保持されますが、生成には使われません。",
+    referenceSummaryOnV5: "{{type}} · 強度 {{strength}} · +{{cost}} Anlas",
+    referenceTypeWithOutfit: "{{type}}（衣装も参照）",
+    referenceUnsupportedModel:
+      "V5 Full の節約モードでは精密参照は使えません。設定は保持されますが、生成には使われません。V4.5 か V5（節約モード以外）のモデルで使えます。",
+    referenceInpaintV5:
+      "V5 では精密参照とインペイントを同時に使えません。インペイント中は精密参照を送らずに生成します。",
+    referenceCostumeV5Only:
+      "衣装の参照は V5 だけで使えます。現在のモデルでは生成に使われません。",
+    referenceIncludeOutfit: "衣装も参照する",
+    referenceIncludeOutfitHint:
+      "ONにすると、参照画像のキャラクターが着ている服に近づけて描きます。",
+    referenceIncludeOutfitCharacterOnly:
+      "キャラクター・キャラクター＋画風の参照でだけ使います。",
+    referenceIncludeOutfitV5Only: "V5 のときだけ効きます。",
+    referenceStrengthClamped: "このモデルでは {{value}} として送ります。",
+    referenceFidelityV5Unused:
+      "V5 では忠実度は使われません（強度だけで調整します）。",
     referenceHint:
       "参照画像の人物の顔立ち・体型を固定して生成します。i2i 元とは別に選べるので、参照だけを指定して text-to-image で立ち絵差分（別ポーズ・別衣装）を作れます。",
     referenceNoImage: "参照画像を選ぶと有効になります。",
@@ -232,10 +249,11 @@ export const promptExpander = {
       character: "キャラクター",
       style: "画風",
       characterStyle: "キャラクター＋画風",
+      costume: "衣装",
     },
     referenceStrength: "参照強度",
     referenceFidelity: "忠実度",
-    referenceDisabledReason: "参照画像を選ぶと参照強度と忠実度を調整できます。",
+    referenceDisabledReason: "参照画像を選ぶと参照強度などを調整できます。",
     generate: "生成",
     expanding: "プロンプト化中…",
     expandingHint:
@@ -320,6 +338,7 @@ export const promptExpander = {
     transparentProcessing: "背景を切り抜いています…",
     referenceDetail: "精密参照",
     referenceDetailValue: "{{type}} · 強度 {{strength}} · 忠実度 {{fidelity}}",
+    referenceDetailValueV5: "{{type}} · 強度 {{strength}}",
     restore: "欄へ復元",
     regenerate: "このプロンプトで再生成",
     regenerateTitle:

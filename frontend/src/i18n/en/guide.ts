@@ -15,6 +15,17 @@ export const guide = {
     title: "Normal Play",
     desc: "Give the character dress-up, reality-alteration or action instructions, and an image and inner monologue are generated. The mental parameters (bloom / shame / adaptation) change as you play, with endings and achievements.",
     note: "Choose request mode on the new-play screen and the character asks you for the look they want. Fulfil the wish by dressing them up, and work out their hidden preferences from reactions and hints.",
+    details: [
+      {
+        heading: "Precise reference",
+        items: [
+          'With NovelAI, add images under "Precise Reference Images" in the right panel to draw closer to that character or art style. Each reference costs 5 extra Anlas, and a confirmation appears before sending.',
+          "Available with V4.5 and V5 (Full and Curated). Not available in V5 Full economy mode.",
+          'V5 adds an "Outfit" reference type, and Character & Style or Character references offer "Also reference outfit". It is OFF by default, so clothing follows your instructions. Strength goes up to 5.0 and fidelity is not used.',
+          "With V5, precise references are not sent on turns that use inpainting (a mask).",
+        ],
+      },
+    ],
   },
   gallery: {
     title: "Gallery",
@@ -46,6 +57,13 @@ export const guide = {
           'Press "Copy settings to a new scenario" under "Saved Scenarios" to fill the setup screen with the starting session, mission, setting, goal, constraints, story options, protagonist, name and length (days or turns) of a scenario you played. You can edit everything before you start. For authored scenarios, use "Play this scenario again" instead.',
         ],
       },
+      {
+        heading: "Precise reference",
+        items: [
+          'With NovelAI, turn on "Use precise character reference" on the setup screen or in the image settings to keep the face consistent using the starting image and portraits. Each reference costs 5 extra Anlas. Available with V4.5 and V5 (except economy mode).',
+          "With V5, turns where the outfit changes reference the face and hair without carrying over the old clothes, and turns where the outfit stays reference the clothes too.",
+        ],
+      },
     ],
   },
   talk: {
@@ -72,6 +90,15 @@ export const guide = {
     desc: "Builds image-generation prompts from natural sentences and generates and saves images independently of the game. Manga (panel) mode is also supported.",
     note: "NovelAI provider only.",
     open: "Open Prompt Expander",
+    details: [
+      {
+        heading: "Precise reference",
+        items: [
+          'Pick a reference image under "Precise reference", separate from the i2i source, to keep the face or clothes consistent. Each reference costs 5 extra Anlas. Available with V4.5 and V5 (except economy mode).',
+          'V5 offers the "Outfit" reference type and "Also reference outfit", with strength up to 5.0. With V5 it cannot be combined with inpainting.',
+        ],
+      },
+    ],
   },
   characterChat: {
     title: "Character Chat",

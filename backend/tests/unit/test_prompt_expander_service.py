@@ -1366,23 +1366,103 @@ async def test_generate_entry_passes_character_reference_on_v45(factory, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_generate_entry_rejects_reference_on_v5(factory, monkeypatch):
+async def test_generate_entry_passes_v5_reference_with_outfit(factory, monkeypatch):
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(
+            images=[_png("purple")],
+            provider="novelai",
+            model="nai-diffusion-5-full",
+            seed=7,
+        )
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, standing",
+            image_model="nai-diffusion-5-full",
+            reference_kind="upload",
+            reference_image=_png_base64("blue"),
+            reference_type="character",
+            reference_include_outfit=True,
+            reference_strength=3.0,
+        ),
+    )
+    ref = generate_mock.await_args.kwargs["character_references"][0]
+    assert ref["type"] == "character"
+    assert ref["include_outfit"] is True
+    assert ref["strength"] == 3.0
+    entry = outcome.entry
+    assert entry["reference_type"] == "character"
+    assert entry["reference_include_outfit"] is True
+    assert entry["reference_strength"] == 3.0
+    # V5 では忠実度は廃止されたため残さない
+    assert entry["reference_fidelity"] is None
+
+    # 衣装参照も V5 なら送れる
+    await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl",
+            image_model="nai-diffusion-5-curated",
+            reference_kind="upload",
+            reference_image=_png_base64("blue"),
+            reference_type="costume",
+        ),
+    )
+    assert generate_mock.await_args.kwargs["character_references"][0]["type"] == (
+        "costume"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("overrides", "code"),
+    [
+        (
+            {"image_model": "nai-diffusion-5-full-medium"},
+            "precise_reference_unsupported_model",
+        ),
+        (
+            {"image_model": "nai-diffusion-4-5-full", "reference_type": "costume"},
+            "precise_reference_type_unsupported",
+        ),
+        (
+            {"image_model": "nai-diffusion-4-5-full", "reference_strength": 1.5},
+            "precise_reference_strength_out_of_range",
+        ),
+        (
+            {
+                "image_model": "nai-diffusion-5-full",
+                "source_kind": "upload",
+                "source_image": _png_base64(),
+                "inpaint_mask": _png_base64("white"),
+            },
+            "precise_reference_inpaint_unsupported",
+        ),
+    ],
+)
+async def test_generate_entry_rejects_unsupported_reference(
+    factory, monkeypatch, overrides, code
+):
     generate_mock = AsyncMock()
     monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
     async with factory() as db:
         session = await pe.PromptExpanderService.create_session(db, title="s")
         await db.commit()
+    params = {
+        "prompt": "1girl",
+        "reference_kind": "upload",
+        "reference_image": _png_base64(),
+        **overrides,
+    }
     with pytest.raises(pe.PromptExpanderError) as exc:
-        await pe.generate_entry(
-            session.id,
-            pe.GenerateParams(
-                prompt="1girl",
-                image_model="nai-diffusion-5-full",
-                reference_kind="upload",
-                reference_image=_png_base64(),
-            ),
-        )
-    assert exc.value.code == "precise_reference_requires_v45"
+        await pe.generate_entry(session.id, pe.GenerateParams(**params))
+    assert exc.value.code == code
     generate_mock.assert_not_awaited()
 
 
@@ -1496,9 +1576,21 @@ async def test_settings_reference_and_transparent_roundtrip(factory):
             db, patch={"reference_type": "vibe"}
         )
         assert saved.reference_type == "character"
+        # V5 向けの強度（1.0 超）と衣装参照の指定は保存できる
+        saved = await pe.PromptExpanderService.save_settings(
+            db,
+            patch={
+                "reference_type": "costume",
+                "reference_include_outfit": True,
+                "reference_strength": 3.0,
+            },
+        )
+        assert saved.reference_type == "costume"
+        assert saved.reference_include_outfit is True
+        assert saved.reference_strength == 3.0
         with pytest.raises(pe.PromptExpanderError) as exc:
             await pe.PromptExpanderService.save_settings(
-                db, patch={"reference_strength": 1.5}
+                db, patch={"reference_strength": 5.5}
             )
         assert exc.value.code == "invalid_settings"
     # 壊れた保存値は該当キーだけ捨てる

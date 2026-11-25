@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   game: { state: {} as Record<string, unknown> },
   settings: {
     state: {} as Record<string, unknown>,
-    isNovelaiV5Active: false,
   },
   startPostStream: vi.fn(),
 }));
@@ -28,11 +27,9 @@ vi.mock("./useGameSSE", () => ({
 function setState({
   isTransforming = false,
   imageProvider = "novelai",
-  isNovelaiV5Active = false,
 }: {
   isTransforming?: boolean;
   imageProvider?: string;
-  isNovelaiV5Active?: boolean;
 } = {}) {
   mocks.game = { state: { sessionId: "session-1", isTransforming } };
   mocks.settings = {
@@ -49,7 +46,6 @@ function setState({
       multiCharacterPanelEnabled: true,
       imageProvider,
     },
-    isNovelaiV5Active,
   };
 }
 
@@ -109,23 +105,42 @@ describe("usePlayTurn", () => {
       inpaint_noise: 0.1,
       negative_prompt: "lowres",
       character_references: [
-        { image: "AAAA", type: "character", strength: 1, fidelity: 0.8 },
+        {
+          image: "AAAA",
+          type: "character",
+          include_outfit: false,
+          strength: 1,
+          fidelity: 0.8,
+        },
       ],
     });
   });
 
-  it("drops precise references on V5 models and fills NovelAI defaults", () => {
-    setState({ isNovelaiV5Active: true });
+  it("sends V5 references with the outfit flag and fills NovelAI defaults", () => {
     const { result } = renderHook(() => usePlayTurn());
 
     result.current("指示", undefined, "costume", {
       characterReferences: [
-        { imageData: "AAAA", type: "character", strength: 1, fidelity: 1 },
+        {
+          imageData: "AAAA",
+          type: "character",
+          includeOutfit: true,
+          strength: 3,
+          fidelity: 1,
+        },
       ],
     });
 
     const body = mocks.startPostStream.mock.calls[0][1];
-    expect(body.character_references).toBeUndefined();
+    expect(body.character_references).toEqual([
+      {
+        image: "AAAA",
+        type: "character",
+        include_outfit: true,
+        strength: 3,
+        fidelity: 1,
+      },
+    ]);
     expect(typeof body.inpaint_strength).toBe("number");
     expect(typeof body.inpaint_noise).toBe("number");
   });

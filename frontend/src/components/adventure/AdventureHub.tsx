@@ -43,7 +43,7 @@ import {
 } from "../../constants/adventure";
 import {
   isAdventureImageModelValue,
-  isV5ImageModel,
+  preciseReferenceFormat,
 } from "../../constants/novelaiImageModels";
 import {
   ANLAS_WARN_SUPPRESSED_KEY,
@@ -311,14 +311,15 @@ export default function AdventureHub() {
       ? saved
       : "default";
   });
-  // モデル選択を反映した実効モデルでV5判定する(精密参照の可否・Anlas確認に効く)
-  const setupIsV5 =
+  // モデル選択を反映した実効モデルで精密参照の可否を判定する(Anlas確認にも効く)。
+  // 精密参照に非対応なのは V5 節約モードだけ
+  const setupPreciseUnavailable =
     settingsState.imageProvider === "novelai" &&
-    isV5ImageModel(
+    preciseReferenceFormat(
       imageModelChoice === "default"
         ? effectiveNovelaiImageModel
         : imageModelChoice,
-    );
+    ) === null;
   // 前回の選択があればそれを優先し、未保存ならグローバル設定を初期値とする
   const [companionMode, setCompanionMode] = useState(
     () => savedSetupPrefs.companionMode === true,
@@ -950,8 +951,8 @@ export default function AdventureHub() {
         player_speech_custom: speechCustom.trim(),
         romance_partner_speech_style:
           effectivePreset === "romance" ? partnerSpeechStyle.trim() : "",
-        // V5系モデルは精密参照非対応のため実効値をOFFにする
-        use_precise_reference: usePreciseReference && !setupIsV5,
+        // 精密参照に非対応のモデル(V5 節約モード)では実効値をOFFにする
+        use_precise_reference: usePreciseReference && !setupPreciseUnavailable,
         enable_composite_scene: enableCompositeScene,
         companion_mode: setupCompanion,
         // 持ち物システム。作品シナリオはサーバ側で無視される
@@ -1014,7 +1015,7 @@ export default function AdventureHub() {
     if (
       settingsState.imageProvider === "novelai" &&
       usePreciseReference &&
-      !setupIsV5 &&
+      !setupPreciseUnavailable &&
       !readStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY)
     ) {
       setStartAnlasConfirmOpen(true);
@@ -1687,18 +1688,23 @@ export default function AdventureHub() {
                 disabled={setupGenerating || loading || creating}
                 onChange={setImageModelChoice}
               />
-              {/* NovelAI以外では効果もAnlas消費もない旨、V5では非対応の旨を明示する */}
+              {/* NovelAI以外では効果もAnlas消費もない旨、節約モードでは非対応の旨を明示する */}
               <AdventureToggleRow
                 label={t("adventure.preciseReference")}
                 hint={t(
-                  setupIsV5
-                    ? "adventure.preciseReferenceV5Hint"
+                  setupPreciseUnavailable
+                    ? "adventure.preciseReferenceEconomyHint"
                     : settingsState.imageProvider === "novelai"
                       ? "adventure.preciseReferenceHint"
                       : "adventure.preciseReferenceOtherProviderHint",
                 )}
-                checked={usePreciseReference && !setupIsV5}
-                disabled={setupGenerating || loading || creating || setupIsV5}
+                checked={usePreciseReference && !setupPreciseUnavailable}
+                disabled={
+                  setupGenerating ||
+                  loading ||
+                  creating ||
+                  setupPreciseUnavailable
+                }
                 onChange={setUsePreciseReference}
               />
               <AdventureToggleRow

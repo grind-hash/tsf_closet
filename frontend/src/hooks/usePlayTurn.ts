@@ -14,7 +14,7 @@ import type { TransformHandler, TransformOptions } from "./useTransformRequest";
  */
 export function usePlayTurn(): TransformHandler {
   const { state: gameState } = useGame();
-  const { state: settingsState, isNovelaiV5Active } = useSettings();
+  const { state: settingsState } = useSettings();
   const sse = useGameSSE();
 
   return useCallback(
@@ -111,10 +111,9 @@ export function usePlayTurn(): TransformHandler {
       if (options?.nsfwMode !== undefined) {
         body.nsfw_mode = options.nsfwMode;
       }
-      // Build character_references for NovelAI precise reference images
-      // (V5系モデルは精密参照非対応のため送らない)
+      // NovelAI の精密参照。送るかどうか（モデル・インペイント・種別）は
+      // useTransformRequest で決め済みのため、ここでは API 形式へ直すだけ
       if (
-        !isNovelaiV5Active &&
         options?.characterReferences &&
         options.characterReferences.length > 0
       ) {
@@ -127,6 +126,7 @@ export function usePlayTurn(): TransformHandler {
           return {
             image: imageBase64,
             type: ref.type,
+            include_outfit: ref.includeOutfit ?? false,
             strength: ref.strength,
             fidelity: ref.fidelity,
           };
@@ -150,7 +150,6 @@ export function usePlayTurn(): TransformHandler {
       settingsState.imageProvider,
       settingsState.playMemoryEnabled,
       settingsState.historyLookbackTargets,
-      isNovelaiV5Active,
     ],
   );
 }

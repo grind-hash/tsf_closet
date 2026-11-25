@@ -45,7 +45,11 @@ export default function CharacterPortraitSection({
   onSaved,
 }: CharacterPortraitSectionProps) {
   const { t } = useTranslation();
-  const { state: settingsState, addTotalCost } = useSettings();
+  const {
+    state: settingsState,
+    addTotalCost,
+    novelaiPreciseReferenceFormat,
+  } = useSettings();
   const { showNotification } = useNotification();
   const [natural, setNatural] = useState(preset.appearance_natural);
   const [tagsBusy, setTagsBusy] = useState(false);
@@ -65,6 +69,9 @@ export default function CharacterPortraitSection({
   const portraitRef = useRef<HTMLDivElement>(null);
   const preciseAvailable =
     settingsState.imageProvider === "novelai" && Boolean(preset.portrait_url);
+  // 精密参照に非対応のモデル(V5 節約モード)では、選択は出すが送らない
+  const preciseUnsupportedModel =
+    preciseAvailable && novelaiPreciseReferenceFormat === null;
 
   const save = async (payload: UpdateCharacterPresetPayload) => {
     const updated = await updateCharacterPreset(preset.id, payload);
@@ -206,7 +213,7 @@ export default function CharacterPortraitSection({
   };
 
   const handleDraw = () => {
-    const precise = preciseAvailable && usePrecise;
+    const precise = preciseAvailable && !preciseUnsupportedModel && usePrecise;
     if (precise && !readStorageFlag("session", ANLAS_WARN_SUPPRESSED_KEY)) {
       // 精密参照は Anlas を消費するため、抑止チェック付きの確認を挟む
       setConfirmOpen(true);
@@ -330,12 +337,19 @@ export default function CharacterPortraitSection({
             <label className="character-chat__switch-row">
               <span className="character-chat__switch-info">
                 <strong>{t("characters.portrait.precise")}</strong>
-                <small>{t("characters.portrait.preciseHint")}</small>
+                <small>
+                  {t(
+                    preciseUnsupportedModel
+                      ? "characters.portrait.preciseEconomyHint"
+                      : "characters.portrait.preciseHint",
+                  )}
+                </small>
               </span>
               <input
                 type="checkbox"
                 className="character-chat__switch-input"
-                checked={usePrecise}
+                checked={usePrecise && !preciseUnsupportedModel}
+                disabled={preciseUnsupportedModel}
                 onChange={(event) => setUsePrecise(event.target.checked)}
               />
               <span className="character-chat__switch" />

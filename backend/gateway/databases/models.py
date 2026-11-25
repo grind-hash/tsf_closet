@@ -975,9 +975,14 @@ class PromptExpanderEntry(Base):
         ForeignKey("prompt_expander_entries.id", ondelete="SET NULL"),
         nullable=True,
     )
-    # character | style | character&style（参照ありのときだけ値を持つ）
+    # character | style | character&style | costume（参照ありのときだけ値を持つ）
     reference_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    # 衣装も参照したか（V5 の参照のときだけ値を持つ）
+    reference_include_outfit: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
     reference_strength: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 忠実度（V4.5 の参照のときだけ値を持つ。V5 では廃止）
     reference_fidelity: Mapped[float | None] = mapped_column(Float, nullable=True)
     # インペイント（部分修正）で生成したか。マスクは画像と同じ場所へ _mask.png で残す
     inpaint: Mapped[bool] = mapped_column(
