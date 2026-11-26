@@ -133,6 +133,23 @@ export const DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH = 0.85;
 export const DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY = 1;
 /** 精密参照 1 枚あたりの Anlas 消費（設定応答の anlas_per_reference が無いときの既定） */
 export const PROMPT_EXPANDER_ANLAS_PER_REFERENCE = 5;
+/** 1 回の生成で送れる精密参照の枚数（通常プレイの精密参照と同じ上限） */
+export const PROMPT_EXPANDER_REFERENCE_MAX_COUNT = 6;
+/** 登場人物（名前を付けた精密参照）の名前・外見タグの最大文字数 */
+export const PROMPT_EXPANDER_CAST_NAME_MAX_LENGTH = 40;
+export const PROMPT_EXPANDER_CAST_TAGS_MAX_LENGTH = 1000;
+/** キャラ参照が 2 枚以上のとき描き分けやすい強度（V5 の実生成で確認した値） */
+export const PROMPT_EXPANDER_MULTI_CHARACTER_REFERENCE_STRENGTH = 0.5;
+/** 登場人物になれる（名前を付けられる）精密参照の種別 */
+export const PROMPT_EXPANDER_CHARACTER_REFERENCE_TYPES: readonly PromptExpanderReferenceType[] =
+  ["character", "character&style"];
+
+/** 種別がキャラ系（名前を付けて登場人物にできる）か */
+export function isCharacterReferenceType(
+  type: PromptExpanderReferenceType,
+): boolean {
+  return PROMPT_EXPANDER_CHARACTER_REFERENCE_TYPES.includes(type);
+}
 /** 精密参照の Anlas 確認ダイアログを抑止する sessionStorage キー（ブラウザセッション単位） */
 export const PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY =
   "prompt_expander_anlas_warn_suppressed";

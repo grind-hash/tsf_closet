@@ -46,6 +46,7 @@ def _entry(tmp_path: Path, *, image_model: str = "nai-diffusion-5-full"):
         source_history_id=None,
         source_entry_id=None,
         transparent_background=False,
+        references_json=None,
         reference_kind="none",
         reference_history_id=None,
         reference_entry_id=None,

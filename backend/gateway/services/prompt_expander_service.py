@@ -26,7 +26,6 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..consts.novelai_models import (
-    PRECISE_REFERENCE_STRENGTH_MAX,
     get_image_model_info,
     precise_reference_format,
 )
@@ -54,6 +53,8 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MANGA_READING_DIRECTIONS,
     PROMPT_EXPANDER_MANGA_TEXT_LANGUAGES,
     PROMPT_EXPANDER_MEMORY_MAX_LEN,
+    PROMPT_EXPANDER_REFERENCE_KINDS,
+    PROMPT_EXPANDER_REFERENCE_MAX_COUNT,
     PROMPT_EXPANDER_TITLE_MAX_LEN,
     TRANSPARENT_BACKGROUND_NEGATIVE_TAGS,
     is_prompt_expander_image_model,
@@ -67,13 +68,19 @@ from ..consts.prompt_expander import (
     transparent_background_tags,
 )
 from ..databases.base import async_session_factory
-from ..databases.models import PromptExpanderEntry, PromptExpanderSession, User
+from ..databases.models import (
+    CharacterPreset,
+    PromptExpanderEntry,
+    PromptExpanderSession,
+    User,
+)
 from ..settings.config import settings
 from .anlas_service import AnlasBalance, get_anlas_balance
 from .clothing_layers import normalize_tag_for_match
 from .image_generation import ImageGenerationResult, image_service
 from .llm_service import llm_service
 from .prompt_expander_prompts import (
+    CastMember,
     ExpandMode,
     MangaOptions,
     PromptExpanderOutputError,
@@ -83,10 +90,12 @@ from .prompt_expander_prompts import (
     build_positive_system_prompt,
     build_positive_user_prompt,
     build_suggest_characters_prompts,
+    dedupe_cast,
     ensure_manga_notation_texts,
     extract_manga_notation,
-    parse_character_json,
-    parse_manga_json,
+    normalize_cast_name,
+    parse_character_json_named,
+    parse_manga_json_named,
     parse_suggestions_json,
     replace_false_friend_tokens,
     sanitize_by_mode,
@@ -142,20 +151,9 @@ class PromptExpanderSettings(BaseModel):
     manga_reading_direction: str = DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION
     # 【】が無くても LLM がナレーション枠を足してよいか（記法で書いたものは常に描く）
     manga_narration: bool = False
-    # 精密参照（V5 節約モード以外）。参照画像自体はセッション内状態で、設定には保存しない
+    # 精密参照（V5 節約モード以外）。参照画像と画像ごとの種別・強度などはセッション内状態で、
+    # 設定には保存しない
     use_precise_reference: bool = False
-    reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
-    # 衣装も参照するか（V5 のキャラ系の参照だけ効く）
-    reference_include_outfit: bool = False
-    # V5 は 5.0 まで上げられる。V4.5 で生成するときの上限は生成時に検証する
-    reference_strength: float = Field(
-        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
-        ge=0.0,
-        le=PRECISE_REFERENCE_STRENGTH_MAX["v5"],
-    )
-    reference_fidelity: float = Field(
-        DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY, ge=0.0, le=1.0
-    )
     # 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き）
     transparent_background: bool = False
     # 背景透過タグの強調段数（V4.5 系のみ効く。0=なし 〜 3={{{tag}}}）
@@ -167,11 +165,6 @@ class PromptExpanderSettings(BaseModel):
     @classmethod
     def _coerce_transparent_emphasis(cls, value: object) -> int:
         return normalize_transparent_emphasis(value)
-
-    @field_validator("reference_type", mode="before")
-    @classmethod
-    def _coerce_reference_type(cls, value: object) -> str:
-        return normalize_reference_type(value)
 
     @field_validator("manga_reading_direction", mode="before")
     @classmethod
@@ -442,6 +435,75 @@ def _load_character_prompts(raw: str | None) -> list[str]:
     return [str(item) for item in data if isinstance(item, str) and item.strip()]
 
 
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
+
+
+def _load_entry_references(entry: PromptExpanderEntry) -> list[dict[str, Any]]:
+    """エントリに記録した精密参照を一覧で返す。
+
+    references_json が無い古いエントリは、1 枚だけだった頃の単数の列から組み立てる。
+    """
+    raw = entry.references_json
+    if raw:
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            data = []
+        items: list[dict[str, Any]] = []
+        for item in data if isinstance(data, list) else []:
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("kind")
+            strength = _optional_float(item.get("strength"))
+            if kind not in PROMPT_EXPANDER_REFERENCE_KINDS or strength is None:
+                continue
+            include_outfit = item.get("include_outfit")
+            items.append(
+                {
+                    "kind": kind,
+                    "history_id": _optional_str(item.get("history_id")),
+                    "entry_id": _optional_str(item.get("entry_id")),
+                    "character_preset_id": _optional_str(
+                        item.get("character_preset_id")
+                    ),
+                    "type": normalize_reference_type(item.get("type")),
+                    "include_outfit": include_outfit
+                    if isinstance(include_outfit, bool)
+                    else None,
+                    "strength": strength,
+                    "fidelity": _optional_float(item.get("fidelity")),
+                    "name": _optional_str(item.get("name")),
+                }
+            )
+        return items
+    if not entry.reference_kind or entry.reference_kind == "none":
+        return []
+    return [
+        {
+            "kind": entry.reference_kind,
+            "history_id": entry.reference_history_id,
+            "entry_id": entry.reference_entry_id,
+            "character_preset_id": None,
+            "type": normalize_reference_type(entry.reference_type),
+            "include_outfit": entry.reference_include_outfit,
+            "strength": (
+                entry.reference_strength
+                if entry.reference_strength is not None
+                else DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
+            ),
+            "fidelity": entry.reference_fidelity,
+            "name": None,
+        }
+    ]
+
+
 def entry_nsfw(entry: PromptExpanderEntry) -> bool | None:
     if not entry.image_model:
         return None
@@ -472,13 +534,7 @@ def entry_to_dict(entry: PromptExpanderEntry) -> dict[str, Any]:
         "source_history_id": entry.source_history_id,
         "source_entry_id": entry.source_entry_id,
         "transparent_background": bool(entry.transparent_background),
-        "reference_kind": entry.reference_kind or "none",
-        "reference_history_id": entry.reference_history_id,
-        "reference_entry_id": entry.reference_entry_id,
-        "reference_type": entry.reference_type,
-        "reference_include_outfit": entry.reference_include_outfit,
-        "reference_strength": entry.reference_strength,
-        "reference_fidelity": entry.reference_fidelity,
+        "references": _load_entry_references(entry),
         "inpaint": bool(entry.inpaint),
         "mask_url": (
             f"/prompt-expander/entries/{entry.id}/mask" if entry.inpaint else None
@@ -919,6 +975,8 @@ class ExpandParams:
     manga: MangaOptions | None = None
     # 背景透過 ON のとき、背景・情景を書かせない規則を system prompt に足す（漫画モードでは無視）
     transparent_background: bool = False
+    # 名前を付けた精密参照の登場人物（キャラ枠 ON のときだけ使う）
+    cast: Sequence[CastMember] = ()
 
 
 @dataclass
@@ -977,6 +1035,29 @@ async def _call_llm(system_prompt: str, user_prompt: str, text_model: str) -> st
     return content
 
 
+def _fill_cast_appearance(
+    prompts: list[str], names: Sequence[str], cast: Sequence[CastMember]
+) -> list[str]:
+    """名前がキャストに一致したキャラ枠へ、抜けた外見カテゴリだけ補う（タグ形式の枠のみ）。
+
+    LLM が書いた髪色などは上書きしない（変身後の姿を壊さないため）。名前の数が
+    枠の数と合わないときは対応が分からないので何もしない。
+    """
+    # identity_signature → source_snapshot → この module の順に import されるため遅延 import する
+    from .identity_signature import fill_missing_identity_tags
+
+    if len(names) != len(prompts):
+        return prompts
+    by_name = {normalize_cast_name(member.name): member for member in cast}
+    filled: list[str] = []
+    for name, prompt in zip(names, prompts, strict=True):
+        member = by_name.get(normalize_cast_name(name)) if name else None
+        if member is not None and member.appearance_tags:
+            prompt = fill_missing_identity_tags(prompt, member.appearance_tags)
+        filled.append(prompt)
+    return filled
+
+
 async def expand_prompts(
     params: ExpandParams, *, user_id: str = DEFAULT_USER_ID
 ) -> ExpandResult:
@@ -1018,6 +1099,7 @@ async def expand_prompts(
         source.current_negative if inherit else None
     )
     context_description = source.context_description if inherit else None
+    cast = dedupe_cast(params.cast) if params.character_mode else []
 
     result = ExpandResult(text_model=params.text_model)
 
@@ -1042,6 +1124,7 @@ async def expand_prompts(
             transparent_background=(
                 params.transparent_background and params.manga is None
             ),
+            with_cast=bool(cast),
         )
         user_prompt = build_positive_user_prompt(
             instruction=instruction,
@@ -1051,25 +1134,30 @@ async def expand_prompts(
             context_description=context_description,
             manga=params.manga is not None,
             manga_notation=notation,
+            cast=cast,
         )
         raw = await _call_llm(system_prompt, user_prompt, params.text_model)
+        character_names: list[str] = []
         try:
             if params.manga is not None:
-                base, characters = parse_manga_json(
+                base, items = parse_manga_json_named(
                     raw,
                     max_characters=max_characters,
                     character_mode=params.character_mode,
                 )
+                characters = None if items is None else [p for _, p in items]
+                character_names = [] if items is None else [n for n, _ in items]
                 if notation is not None:
                     base = ensure_manga_notation_texts(base, characters, notation)
                 result.positive_prompt = base
                 result.character_prompts = characters
             elif params.character_mode:
-                base, characters = parse_character_json(
+                base, items = parse_character_json_named(
                     raw, max_characters=max_characters, mode=params.positive_mode
                 )
                 result.positive_prompt = base
-                result.character_prompts = characters
+                result.character_prompts = [p for _, p in items]
+                character_names = [n for n, _ in items]
             else:
                 sanitized = sanitize_by_mode(
                     raw, params.positive_mode, ensure_quality=True
@@ -1090,6 +1178,10 @@ async def expand_prompts(
                     replace_false_friend_tokens(c, instruction)
                     for c in result.character_prompts
                 ]
+                if cast:
+                    result.character_prompts = _fill_cast_appearance(
+                        result.character_prompts, character_names, cast
+                    )
 
     if params.expand_negative:
         negative_instruction = params.negative_instruction.strip()
@@ -1125,6 +1217,8 @@ class MangaScriptParams:
     text_model: str = DEFAULT_NOVELAI_TEXT_MODEL
     language: str = "ja"
     manga: MangaOptions = field(default_factory=MangaOptions)
+    # 名前を付けた精密参照の登場人物（ネームの話者名に使わせる）
+    cast: Sequence[CastMember] = ()
 
 
 @dataclass
@@ -1159,6 +1253,7 @@ async def draft_manga_script(
         nsfw=_image_model_nsfw(params.image_model),
         memory_text=memory_text,
         language=params.language,
+        cast=dedupe_cast(params.cast),
     )
     raw = await _call_llm(system_prompt, user_prompt, params.text_model)
     try:
@@ -1229,6 +1324,24 @@ async def suggest_character_prompts(
 
 
 @dataclass
+class ReferenceParams:
+    """精密参照 1 枚分。kind ごとに history_id / entry_id / image / character_preset_id を使う。"""
+
+    kind: str
+    history_id: str | None = None
+    entry_id: str | None = None
+    character_preset_id: str | None = None
+    image: str | None = None
+    type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
+    # 衣装も参照するか（V5 のキャラ系の参照だけ効く）
+    include_outfit: bool = False
+    strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
+    fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
+    # 登場人物としての名前（エントリの表示用。生成には影響しない）
+    name: str | None = None
+
+
+@dataclass
 class GenerateParams:
     prompt: str
     negative_prompt: str = ""
@@ -1250,16 +1363,8 @@ class GenerateParams:
     # 漫画モードで拡張したプロンプトかどうか（エントリのバッジ・復元用。生成には影響しない）
     manga_mode: bool = False
     manga_panel_count: int | None = None
-    # 精密参照（character reference）。V5 節約モード以外。reference_kind != "none" が唯一の有効判定
-    reference_kind: str = "none"
-    reference_history_id: str | None = None
-    reference_entry_id: str | None = None
-    reference_image: str | None = None
-    reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
-    # 衣装も参照するか（V5 のキャラ系の参照だけ効く）
-    reference_include_outfit: bool = False
-    reference_strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
-    reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
+    # 精密参照（character reference）。V5 節約モード以外。空でなければ「参照を送った」
+    references: Sequence[ReferenceParams] = ()
     # 背景透過（接尾辞は保存せず、送信時に image_model から導出して付与する）
     transparent_background: bool = False
     # 背景透過タグの強調段数（V4.5 系のみ効く）
@@ -1293,8 +1398,18 @@ async def _resolve_inpaint_mask(
     return path.read_bytes()
 
 
-def _validate_precise_reference(params: GenerateParams) -> None:
-    """精密参照の指定がモデルで送れるかを確かめ、送れなければ 422 用のエラーにする。"""
+def _validate_precise_references(params: GenerateParams) -> None:
+    """精密参照の指定がモデルで送れるかを確かめ、送れなければ 422 用のエラーにする。
+
+    1 枚ごとの問題は「参照 N 枚目」を付けて返す。
+    """
+    if not params.references:
+        return
+    if len(params.references) > PROMPT_EXPANDER_REFERENCE_MAX_COUNT:
+        raise PromptExpanderError(
+            "too_many_references",
+            f"精密参照は最大{PROMPT_EXPANDER_REFERENCE_MAX_COUNT}枚までです",
+        )
     reference_format = (
         precise_reference_format(params.image_model)
         if supports_precise_reference(params.image_model)
@@ -1305,16 +1420,6 @@ def _validate_precise_reference(params: GenerateParams) -> None:
             "precise_reference_unsupported_model",
             "精密参照画像は V5 Full の節約モードでは使えません",
         )
-    if reference_format == "v4_5" and params.reference_type == "costume":
-        raise PromptExpanderError(
-            "precise_reference_type_unsupported",
-            "衣装の精密参照は NAI Diffusion V5 でのみ使えます",
-        )
-    if params.reference_strength > reference_strength_max(params.image_model):
-        raise PromptExpanderError(
-            "precise_reference_strength_out_of_range",
-            "このモデルでは精密参照の強度を 1.0 より大きくできません",
-        )
     if reference_format == "v5" and (
         params.inpaint_mask or params.inpaint_mask_entry_id
     ):
@@ -1322,6 +1427,101 @@ def _validate_precise_reference(params: GenerateParams) -> None:
             "precise_reference_inpaint_unsupported",
             "NAI Diffusion V5 では精密参照とインペイントを同時に使えません",
         )
+    strength_max = reference_strength_max(params.image_model)
+    for index, reference in enumerate(params.references, start=1):
+        if reference_format == "v4_5" and reference.type == "costume":
+            raise PromptExpanderError(
+                "precise_reference_type_unsupported",
+                f"参照 {index} 枚目: 衣装の精密参照は NAI Diffusion V5 でのみ使えます",
+            )
+        if reference.strength > strength_max:
+            raise PromptExpanderError(
+                "precise_reference_strength_out_of_range",
+                f"参照 {index} 枚目: このモデルでは精密参照の強度を 1.0 より"
+                "大きくできません",
+            )
+
+
+_REFERENCE_NOT_FOUND_CODES = frozenset(
+    {"entry_not_found", "history_not_found", "image_not_found"}
+)
+
+
+async def _resolve_reference_image(
+    db: AsyncSession, reference: ReferenceParams, index: int, *, user_id: str
+) -> bytes:
+    """精密参照 1 枚を bytes にする。見つからなければ何枚目かを付けたエラーにする。"""
+    label = f"参照 {index} 枚目"
+    if reference.kind == "character":
+        # character_preset_portrait は identity_signature 経由でこの module を import する
+        from .character_preset_portrait import preset_portrait_file
+
+        preset = (
+            await db.get(CharacterPreset, reference.character_preset_id)
+            if reference.character_preset_id
+            else None
+        )
+        path = preset_portrait_file(preset) if preset is not None else None
+        if path is None:
+            raise PromptExpanderError(
+                "reference_not_found", f"{label}のキャラクターの立ち絵が見つかりません"
+            )
+        return path.read_bytes()
+    try:
+        # 参照画像は i2i 元と同じ解決経路（history / entry / upload）で bytes にする
+        resolution = await resolve_source(
+            db,
+            source_kind=reference.kind,
+            source_history_id=reference.history_id,
+            source_entry_id=reference.entry_id,
+            source_image=reference.image,
+            user_id=user_id,
+            load_image=True,
+        )
+    except PromptExpanderError as exc:
+        if exc.code in _REFERENCE_NOT_FOUND_CODES:
+            raise PromptExpanderError(
+                "reference_not_found", f"{label}の画像が見つかりません"
+            ) from exc
+        raise PromptExpanderError(exc.code, f"{label}: {exc.message}") from exc
+    if resolution.image_bytes is None:
+        raise PromptExpanderError(
+            "reference_not_found", f"{label}の画像が見つかりません"
+        )
+    return resolution.image_bytes
+
+
+def _reference_record(
+    reference: ReferenceParams, *, reference_is_v5: bool
+) -> dict[str, Any]:
+    """エントリに残す参照 1 枚分（upload の画像本体は残さない）。"""
+    return {
+        "kind": reference.kind,
+        "history_id": reference.history_id if reference.kind == "history" else None,
+        "entry_id": reference.entry_id if reference.kind == "entry" else None,
+        "character_preset_id": (
+            reference.character_preset_id if reference.kind == "character" else None
+        ),
+        "type": normalize_reference_type(reference.type),
+        "include_outfit": reference.include_outfit if reference_is_v5 else None,
+        "strength": reference.strength,
+        "fidelity": None if reference_is_v5 else reference.fidelity,
+        "name": (reference.name or "").strip() or None,
+    }
+
+
+def _cross_character_negatives(character_prompts: Sequence[str]) -> list[str]:
+    """キャラ枠ごとに、他の枠の髪色・瞳色などのうち自分と異なるものを negative にする。"""
+    # identity_signature → source_snapshot → この module の順に import されるため遅延 import する
+    from .identity_signature import cross_identity_negative, tag_like_text
+
+    tags = [tag_like_text(prompt) for prompt in character_prompts]
+    return [
+        cross_identity_negative(
+            own, [other for index, other in enumerate(tags) if index != own_index]
+        )
+        for own_index, own in enumerate(tags)
+    ]
 
 
 async def generate_entry(
@@ -1354,9 +1554,7 @@ async def generate_entry(
             f"このモデルで指定できるキャラクタープロンプトは最大{limit}件です",
         )
     # 精密参照は料金と結果に影響するので、モデルで送れない指定は黙って落とさず拒否する
-    reference_requested = params.reference_kind != "none"
-    if reference_requested:
-        _validate_precise_reference(params)
+    _validate_precise_references(params)
 
     async with async_session_factory() as db:
         await PromptExpanderService.get_session(
@@ -1371,20 +1569,10 @@ async def generate_entry(
             user_id=user_id,
             load_image=True,
         )
-        # 参照画像は i2i 元と同じ解決経路（history / entry / upload）で bytes にする
-        reference = (
-            await resolve_source(
-                db,
-                source_kind=params.reference_kind,
-                source_history_id=params.reference_history_id,
-                source_entry_id=params.reference_entry_id,
-                source_image=params.reference_image,
-                user_id=user_id,
-                load_image=True,
-            )
-            if reference_requested
-            else SourceResolution()
-        )
+        reference_images = [
+            await _resolve_reference_image(db, reference, index, user_id=user_id)
+            for index, reference in enumerate(params.references, start=1)
+        ]
         # インペイントは i2i 元をベース画像にするため、元画像が無ければ成立しない
         mask_bytes = await _resolve_inpaint_mask(db, params, user_id=user_id)
         if mask_bytes is not None and source.image_bytes is None:
@@ -1395,14 +1583,23 @@ async def generate_entry(
 
     characters_payload: list[dict[str, Any]] | None = None
     if character_prompts:
+        # 複数キャラを参照で描き分けるときだけ、枠ごとの negative に他キャラの髪色・瞳色などを
+        # 入れる（NovelAI 公式 Multi-Character Prompting の推奨。台詞の文は判定から外す）
+        cross_negatives = (
+            _cross_character_negatives(character_prompts)
+            if len(character_prompts) >= 2 and len(params.references) >= 2
+            else [""] * len(character_prompts)
+        )
         characters_payload = [
             {
                 "prompt": item,
-                "negative_prompt": "",
+                "negative_prompt": cross_negative,
                 "position": (0.5, 0.5),
                 "enabled": True,
             }
-            for item in character_prompts
+            for item, cross_negative in zip(
+                character_prompts, cross_negatives, strict=True
+            )
         ]
 
     nsfw = _image_model_nsfw(params.image_model)
@@ -1419,20 +1616,17 @@ async def generate_entry(
         if transparent
         else (prompt, negative)
     )
-    has_reference = reference.image_bytes is not None
-    reference_type = normalize_reference_type(params.reference_type)
     reference_is_v5 = precise_reference_format(params.image_model) == "v5"
-    character_references: list[dict[str, Any]] | None = None
-    if has_reference:
-        character_references = [
-            {
-                "image": reference.image_bytes,
-                "type": reference_type,
-                "include_outfit": params.reference_include_outfit,
-                "strength": params.reference_strength,
-                "fidelity": params.reference_fidelity,
-            }
-        ]
+    character_references: list[dict[str, Any]] | None = [
+        {
+            "image": image,
+            "type": normalize_reference_type(reference.type),
+            "include_outfit": reference.include_outfit,
+            "strength": reference.strength,
+            "fidelity": reference.fidelity,
+        }
+        for reference, image in zip(params.references, reference_images, strict=True)
+    ] or None
     try:
         result = await image_service.generate_image(
             send_prompt,
@@ -1500,28 +1694,16 @@ async def generate_entry(
                 params.source_entry_id if params.source_kind == "entry" else None
             ),
             transparent_background=transparent,
-            reference_kind=params.reference_kind if has_reference else "none",
-            reference_history_id=(
-                params.reference_history_id
-                if has_reference and params.reference_kind == "history"
-                else None
-            ),
-            reference_entry_id=(
-                params.reference_entry_id
-                if has_reference and params.reference_kind == "entry"
-                else None
-            ),
-            reference_type=reference_type if has_reference else None,
             # V5 は衣装の有無を残し、廃止された忠実度は残さない。V4.5 はその逆
-            reference_include_outfit=(
-                params.reference_include_outfit
-                if has_reference and reference_is_v5
-                else None
-            ),
-            reference_strength=params.reference_strength if has_reference else None,
-            reference_fidelity=(
-                params.reference_fidelity
-                if has_reference and not reference_is_v5
+            references_json=(
+                json.dumps(
+                    [
+                        _reference_record(reference, reference_is_v5=reference_is_v5)
+                        for reference in params.references
+                    ],
+                    ensure_ascii=False,
+                )
+                if params.references
                 else None
             ),
             inpaint=mask_bytes is not None,

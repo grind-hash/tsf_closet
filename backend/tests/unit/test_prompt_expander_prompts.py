@@ -12,7 +12,11 @@ from gateway.services.prompt_expander_prompts import (
     SUGGEST_INPUT_BIAS_RULE,
     SUGGEST_NO_MEMORY_RULE,
     SUGGEST_USER_PROMPT,
+    CastMember,
+    MangaOptions,
     PromptExpanderOutputError,
+    build_cast_block,
+    build_manga_script_prompts,
     build_negative_system_prompt,
     build_negative_user_prompt,
     build_positive_system_prompt,
@@ -20,6 +24,8 @@ from gateway.services.prompt_expander_prompts import (
     build_suggest_characters_prompts,
     build_suggest_user_prompt,
     parse_character_json,
+    parse_character_json_named,
+    parse_manga_json_named,
     parse_suggestions_json,
     replace_false_friend_tokens,
     sanitize_prose_prompt,
@@ -789,3 +795,121 @@ class TestTransparentBackgroundRule:
         )
         assert TRANSPARENT_BACKGROUND_RULE_TAGS not in manga
         assert TRANSPARENT_BACKGROUND_RULE_JA not in manga
+
+
+CAST = [
+    CastMember(name="サクラ", appearance_tags="1girl, pink hair"),
+    CastMember(name=" サクラ ", appearance_tags="dup"),
+    CastMember(name="", appearance_tags="no name"),
+    CastMember(name="ユイ"),
+]
+
+
+def test_build_cast_block_dedupes_and_marks_missing_appearance() -> None:
+    assert build_cast_block(CAST) == (
+        "Cast (named characters fixed by reference images; name: appearance):\n"
+        "- サクラ: 1girl, pink hair\n"
+        "- ユイ: appearance not specified"
+    )
+    assert build_cast_block([]) == ""
+
+
+@pytest.mark.parametrize(
+    ("mode", "manga"),
+    [("tags", None), ("japanese", None), ("tags", MangaOptions())],
+)
+def test_cast_switches_character_items_to_named_objects(mode, manga) -> None:
+    plain = build_positive_system_prompt(
+        mode=mode, character_mode=True, max_characters=6, nsfw=False, manga=manga
+    )
+    named = build_positive_system_prompt(
+        mode=mode,
+        character_mode=True,
+        max_characters=6,
+        nsfw=False,
+        manga=manga,
+        with_cast=True,
+    )
+    assert '"character_prompts":["..."]' in plain
+    assert '"character_prompts":[{"name":"...","prompt":"..."}]' in named
+    assert '"character_prompts":["..."]' not in named
+    assert "never by a cast name" in named
+    # キャラ枠 OFF なら名前付きにしない
+    assert "never by a cast name" not in build_positive_system_prompt(
+        mode=mode, character_mode=False, max_characters=6, nsfw=False, with_cast=True
+    )
+
+
+def test_positive_user_prompt_lists_cast_only_in_character_mode() -> None:
+    with_characters = build_positive_user_prompt(
+        instruction="x", character_mode=True, cast=CAST
+    )
+    assert "- サクラ: 1girl, pink hair" in with_characters
+    assert "Cast" not in build_positive_user_prompt(
+        instruction="x", character_mode=False, cast=CAST
+    )
+
+
+def test_manga_speech_is_repeated_in_panel_description_with_characters() -> None:
+    with_characters = build_positive_system_prompt(
+        mode="tags",
+        character_mode=True,
+        max_characters=6,
+        nsfw=False,
+        manga=MangaOptions(),
+    )
+    assert "also repeat the same line in panel_description" in with_characters
+    without_characters = build_positive_system_prompt(
+        mode="tags",
+        character_mode=False,
+        max_characters=6,
+        nsfw=False,
+        manga=MangaOptions(),
+    )
+    assert "also repeat the same line" not in without_characters
+
+
+def test_manga_script_uses_cast_names_as_speakers() -> None:
+    system, user = build_manga_script_prompts(
+        synopsis="二人が出会う", options=MangaOptions(), nsfw=False, cast=CAST
+    )
+    assert "speaker name right before" in system
+    assert user.startswith("Cast (named characters")
+    assert user.endswith("Synopsis:\n二人が出会う\n\nWrite the storyboard script now.")
+    system, user = build_manga_script_prompts(
+        synopsis="二人が出会う", options=MangaOptions(), nsfw=False
+    )
+    assert "speaker name right before" not in system
+    assert user.startswith("Synopsis:")
+
+
+def test_named_character_parsers_keep_names_aligned() -> None:
+    raw = (
+        '{"base_prompt":"2girls, cafe","character_prompts":['
+        '{"name":"サクラ","prompt":"girl, pink hair"},'
+        '{"name":"ユイ","prompt":"   "},'
+        '"girl, black hair",'
+        '{"prompt":"boy"},'
+        '{"name":"x"}]}'
+    )
+    _, items = parse_character_json_named(raw, max_characters=6, mode="tags")
+    # 空の枠は名前ごと除き、文字列・名前なしは空の名前になる
+    assert items == [
+        ("サクラ", "girl, pink hair"),
+        ("", "girl, black hair"),
+        ("", "boy"),
+    ]
+    _, plain = parse_character_json(raw, max_characters=2, mode="tags")
+    assert plain == ["girl, pink hair", "girl, black hair"]
+    manga_raw = (
+        '{"base_tags":"2girls","panel_description":"Two panels.",'
+        '"character_prompts":[{"name":"サクラ","prompt":"girl, pink hair"}]}'
+    )
+    _, manga_items = parse_manga_json_named(
+        manga_raw, max_characters=6, character_mode=True
+    )
+    assert manga_items == [("サクラ", "girl, pink hair")]
+    _, none_items = parse_manga_json_named(
+        manga_raw, max_characters=6, character_mode=False
+    )
+    assert none_items is None

@@ -5,8 +5,9 @@
  * セッション・お気に入り・Prompt Expander・キャラクターの4タブから選ばせる。
  * - Prompt Expander エントリ: kind="entry"
  * - セッション／お気に入り: kind="history"。「現在の状態」は fetchSessionFrames で最新履歴 ID に解決する
- * - キャラクター: 立ち絵を取り込み kind="upload" で渡す（バックエンドにキャラクター用の種類は無い）
- * target="reference" のときは選択結果を i2i 元ではなく精密参照の画像に入れる。
+ * - キャラクター: i2i 元には立ち絵を取り込み kind="upload" で渡す。精密参照には
+ *   kind="character"（プリセット ID）で足し、名前と外見タグを登場人物として引き継ぐ
+ * target="reference" のときは選択結果を i2i 元ではなく精密参照の一覧へ足す。
  */
 
 import { useState } from "react";
@@ -18,6 +19,7 @@ import {
   type PromptExpanderSource,
   usePromptExpander,
 } from "../../contexts/PromptExpanderContext";
+import { mediaUrl } from "../../utils/adventureFormat";
 import { fetchMediaBlob, readBlobAsDataUrl } from "../../utils/mediaImage";
 import AdventureSessionPickerModal, {
   type AdventureSourceSelection,
@@ -54,9 +56,16 @@ export default function PromptExpanderSourcePickerModal({
   target = "source",
 }: PromptExpanderSourcePickerModalProps) {
   const { t } = useTranslation();
-  const { source, reference, setSource, setReference } = usePromptExpander();
-  const current = target === "reference" ? reference : source;
-  const assign = target === "reference" ? setReference : setSource;
+  const { source, setSource, addReference } = usePromptExpander();
+  // 精密参照は一覧へ足していくので「選択中」の表示は i2i 元のときだけ出す
+  const current = target === "reference" ? null : source;
+  const assign = (next: PromptExpanderSource) => {
+    if (target === "reference") {
+      addReference(next);
+    } else {
+      setSource(next);
+    }
+  };
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
 
@@ -72,6 +81,22 @@ export default function PromptExpanderSourcePickerModal({
   };
 
   const handleCharacterSelect = async (selection: AdventureSourceSelection) => {
+    const name =
+      selection.characterName?.trim() ||
+      t("promptExpander.picker.characterLabelFallback");
+    // 精密参照はプリセット ID で送る（再生成でも同じ立ち絵を使え、名前と外見タグは登場人物になる）
+    if (target === "reference" && selection.characterPresetId) {
+      addReference({
+        kind: "character",
+        characterPresetId: selection.characterPresetId,
+        thumbnailUrl: mediaUrl(selection.thumbnailUrl),
+        label: name,
+        name: selection.characterName?.trim() ?? "",
+        appearanceTags: selection.characterAppearanceTags ?? "",
+      });
+      onClose();
+      return;
+    }
     setBusyLabel(t("promptExpander.picker.loadingCharacter"));
     try {
       const blob = await fetchMediaBlob(selection.thumbnailUrl);
@@ -80,9 +105,7 @@ export default function PromptExpanderSourcePickerModal({
         kind: "upload",
         uploadDataUrl: dataUrl,
         thumbnailUrl: dataUrl,
-        label:
-          selection.characterName?.trim() ||
-          t("promptExpander.picker.characterLabelFallback"),
+        label: name,
       });
       onClose();
     } catch (err) {

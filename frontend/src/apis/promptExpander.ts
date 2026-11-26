@@ -48,13 +48,8 @@ export interface PromptExpanderSettings {
   manga_reading_direction: PromptExpanderMangaReadingDirection;
   /** 【】が無くても LLM がナレーション枠を足してよいか（記法で書いたものは常に描く） */
   manga_narration: boolean;
-  /** 精密参照（V4.5 系のみ）の UI トグル。参照画像そのものはセッション内状態 */
+  /** 精密参照（V4.5 / V5）の UI トグル。参照画像と画像ごとの設定はセッション内状態 */
   use_precise_reference: boolean;
-  reference_type: PromptExpanderReferenceType;
-  /** 衣装も参照するか（V5 のキャラ系の参照だけ効く） */
-  reference_include_outfit?: boolean;
-  reference_strength: number;
-  reference_fidelity: number;
   /** 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き） */
   transparent_background: boolean;
   /** 背景透過タグの強調段数（V4.5 系のみ効く。0=なし 〜 3={{{tag}}}） */
@@ -105,6 +100,50 @@ export interface PromptExpanderSession {
 export type PromptExpanderEntryKind = "generated" | "uploaded";
 export type PromptExpanderEntryExpandMode = "off" | PromptExpandMode;
 
+/** 精密参照の参照元。character はキャラクタープリセットの立ち絵（ID で送る） */
+export type PromptExpanderReferenceKind =
+  | "history"
+  | "entry"
+  | "upload"
+  | "character";
+
+/** エントリに記録した精密参照 1 枚分（upload の画像本体は残らない） */
+export interface PromptExpanderEntryReference {
+  kind: PromptExpanderReferenceKind;
+  history_id: string | null;
+  entry_id: string | null;
+  character_preset_id: string | null;
+  type: PromptExpanderReferenceType;
+  /** 衣装も参照したか（V5 の参照のときだけ値を持つ） */
+  include_outfit: boolean | null;
+  strength: number;
+  /** 忠実度（V4.5 の参照のときだけ値を持つ） */
+  fidelity: number | null;
+  /** 登場人物としての名前 */
+  name: string | null;
+}
+
+/** 生成リクエストの精密参照 1 枚分。kind ごとに ID / 画像が必要 */
+export interface PromptExpanderReferenceRequest {
+  kind: PromptExpanderReferenceKind;
+  history_id?: string;
+  entry_id?: string;
+  character_preset_id?: string;
+  /** kind="upload" のときに必須（base64 または data URL） */
+  image?: string;
+  type: PromptExpanderReferenceType;
+  include_outfit: boolean;
+  strength: number;
+  fidelity: number;
+  name?: string;
+}
+
+/** 名前を付けた精密参照から作る登場人物（LLM に渡す） */
+export interface PromptExpanderCastMember {
+  name: string;
+  appearance_tags: string;
+}
+
 export interface PromptExpanderEntry {
   id: string;
   session_id: string;
@@ -130,16 +169,8 @@ export interface PromptExpanderEntry {
   source_entry_id: string | null;
   /** 背景透過で生成したか（V4.5 は表示時に切り抜く。保存 PNG は白背景のまま） */
   transparent_background: boolean;
-  /** 精密参照の参照元（"none" 以外なら参照付きで生成した） */
-  reference_kind: PromptExpanderSourceKind;
-  reference_history_id: string | null;
-  reference_entry_id: string | null;
-  reference_type: PromptExpanderReferenceType | null;
-  /** 衣装も参照したか（V5 の参照のときだけ値を持つ） */
-  reference_include_outfit?: boolean | null;
-  reference_strength: number | null;
-  /** 忠実度（V4.5 の参照のときだけ値を持つ） */
-  reference_fidelity: number | null;
+  /** 生成に使った精密参照（空なら参照なし） */
+  references: PromptExpanderEntryReference[];
   /** インペイント（部分修正）で生成したか。マスクは mask_url から取得できる */
   inpaint: boolean;
   /** "/prompt-expander/entries/{id}/mask" 形式。インペイントでないエントリは null */
@@ -185,6 +216,8 @@ export interface PromptExpandRequest {
   manga?: PromptExpanderMangaOptions;
   /** 背景透過 ON: 背景・情景を描写しない規則を LLM に足す */
   transparent_background?: boolean;
+  /** 名前を付けた精密参照の登場人物（キャラ枠 ON のときだけ使われる） */
+  cast?: PromptExpanderCastMember[];
 }
 
 export interface PromptExpandResponse {
@@ -215,16 +248,8 @@ export interface PromptExpanderGenerateRequest {
   source_image?: string;
   manga_mode?: boolean;
   manga_panel_count?: number | null;
-  /** 精密参照（V4.5 系のみ）。"none" 以外のときに対応する ID / 画像が必要 */
-  reference_kind?: PromptExpanderSourceKind;
-  reference_history_id?: string;
-  reference_entry_id?: string;
-  /** reference_kind="upload" のときに必須（base64 または data URL） */
-  reference_image?: string;
-  reference_type?: PromptExpanderReferenceType;
-  reference_include_outfit?: boolean;
-  reference_strength?: number;
-  reference_fidelity?: number;
+  /** 精密参照（V5 節約モード以外）。1 枚ごとに Anlas を消費する */
+  references?: PromptExpanderReferenceRequest[];
   transparent_background?: boolean;
   transparent_emphasis?: number;
   /** インペイント（部分修正）。新規に描いたマスク（base64 または data URL） */
@@ -281,6 +306,8 @@ export interface PromptExpanderMangaScriptRequest {
   text_model: string;
   language: "ja" | "en";
   manga?: PromptExpanderMangaOptions;
+  /** 名前を付けた精密参照の登場人物（ネームの話者名に使わせる） */
+  cast?: PromptExpanderCastMember[];
 }
 
 export interface PromptExpanderMangaScriptResponse {

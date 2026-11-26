@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   fetchGallerySessions: vi.fn(),
   fetchPromptExpanderEntries: vi.fn(),
   setSource: vi.fn(),
-  setReference: vi.fn(),
+  addReference: vi.fn(),
 }));
 
 vi.mock("../../apis/characters", async (importOriginal) => ({
@@ -39,9 +39,8 @@ vi.mock("../../apis/promptExpander", async (importOriginal) => ({
 vi.mock("../../contexts/PromptExpanderContext", () => ({
   usePromptExpander: () => ({
     source: null,
-    reference: null,
     setSource: mocks.setSource,
-    setReference: mocks.setReference,
+    addReference: mocks.addReference,
   }),
 }));
 
@@ -66,6 +65,7 @@ const entry = {
 const sakura = {
   id: "p1",
   name: "サクラ",
+  appearance_tags: "1girl, pink hair, pink eyes",
   profile: null,
   thumbnail_url: null,
   portrait_url: "/game/character-presets/p1/images/portrait.png",
@@ -141,22 +141,44 @@ describe("PromptExpanderSourcePickerModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("キャラクターを選ぶと立ち絵を取り込み、upload として参照画像に入れる", async () => {
+  it("キャラクターを参照に選ぶと、プリセット ID・名前・外見タグ付きで参照に足す", async () => {
     const { onClose } = renderPicker("reference");
     fireEvent.click(
       screen.getByRole("tab", { name: adventure.sourcePicker.tabCharacters }),
     );
     fireEvent.click(await screen.findByRole("button", { name: /サクラ/ }));
 
-    await waitFor(() => expect(mocks.setReference).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.addReference).toHaveBeenCalled());
+    // 立ち絵はサーバーが ID から読むので、画像を取り込まない
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.addReference.mock.calls[0][0]).toMatchObject({
+      kind: "character",
+      characterPresetId: "p1",
+      label: "サクラ",
+      name: "サクラ",
+      appearanceTags: "1girl, pink hair, pink eyes",
+      thumbnailUrl: "/api/game/character-presets/p1/images/portrait.png",
+    });
+    expect(mocks.setSource).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("キャラクターを i2i 元に選ぶと立ち絵を取り込み、upload として入れる", async () => {
+    const { onClose } = renderPicker();
+    fireEvent.click(
+      screen.getByRole("tab", { name: adventure.sourcePicker.tabCharacters }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /サクラ/ }));
+
+    await waitFor(() => expect(mocks.setSource).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/game/character-presets/p1/images/portrait.png",
     );
-    const assigned = mocks.setReference.mock.calls[0][0];
+    const assigned = mocks.setSource.mock.calls[0][0];
     expect(assigned).toMatchObject({ kind: "upload", label: "サクラ" });
     expect(assigned.uploadDataUrl).toMatch(/^data:image\/png;base64,/);
     expect(assigned.thumbnailUrl).toBe(assigned.uploadDataUrl);
-    expect(mocks.setSource).not.toHaveBeenCalled();
+    expect(mocks.addReference).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
 

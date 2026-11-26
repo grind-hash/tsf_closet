@@ -43,6 +43,13 @@ PROMPT_EXPANDER_SOURCE_KINDS: Final[tuple[str, ...]] = (
     "entry",
     "upload",
 )
+# 精密参照の参照元。character はキャラクタープリセットの立ち絵（ID で送り再生成でも使える）
+PROMPT_EXPANDER_REFERENCE_KINDS: Final[tuple[str, ...]] = (
+    "history",
+    "entry",
+    "upload",
+    "character",
+)
 
 PROMPT_EXPANDER_SUGGESTION_COUNT_DEFAULT: Final[int] = 3
 PROMPT_EXPANDER_SUGGESTION_COUNT_MIN: Final[int] = 1
@@ -82,6 +89,12 @@ DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE: Final[str] = "character"
 DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH: Final[float] = 0.85
 DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY: Final[float] = 1.0
 PROMPT_EXPANDER_ANLAS_PER_REFERENCE: Final[int] = 5
+# 1 回の生成で送れる精密参照の枚数（通常プレイの精密参照と同じ上限）
+PROMPT_EXPANDER_REFERENCE_MAX_COUNT: Final[int] = 6
+# 精密参照に付ける登場人物（キャスト）の上限。名前は参照カードの表示名を兼ねる
+PROMPT_EXPANDER_CAST_MAX: Final[int] = PROMPT_EXPANDER_REFERENCE_MAX_COUNT
+PROMPT_EXPANDER_CAST_NAME_MAX_LEN: Final[int] = 40
+PROMPT_EXPANDER_CAST_TAGS_MAX_LEN: Final[int] = 1000
 
 # 背景透過。V5 系はプロンプト指示でネイティブ透過 PNG を返し、V4.5 系は白背景で生成して
 # フロントの切り抜き処理（imageAlpha.ts）で透過にする。negative は複数ビュー・キャラクター

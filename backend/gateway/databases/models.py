@@ -963,7 +963,12 @@ class PromptExpanderEntry(Base):
     transparent_background: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="0"
     )
-    # 精密参照（character reference）の参照元。none | history | entry | upload
+    # 精密参照（複数枚）。[{kind, history_id, entry_id, character_preset_id, type,
+    # include_outfit, strength, fidelity, name}] の JSON。NULL の古いエントリは下の
+    # 単数の列（1 枚だけの参照）を読む
+    references_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 精密参照（character reference）の参照元（1 枚だけだった頃の記録）。
+    # none | history | entry | upload
     reference_kind: Mapped[str] = mapped_column(
         String, default="none", nullable=False, server_default="none"
     )

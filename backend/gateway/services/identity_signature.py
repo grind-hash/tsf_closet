@@ -435,6 +435,27 @@ def _category_words(norm: str) -> set[str]:
     return {word for word in re.split(r"[^a-z0-9]+", stripped) if word}
 
 
+# 色の比較で色相として扱わない修飾語(light brown と light purple を同色扱いしない)
+_COLOR_MODIFIERS = frozenset({"light", "dark"})
+_COLOR_CATEGORIES = frozenset({"hair_color", "eyes", "skin"})
+
+
+def _compare_words(category: str, norm: str) -> set[str]:
+    """negative の重なり判定に使う語の集合を返す。
+
+    色のカテゴリは色の語だけで比べる(long brown hair と long black hair が
+    長さの語で重ならないように)。色相があれば色相だけ、無ければ修飾語で比べる。
+    """
+    if category in _COLOR_CATEGORIES:
+        colors = set(_COLOR.findall(norm))
+        hues = colors - _COLOR_MODIFIERS
+        if hues:
+            return hues
+        if colors:
+            return colors
+    return _category_words(norm)
+
+
 def cross_identity_negative(own_tags: str, other_tags: Iterable[str]) -> str:
     """他キャラの髪色・髪の長さ・瞳色・肌色のうち、自分と異なるものを negative 用に集める。
 
@@ -451,7 +472,10 @@ def cross_identity_negative(own_tags: str, other_tags: Iterable[str]) -> str:
             ]
         if entries:
             own_words[category] = set().union(
-                *(_category_words(normalize_tag_for_match(tag)) for tag in entries)
+                *(
+                    _compare_words(category, normalize_tag_for_match(tag))
+                    for tag in entries
+                )
             )
     if not own_words:
         return ""
@@ -464,8 +488,77 @@ def cross_identity_negative(own_tags: str, other_tags: Iterable[str]) -> str:
                 norm = normalize_tag_for_match(tag)
                 if category == "eyes" and not _COLOR.search(norm):
                     continue
-                if norm in seen or words & _category_words(norm):
+                if norm in seen or words & _compare_words(category, norm):
                     continue
                 seen.add(norm)
                 result.append(tag)
     return ", ".join(result)
+
+
+# タグらしい要素の上限語数(これより長い要素は台詞や説明文として扱う)
+_TAG_LIKE_MAX_WORDS = 5
+_QUOTE_CHARS = re.compile(r"[\"“”「」『』《》【】]")
+
+
+def _tag_like_tokens(prompt: str) -> list[str]:
+    """プロンプトからタグらしい要素だけを取り出す。
+
+    漫画のキャラ枠はタグの後ろに台詞の英文が続くため、引用符を含む要素と
+    語数の多い要素(説明文)は同一性の判定から外す。
+    """
+    tokens: list[str] = []
+    for token in split_tag_tokens(str(prompt or "")):
+        if _QUOTE_CHARS.search(token):
+            continue
+        if len(token.split()) > _TAG_LIKE_MAX_WORDS:
+            continue
+        tokens.append(token)
+    return tokens
+
+
+def tag_like_text(prompt: str) -> str:
+    """プロンプトのうちタグらしい要素だけをカンマ区切りで返す(negative 計算用)。"""
+    return ", ".join(_tag_like_tokens(prompt))
+
+
+def fill_missing_identity_tags(prompt: str, appearance_tags: str) -> str:
+    """プロンプトに無い同一性カテゴリだけ、外見タグから先頭に補う。
+
+    プロンプトに既にあるカテゴリ(LLM が書いた髪色など)は上書きしない。変身で
+    姿が変わる場面を壊さないため、置き換えではなく補完だけを行い、元の文は
+    書き換えない。プロンプトに髪の長さがあるときは、補う髪色タグから長さの語を除く。
+    """
+    base = str(prompt or "").strip()
+    if not base:
+        return base
+    present: set[str] = set()
+    for tag in _tag_like_tokens(base):
+        category = classify_identity_tag(tag)
+        if category is None:
+            continue
+        present.add(category)
+        # short pink hair のような複合タグは髪の長さも決めている
+        if category == "hair_color" and _HAIR_LENGTH.search(
+            normalize_tag_for_match(tag)
+        ):
+            present.add("hair_length")
+    present_norms = {normalize_tag_for_match(tag) for tag in split_tag_tokens(base)}
+    buckets = _bucketize(appearance_tags or "")
+    additions: list[str] = []
+    for category in CATEGORY_ORDER:
+        if category in present:
+            continue
+        for tag in buckets.get(category, []):
+            candidate = tag
+            if category == "hair_color" and "hair_length" in present:
+                stripped = re.sub(r"\s+", " ", _HAIR_LENGTH.sub(" ", tag)).strip()
+                if not _COLOR.search(normalize_tag_for_match(stripped)):
+                    continue
+                candidate = stripped
+            norm = normalize_tag_for_match(candidate)
+            if norm and norm not in present_norms:
+                present_norms.add(norm)
+                additions.append(candidate)
+    if not additions:
+        return base
+    return f"{', '.join(additions)}, {base}"

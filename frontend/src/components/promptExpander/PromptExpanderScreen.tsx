@@ -254,6 +254,10 @@ export default function PromptExpanderScreen() {
       <AnlasConfirmDialog
         open={pendingUsageWarn === null && pendingReferenceWarn !== null}
         body={t("promptExpander.reference.anlasBody", {
+          count: pendingReferenceWarn?.references?.length ?? 0,
+          total:
+            (pendingReferenceWarn?.references?.length ?? 0) *
+            options.anlasPerReference,
           cost: options.anlasPerReference,
         })}
         onConfirm={handleReferenceConfirm}

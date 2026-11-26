@@ -169,6 +169,20 @@ def test_manga_script_draft_api(client: TestClient):
     system = pe.llm_service.generate_text.await_args.args[0]
     assert "Write exactly 2 panels." in system
 
+    # 登場人物（名前を付けた精密参照）を渡すと、話者名に使わせる
+    res = client.post(
+        "/api/prompt-expander/manga-script",
+        json={
+            "instruction": "二人が出会う",
+            "image_model": "nai-diffusion-5-full",
+            "text_model": "glm-4-6",
+            "cast": [{"name": "サクラ", "appearance_tags": "1girl, pink hair"}],
+        },
+    )
+    assert res.status_code == 200, res.text
+    user = pe.llm_service.generate_text.await_args.args[1]
+    assert "- サクラ: 1girl, pink hair" in user
+
     res = client.post(
         "/api/prompt-expander/manga-script",
         json={
@@ -479,55 +493,26 @@ def test_expand_manga_mode_api(client: TestClient):
 def test_settings_reference_and_transparent_fields(client: TestClient):
     body = client.get("/api/prompt-expander/settings").json()
     assert body["settings"]["use_precise_reference"] is False
-    assert body["settings"]["reference_type"] == "character"
-    assert body["settings"]["reference_strength"] == 0.85
-    assert body["settings"]["reference_fidelity"] == 1.0
     assert body["settings"]["transparent_background"] is False
+    # 種別・強度などは画像ごとに持つため、設定には無い
+    assert "reference_type" not in body["settings"]
+    assert "reference_strength" not in body["settings"]
     assert body["reference_types"] == [
         "character",
         "style",
         "character&style",
         "costume",
     ]
-    assert body["settings"]["reference_include_outfit"] is False
     assert body["anlas_per_reference"] == 5
 
     res = client.put(
         "/api/prompt-expander/settings",
-        json={
-            "use_precise_reference": True,
-            "reference_type": "character&style",
-            "reference_strength": 0.4,
-            "reference_fidelity": 0.7,
-            "transparent_background": True,
-        },
+        json={"use_precise_reference": True, "transparent_background": True},
     )
     assert res.status_code == 200, res.text
     saved = res.json()["settings"]
     assert saved["use_precise_reference"] is True
-    assert saved["reference_type"] == "character&style"
-    assert saved["reference_strength"] == 0.4
-    assert saved["reference_fidelity"] == 0.7
     assert saved["transparent_background"] is True
-    # V5 向けに 1.0 超は保存でき、5.0 超は 422
-    assert (
-        client.put(
-            "/api/prompt-expander/settings", json={"reference_strength": 1.5}
-        ).status_code
-        == 200
-    )
-    assert (
-        client.put(
-            "/api/prompt-expander/settings", json={"reference_strength": 5.5}
-        ).status_code
-        == 422
-    )
-    assert (
-        client.put(
-            "/api/prompt-expander/settings", json={"reference_type": "vibe"}
-        ).status_code
-        == 422
-    )
 
 
 def test_generate_with_inpaint_mask(client: TestClient):
@@ -602,19 +587,24 @@ def test_generate_with_reference_and_transparent_background(client: TestClient):
         json={
             "prompt": "1girl, standing",
             "image_model": "nai-diffusion-4-5-full",
-            "reference_kind": "upload",
-            "reference_image": _png_b64("blue"),
-            "reference_type": "character",
-            "reference_strength": 0.85,
-            "reference_fidelity": 1.0,
+            "references": [
+                {
+                    "kind": "upload",
+                    "image": _png_b64("blue"),
+                    "type": "character",
+                    "strength": 0.85,
+                    "fidelity": 1.0,
+                }
+            ],
             "transparent_background": True,
         },
     )
     assert res.status_code == 200, res.text
     entry = res.json()["entry"]
-    assert entry["reference_kind"] == "upload"
-    assert entry["reference_type"] == "character"
-    assert entry["reference_strength"] == 0.85
+    assert len(entry["references"]) == 1
+    assert entry["references"][0]["kind"] == "upload"
+    assert entry["references"][0]["type"] == "character"
+    assert entry["references"][0]["strength"] == 0.85
     assert entry["transparent_background"] is True
     # 保存値は接尾辞なし、送信値は白背景タグ付き（V4.5）。
     # 強調は API 既定の 2 段（{{}}）が載る
@@ -626,7 +616,7 @@ def test_generate_with_reference_and_transparent_background(client: TestClient):
     assert len(call.kwargs["character_references"]) == 1
     # 一覧・単体取得でも新項目が返る
     listed = client.get("/api/prompt-expander/entries").json()["items"][0]
-    assert listed["reference_kind"] == "upload"
+    assert listed["references"][0]["kind"] == "upload"
     assert listed["transparent_background"] is True
 
     # V5 Full の節約モードでは精密参照は 422
@@ -635,64 +625,85 @@ def test_generate_with_reference_and_transparent_background(client: TestClient):
         json={
             "prompt": "1girl",
             "image_model": "nai-diffusion-5-full-medium",
-            "reference_kind": "upload",
-            "reference_image": _png_b64("blue"),
+            "references": [{"kind": "upload", "image": _png_b64("blue")}],
         },
     )
     assert res.status_code == 422
     assert res.json()["detail"]["code"] == "precise_reference_unsupported_model"
 
-    # V5 は強度 1.0 超と衣装の参照を送れる
+    # V5 は強度 1.0 超と衣装の参照を送れ、複数枚・名前付きも送れる
     res = client.post(
         f"/api/prompt-expander/sessions/{session_id}/generate",
         json={
-            "prompt": "1girl",
+            "prompt": "2girls",
             "image_model": "nai-diffusion-5-full",
-            "reference_kind": "upload",
-            "reference_image": _png_b64("blue"),
-            "reference_type": "character",
-            "reference_include_outfit": True,
-            "reference_strength": 2,
+            "references": [
+                {
+                    "kind": "upload",
+                    "image": _png_b64("blue"),
+                    "type": "character",
+                    "include_outfit": True,
+                    "strength": 2,
+                    "name": "サクラ",
+                },
+                {"kind": "upload", "image": _png_b64("red"), "type": "style"},
+            ],
         },
     )
     assert res.status_code == 200, res.text
-    entry = res.json()["entry"]
-    assert entry["reference_include_outfit"] is True
-    assert entry["reference_strength"] == 2
-    assert entry["reference_fidelity"] is None
-
-    # 種別と ID の不整合、範囲外の強度は 422
-    res = client.post(
-        f"/api/prompt-expander/sessions/{session_id}/generate",
-        json={
-            "prompt": "1girl",
-            "image_model": "nai-diffusion-4-5-full",
-            "reference_kind": "entry",
-        },
+    references = res.json()["entry"]["references"]
+    assert [r["type"] for r in references] == ["character", "style"]
+    assert references[0]["include_outfit"] is True
+    assert references[0]["strength"] == 2
+    assert references[0]["fidelity"] is None
+    assert references[0]["name"] == "サクラ"
+    assert (
+        len(pe.image_service.generate_image.await_args.kwargs["character_references"])
+        == 2
     )
-    assert res.status_code == 422
-    # V4.5 で強度 1.0 超はサービス側で 422、5.0 超はスキーマで 422
+
+    # 種別と ID の不整合、7 枚以上、範囲外の強度は 422
+    for references in (
+        [{"kind": "entry"}],
+        [{"kind": "character"}],
+        [{"kind": "upload", "image": _png_b64("blue")}] * 7,
+        [{"kind": "upload", "image": _png_b64("blue"), "strength": 6}],
+    ):
+        res = client.post(
+            f"/api/prompt-expander/sessions/{session_id}/generate",
+            json={
+                "prompt": "1girl",
+                "image_model": "nai-diffusion-5-full",
+                "references": references,
+            },
+        )
+        assert res.status_code == 422
+    # V4.5 で強度 1.0 超はサービス側で 422（何枚目かを伝える）
     res = client.post(
         f"/api/prompt-expander/sessions/{session_id}/generate",
         json={
             "prompt": "1girl",
             "image_model": "nai-diffusion-4-5-full",
-            "reference_kind": "upload",
-            "reference_image": _png_b64("blue"),
-            "reference_strength": 2,
+            "references": [
+                {"kind": "upload", "image": _png_b64("blue")},
+                {"kind": "upload", "image": _png_b64("blue"), "strength": 2},
+            ],
         },
     )
     assert res.status_code == 422
     assert res.json()["detail"]["code"] == "precise_reference_strength_out_of_range"
+    assert "参照 2 枚目" in res.json()["detail"]["message"]
+    # 見つからない参照は 404
     res = client.post(
         f"/api/prompt-expander/sessions/{session_id}/generate",
         json={
             "prompt": "1girl",
             "image_model": "nai-diffusion-5-full",
-            "reference_strength": 6,
+            "references": [{"kind": "entry", "entry_id": "missing"}],
         },
     )
-    assert res.status_code == 422
+    assert res.status_code == 404
+    assert res.json()["detail"]["code"] == "reference_not_found"
 
 
 def test_expand_accepts_transparent_background(client: TestClient):

@@ -49,6 +49,7 @@ from ..services.prompt_expander_service import (
     PromptExpanderError,
     PromptExpanderService,
     PromptExpanderSettings,
+    ReferenceParams,
     entry_to_dict,
     novelai_configured,
     remove_entry_image,
@@ -74,6 +75,7 @@ def _http_error(exc: PromptExpanderError) -> HTTPException:
         "history_not_found": status.HTTP_404_NOT_FOUND,
         "image_not_found": status.HTTP_404_NOT_FOUND,
         "mask_not_found": status.HTTP_404_NOT_FOUND,
+        "reference_not_found": status.HTTP_404_NOT_FOUND,
         "invalid_source": status.HTTP_400_BAD_REQUEST,
         "invalid_image": status.HTTP_400_BAD_REQUEST,
         "invalid_request": status.HTTP_400_BAD_REQUEST,
@@ -91,6 +93,7 @@ def _http_error(exc: PromptExpanderError) -> HTTPException:
             status.HTTP_422_UNPROCESSABLE_ENTITY
         ),
         "precise_reference_inpaint_unsupported": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "too_many_references": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "inpaint_requires_source": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "invalid_llm_output": status.HTTP_502_BAD_GATEWAY,
         "llm_failed": status.HTTP_502_BAD_GATEWAY,
@@ -288,14 +291,21 @@ async def generate_image(session_id: str, body: PromptExpanderGenerateRequest):
         source_image=body.source_image,
         manga_mode=body.manga_mode,
         manga_panel_count=body.manga_panel_count,
-        reference_kind=body.reference_kind,
-        reference_history_id=body.reference_history_id,
-        reference_entry_id=body.reference_entry_id,
-        reference_image=body.reference_image,
-        reference_type=body.reference_type,
-        reference_include_outfit=body.reference_include_outfit,
-        reference_strength=body.reference_strength,
-        reference_fidelity=body.reference_fidelity,
+        references=[
+            ReferenceParams(
+                kind=item.kind,
+                history_id=item.history_id,
+                entry_id=item.entry_id,
+                character_preset_id=item.character_preset_id,
+                image=item.image,
+                type=item.type,
+                include_outfit=item.include_outfit,
+                strength=item.strength,
+                fidelity=item.fidelity,
+                name=item.name,
+            )
+            for item in body.references
+        ],
         transparent_background=body.transparent_background,
         transparent_emphasis=body.transparent_emphasis,
         inpaint_mask=body.inpaint_mask,
@@ -462,6 +472,7 @@ async def expand_prompt(body: PromptExpandRequest):
             else None
         ),
         transparent_background=body.transparent_background,
+        cast=[member.to_cast_member() for member in body.cast],
     )
     try:
         result = await pe_service.expand_prompts(params, user_id=DEFAULT_USER_ID)
@@ -483,6 +494,7 @@ async def draft_manga_script(body: MangaScriptRequest):
         text_model=body.text_model,
         language=body.language,
         manga=(body.manga or MangaOptionsModel()).to_options(),
+        cast=[member.to_cast_member() for member in body.cast],
     )
     try:
         result = await pe_service.draft_manga_script(params, user_id=DEFAULT_USER_ID)

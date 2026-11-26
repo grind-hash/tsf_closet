@@ -28,6 +28,18 @@ type PromptExpanderSessionPayload = {
   updated_at: string;
 };
 
+type PromptExpanderEntryReferencePayload = {
+  kind: "history" | "entry" | "upload" | "character";
+  history_id: string | null;
+  entry_id: string | null;
+  character_preset_id: string | null;
+  type: string;
+  include_outfit: boolean | null;
+  strength: number;
+  fidelity: number | null;
+  name: string | null;
+};
+
 type PromptExpanderEntryPayload = {
   id: string;
   session_id: string;
@@ -51,12 +63,7 @@ type PromptExpanderEntryPayload = {
   source_history_id: string | null;
   source_entry_id: string | null;
   transparent_background: boolean;
-  reference_kind: "none" | "history" | "entry" | "upload";
-  reference_history_id: string | null;
-  reference_entry_id: string | null;
-  reference_type: "character" | "style" | "character&style" | null;
-  reference_strength: number | null;
-  reference_fidelity: number | null;
+  references: PromptExpanderEntryReferencePayload[];
   inpaint: boolean;
   mask_url: string | null;
   image_url: string;
@@ -104,12 +111,7 @@ function entryPayload(
     source_history_id: null,
     source_entry_id: null,
     transparent_background: false,
-    reference_kind: "none",
-    reference_history_id: null,
-    reference_entry_id: null,
-    reference_type: null,
-    reference_strength: null,
-    reference_fidelity: null,
+    references: [],
     inpaint: false,
     mask_url: null,
     image_url: `/prompt-expander/images/${ENTRY_ID}`,
@@ -142,9 +144,6 @@ function settingsPayload() {
       manga_reading_direction: "rtl",
       manga_narration: false,
       use_precise_reference: false,
-      reference_type: "character",
-      reference_strength: 0.85,
-      reference_fidelity: 1,
       transparent_background: false,
       transparent_emphasis: 2,
       use_inpaint: false,
@@ -324,12 +323,17 @@ async function mockPromptExpanderApis(page: Page) {
         manga_mode?: boolean;
         manga_panel_count?: number | null;
         transparent_background?: boolean;
-        reference_kind?: "none" | "history" | "entry" | "upload";
-        reference_history_id?: string;
-        reference_entry_id?: string;
-        reference_type?: "character" | "style" | "character&style";
-        reference_strength?: number;
-        reference_fidelity?: number;
+        references?: Array<{
+          kind: PromptExpanderEntryReferencePayload["kind"];
+          history_id?: string;
+          entry_id?: string;
+          character_preset_id?: string;
+          type: string;
+          include_outfit: boolean;
+          strength: number;
+          fidelity: number;
+          name?: string;
+        }>;
         transparent_emphasis?: number;
         source_kind?: "none" | "history" | "entry" | "upload";
         source_history_id?: string;
@@ -361,18 +365,17 @@ async function mockPromptExpanderApis(page: Page) {
           body.inpaint_mask || body.inpaint_mask_entry_id
             ? `/prompt-expander/entries/pe-entry-new-${generatedCount}/mask`
             : null,
-        reference_kind: body.reference_kind ?? "none",
-        reference_history_id: body.reference_history_id ?? null,
-        reference_entry_id: body.reference_entry_id ?? null,
-        reference_type: body.reference_kind
-          ? (body.reference_type ?? null)
-          : null,
-        reference_strength: body.reference_kind
-          ? (body.reference_strength ?? null)
-          : null,
-        reference_fidelity: body.reference_kind
-          ? (body.reference_fidelity ?? null)
-          : null,
+        references: (body.references ?? []).map((ref) => ({
+          kind: ref.kind,
+          history_id: ref.history_id ?? null,
+          entry_id: ref.entry_id ?? null,
+          character_preset_id: ref.character_preset_id ?? null,
+          type: ref.type,
+          include_outfit: null,
+          strength: ref.strength,
+          fidelity: ref.fidelity,
+          name: ref.name ?? null,
+        })),
         image_url: `/prompt-expander/images/pe-entry-new-${generatedCount}`,
         created_at: "2026-08-02T00:00:00",
       });
@@ -949,18 +952,8 @@ test("precise reference is off in economy mode, needs an image and an Anlas conf
   await expect(
     page.getByText(/V5 Full の節約モードでは精密参照は使えません/),
   ).toBeVisible();
-  // V5 Full では使え、衣装の種別と「衣装も参照する」が操作できる
-  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
-  await expect(toggle).toBeEnabled();
-  await expect(section.getByRole("radio", { name: "衣装" })).toBeEnabled();
-  await expect(
-    section.getByRole("checkbox", { name: "衣装も参照する" }),
-  ).toBeEnabled();
-  await expect(page.getByLabel(/参照強度/)).toHaveAttribute("max", "5");
   await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
   await expect(toggle).toBeEnabled();
-  // V4.5 では衣装の種別は選べない
-  await expect(section.getByRole("radio", { name: "衣装" })).toBeDisabled();
 
   // トグル ON にしても参照画像が無ければ有効にならない
   await section
@@ -968,18 +961,28 @@ test("precise reference is off in economy mode, needs an image and an Anlas conf
     .click();
   await expect(toggle).toBeChecked();
   await expect(section).toContainText("参照画像を選ぶと有効になります");
-  await expect(page.getByLabel(/参照強度/)).toBeDisabled();
 
-  // 画像一覧から参照画像を選ぶ（i2i 元は空のまま）
+  // 画像一覧から参照画像を足す（i2i 元は空のまま）。種別・強度は画像ごとのカードで決める
   await section.getByRole("button", { name: "一覧から選ぶ" }).click();
   const picker = page.getByRole("dialog", { name: "参照画像を選ぶ" });
   await expect(picker).toBeVisible();
   await picker.locator(".prompt-expander__entry-grid-item").first().click();
   await expect(picker).toBeHidden();
-  await expect(section).toContainText(
-    "キャラクター · 強度 0.85 · 忠実度 1.00 · +5 Anlas",
-  );
-  await expect(page.getByLabel(/参照強度/)).toBeEnabled();
+  const card = section.getByTestId("prompt-expander-reference-card");
+  await expect(card).toHaveCount(1);
+  await expect(section).toContainText("1 枚 · +5 Anlas");
+  await expect(section).toContainText("1 / 6 枚");
+  // V4.5 では衣装の種別は選べない
+  await expect(card.getByRole("radio", { name: "衣装" })).toBeDisabled();
+  await expect(card.getByLabel(/参照強度/)).toHaveAttribute("max", "1");
+  // V5 Full では衣装の種別と「衣装も参照する」が操作でき、強度は 5.0 まで
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await expect(card.getByRole("radio", { name: "衣装" })).toBeEnabled();
+  await expect(
+    card.getByRole("checkbox", { name: "衣装も参照する" }),
+  ).toBeEnabled();
+  await expect(card.getByLabel(/参照強度/)).toHaveAttribute("max", "5");
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
   await expect(
     page.locator(".prompt-expander__section[data-section-id='i2i']"),
   ).toContainText("生成元なし");
@@ -993,16 +996,23 @@ test("precise reference is off in economy mode, needs an image and an Anlas conf
   await expect(
     page.getByRole("heading", { name: "Anlas 追加消費の確認" }),
   ).toBeVisible();
-  await expect(page.getByText(/精密参照画像の使用により/)).toBeVisible();
+  await expect(
+    page.getByText(/精密参照画像 1 枚の使用により、5 Anlas/),
+  ).toBeVisible();
   expect(state.generateBodies).toHaveLength(0);
   await page.getByRole("button", { name: "続行" }).click();
   await expect.poll(() => state.generateBodies.length).toBe(1);
   expect(state.generateBodies[0]).toMatchObject({
-    reference_kind: "entry",
-    reference_entry_id: ENTRY_ID,
-    reference_type: "character",
-    reference_strength: 0.85,
-    reference_fidelity: 1,
+    references: [
+      {
+        kind: "entry",
+        entry_id: ENTRY_ID,
+        type: "character",
+        include_outfit: false,
+        strength: 0.85,
+        fidelity: 1,
+      },
+    ],
     source_kind: "none",
     transparent_background: false,
   });
@@ -1011,9 +1021,12 @@ test("precise reference is off in economy mode, needs an image and an Anlas conf
     "精密参照",
   );
 
-  // 「参照にする」で生成結果を次の参照に差し替えられる（立ち絵差分の連鎖）
+  // 「参照にする」で生成結果を参照に足せる（立ち絵差分の連鎖）。押し直すと外れる
   await newest.getByRole("button", { name: "参照にする" }).click();
+  await expect(card).toHaveCount(2);
   await expect(section).toContainText("1girl, standing");
+  await newest.getByRole("button", { name: "参照から外す" }).click();
+  await expect(card).toHaveCount(1);
 });
 
 test("transparent background is sent with expand/generate and V4.5 entries are cut out client-side with a PNG download", async ({
