@@ -40,7 +40,9 @@ export function toPlayProposal(
   if (!isRecord(character) || !isRecord(instruction)) return null;
   if (typeof raw.self_mode !== "boolean") return null;
   const source = character.source;
-  if (source !== "template" && source !== "custom") return null;
+  if (source !== "template" && source !== "preset" && source !== "custom") {
+    return null;
+  }
   const instructionType = instruction.instruction_type;
   if (!isProposalInstructionType(instructionType)) return null;
 

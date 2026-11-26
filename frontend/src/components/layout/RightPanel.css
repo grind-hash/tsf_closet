@@ -520,6 +520,12 @@
   background-color: var(--hover-bg, #1f2f50);
 }
 
+/* 精密参照: 一覧から選ぶ(ドロップゾーンの下に全幅で置く) */
+.right-panel__precise-ref-pick {
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
 .right-panel__precise-ref-drop-zone {
   width: 100%;
   min-height: 72px;

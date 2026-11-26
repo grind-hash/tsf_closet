@@ -146,6 +146,17 @@ describe("CharacterChatPlayProposalCard", () => {
     expect(mocks.startProposedPlay).not.toHaveBeenCalled();
   });
 
+  it("cannot start a v0.11.0 proposal for a saved custom character", () => {
+    renderCard({
+      ...PROPOSAL,
+      character: { source: "custom", id: "c-1", name: "サクラ" },
+    });
+    expect(screen.getByText(/キャラクター画面へ移りました/)).toBeTruthy();
+    expect(startButton().disabled).toBe(true);
+    fireEvent.click(startButton());
+    expect(mocks.startProposedPlay).not.toHaveBeenCalled();
+  });
+
   it("allows a self-mode play once the self profile exists", () => {
     mocks.selfProfile = { display_name: "ハル" };
     renderCard({ ...PROPOSAL, self_mode: true });

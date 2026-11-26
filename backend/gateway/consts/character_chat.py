@@ -297,8 +297,8 @@ PLAY_PROPOSAL_TITLE_MAX = 40
 PLAY_PROPOSAL_REASON_MAX = 160
 # 通常プレイの指示の上限(500)より短くする
 PLAY_PROPOSAL_INSTRUCTION_MAX = 200
-# 提案の候補に載せる作成済みキャラの件数(新しい順)
-PLAY_PROPOSAL_CUSTOM_MAX = 12
+# 提案の候補に載せるキャラクター画面のキャラの件数(更新が新しい順)
+PLAY_PROPOSAL_PRESET_MAX = 12
 # 提案の根拠に読む最近のセッションの件数
 PLAY_PROPOSAL_RECENT_SESSIONS = 5
 

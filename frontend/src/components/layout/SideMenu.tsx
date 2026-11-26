@@ -190,11 +190,18 @@ export default function SideMenu() {
     getServerLastAdventureRunId,
   );
 
+  // 新規プレイの画面へ。プレイ中のセッションとチャット履歴をクリアしてから移動する
+  // (/play/new はアクティブなセッションがあるとゲーム画面のままになるため)
+  const startNewGame = () => {
+    clearSession();
+    clearMessages();
+    navigate(ROUTES.GAME_NEW);
+  };
+
   const handleMenuClick = (path: string, menuId: string) => {
-    // 新規プレイの場合はセッションとチャット履歴をクリアしてからナビゲート
     if (menuId === "new-game") {
-      clearSession();
-      clearMessages();
+      startNewGame();
+      return;
     }
     navigate(path);
   };
@@ -202,13 +209,6 @@ export default function SideMenu() {
   // プレイ中のゲームに移動
   const handleGoToActiveGame = () => {
     if (gameState.sessionId) {
-      navigate(getGameSessionPath(gameState.sessionId));
-    }
-  };
-
-  // タイトルクリック時の処理
-  const handleTitleClick = () => {
-    if (hasActiveGame && gameState.sessionId) {
       navigate(getGameSessionPath(gameState.sessionId));
     }
   };
@@ -237,10 +237,9 @@ export default function SideMenu() {
       <div className="side-menu__header">
         <button
           type="button"
-          className={`side-menu__title ${hasActiveGame ? "is-clickable" : ""}`}
-          onClick={handleTitleClick}
-          disabled={!hasActiveGame}
-          title={hasActiveGame ? t("menu.goActiveGame") : undefined}
+          className="side-menu__title"
+          onClick={startNewGame}
+          title={t("menu.goNewGame")}
         >
           TSF Closet
         </button>

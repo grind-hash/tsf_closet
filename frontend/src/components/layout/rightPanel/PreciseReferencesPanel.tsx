@@ -1,14 +1,19 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../../contexts/SettingsContext";
 import { usePreciseReferenceDropZone } from "../../../hooks/usePreciseReferenceDropZone";
 import { PRECISE_REFERENCE_SECTION_ID } from "../../../hooks/usePreciseReferenceFiles";
 import type { PreciseReferenceType } from "../../../types";
+import { fetchMediaAsFile } from "../../../utils/mediaImage";
 import {
   clampReferenceStrength,
   isReferenceTypeSupported,
   PRECISE_REFERENCE_STRENGTH_MAX,
   referenceTypeUsesOutfit,
 } from "../../../utils/preciseReferences";
+import AdventureSessionPickerModal, {
+  type AdventureSourceSelection,
+} from "../../adventure/AdventureSessionPickerModal";
 
 const noteStyle = {
   display: "block",
@@ -29,12 +34,35 @@ export default function PreciseReferencesPanel() {
     novelaiPreciseReferenceFormat: format,
   } = useSettings();
   const dropZone = usePreciseReferenceDropZone();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
   const unsupported = format === null;
   const isV5 = format === "v5";
   const strengthMax = PRECISE_REFERENCE_STRENGTH_MAX[format ?? "v4_5"];
   const inpaintActive =
     settingsState.inpaintEnabled &&
     Boolean(settingsState.inpaintMask.maskDataUrl);
+
+  // 一覧(セッション・お気に入り・Prompt Expander・キャラクター)から選んだ画像を取り込み、
+  // アップロードと同じ検証を通して追加する
+  const handlePick = async (selection: AdventureSourceSelection) => {
+    setPicking(true);
+    dropZone.setError(null);
+    try {
+      const name =
+        selection.characterName?.trim() ||
+        selection.pointLabel?.trim() ||
+        t("rightPanel.preciseRefPickedFallback");
+      const file = await fetchMediaAsFile(selection.thumbnailUrl, name);
+      await dropZone.addFiles([file]);
+    } catch (err) {
+      console.error("Failed to load the picked reference image", err);
+      dropZone.setError(t("rightPanel.preciseRefPickFailed"));
+    } finally {
+      setPicking(false);
+      setPickerOpen(false);
+    }
+  };
 
   return (
     <div
@@ -97,6 +125,14 @@ export default function PreciseReferencesPanel() {
               </span>
             </>
           )}
+        </button>
+        <button
+          type="button"
+          className="right-panel__btn-secondary right-panel__precise-ref-pick"
+          onClick={() => setPickerOpen(true)}
+          data-testid="precise-ref-pick"
+        >
+          {t("rightPanel.preciseRefPickFromList")}
         </button>
 
         {dropZone.error && (
@@ -353,6 +389,18 @@ export default function PreciseReferencesPanel() {
           </div>
         ))}
       </div>
+      {/* 無効表示の半透明を引き継がないよう、モーダルは無効ブロックの外に置く */}
+      {pickerOpen && (
+        <AdventureSessionPickerModal
+          title={t("rightPanel.preciseRefPickerTitle")}
+          selected={null}
+          onSelect={(selection) => void handlePick(selection)}
+          onClose={() => setPickerOpen(false)}
+          allowPromptExpander={settingsState.experimentalPromptExpanderEnabled}
+          characters="tab"
+          busyLabel={picking ? t("rightPanel.preciseRefPicking") : null}
+        />
+      )}
     </div>
   );
 }

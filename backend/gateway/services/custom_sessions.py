@@ -1,17 +1,18 @@
-"""カスタム画像（ユーザーがアップロードした主人公）で始めるセッションの補助。
+"""セッションごとのプロフィールと、旧カスタムキャラクターの移行の補助。
 
-画像とメタデータは `history_images/custom/` に置く。
-- `{custom_image_id}.png` / `.json`: 再利用できるカスタムキャラクター
-- `session_{session_id}.json`: セッションごとのプロフィール（性別・一人称・タグ）
+`history_images/custom/` に置くもの:
+- `session_{session_id}.json`: セッションごとのプロフィール（性別・一人称・タグ）。
+  キャラクター(CharacterPreset)から始めたセッションも使う
+- `{custom_image_id}.png` / `.json`: v0.11.0 以前の新規プレイ「自分の画像を使用」で
+  保存したカスタムキャラクター。v0.12.0 で新規作成をやめ、起動時にキャラクターへ
+  取り込む。過去セッションの元画像として参照されるため消さない
 
-キャラクター(CharacterPreset)から始めたセッションも同じ `session_{session_id}.json` を使い、
-開始時点の立ち絵の写しは `history_images/preset_sessions/` に置く(custom に置くと
-カスタムキャラクターの一覧に混ざるため)。写しのファイル名はメタデータの base_image。
+キャラクターから始めたセッションの開始時点の立ち絵の写しは `history_images/preset_sessions/`
+に置く。写しのファイル名はメタデータの base_image。
 """
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import re
@@ -22,7 +23,7 @@ from ..settings.config import settings
 
 logger = logging.getLogger(__name__)
 
-# 保存済みカスタムキャラクターの ID(uuid)。外部から受けた値をパスに使う前に形を確かめる
+# 旧カスタムキャラクターの ID(uuid)。DB に残る値をパスに使う前に形を確かめる
 _CUSTOM_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
 
@@ -86,15 +87,9 @@ def delete_custom_session_metadata(session_id: str) -> None:
         )
 
 
-def save_custom_character(
-    custom_image_id: str, image_bytes: bytes, metadata: dict[str, Any]
-) -> None:
-    """カスタムキャラクターの画像とメタデータを保存する。"""
-    directory = custom_images_dir()
-    (directory / f"{custom_image_id}.png").write_bytes(image_bytes)
-    (directory / f"{custom_image_id}.json").write_text(
-        json.dumps(metadata, ensure_ascii=False), encoding="utf-8"
-    )
+# ---------------------------------------------------------------------------
+# 旧カスタムキャラクター(v0.11.0 以前)の移行
+# ---------------------------------------------------------------------------
 
 
 def custom_character_image_path(custom_image_id: str) -> Path:
@@ -127,22 +122,22 @@ def _custom_profile(custom_image_id: str, metadata: dict[str, Any]) -> dict[str,
     }
 
 
-def _custom_image_files() -> list[Path]:
-    """保存済みカスタムキャラクターの画像(新しい順)。
-
-    キャラクター画面へ取り込んだもの(imported_preset_id あり)は一覧・来店候補から外す。
-    ID を指定した読み込み(load_custom_character_profile)は取り込み後も使える。
-    """
+def list_unimported_custom_character_profiles() -> list[dict[str, Any]]:
+    """キャラクターへ取り込んでいないカスタムキャラクターの人物設定(古い順)。"""
     files = [
         path
         for path in custom_images_dir().glob("*.png")
         if not _read_custom_metadata(path).get("imported_preset_id")
     ]
-    return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+    files.sort(key=lambda path: path.stat().st_mtime)
+    return [
+        _custom_profile(image_file.stem, _read_custom_metadata(image_file))
+        for image_file in files
+    ]
 
 
 def mark_custom_character_imported(custom_image_id: str, preset_id: str) -> None:
-    """カスタムキャラクターをキャラクター画面へ取り込んだ印を付ける。"""
+    """カスタムキャラクターをキャラクターへ取り込んだ印を付ける。"""
     image_file = custom_character_image_path(custom_image_id)
     metadata = _read_custom_metadata(image_file)
     metadata["imported_preset_id"] = preset_id
@@ -151,36 +146,14 @@ def mark_custom_character_imported(custom_image_id: str, preset_id: str) -> None
     )
 
 
-def list_custom_characters() -> list[dict[str, Any]]:
-    """保存済みのカスタムキャラクター（新しい順）をサムネイル付きで返す。"""
-    items: list[dict[str, Any]] = []
-    for image_file in _custom_image_files():
-        profile = _custom_profile(image_file.stem, _read_custom_metadata(image_file))
-        items.append(
-            {
-                **profile,
-                "thumbnail": base64.b64encode(image_file.read_bytes()).decode("utf-8"),
-            }
-        )
-    return items
+def imported_preset_id(custom_image_id: str | None) -> str | None:
+    """カスタムキャラクターの取り込み先キャラクターの ID。未取り込み・ID 不正は None。
 
-
-def list_custom_character_profiles(limit: int | None = None) -> list[dict[str, Any]]:
-    """保存済みのカスタムキャラクターの人物設定（新しい順）。画像は読まない。"""
-    files = _custom_image_files()
-    if limit is not None:
-        files = files[: max(0, limit)]
-    return [
-        _custom_profile(image_file.stem, _read_custom_metadata(image_file))
-        for image_file in files
-    ]
-
-
-def load_custom_character_profile(custom_image_id: str | None) -> dict[str, Any] | None:
-    """保存済みカスタムキャラクターの人物設定。ID が不正・画像が無いときは None。"""
+    v0.11.0 以前に保存された参照(サロンの予約など)をキャラクターへ読み替えるのに使う。
+    """
     if not custom_image_id or not _CUSTOM_ID_PATTERN.fullmatch(custom_image_id):
         return None
-    image_file = custom_character_image_path(custom_image_id)
-    if not image_file.exists():
-        return None
-    return _custom_profile(custom_image_id, _read_custom_metadata(image_file))
+    value = _read_custom_metadata(custom_character_image_path(custom_image_id)).get(
+        "imported_preset_id"
+    )
+    return str(value) if value else None

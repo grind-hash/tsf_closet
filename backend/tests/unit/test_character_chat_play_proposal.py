@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
-import time
 
 import pytest
 from pydantic import ValidationError
 
 from gateway.models import Character
 from gateway.services import character_chat_play_proposal as proposal_module
-from gateway.services import custom_sessions
 from gateway.services.character_chat_models import (
     CharacterChatPlan,
     CharacterChatPlayProposal,
@@ -33,13 +30,12 @@ from gateway.services.character_chat_prompts import (
     play_proposal_user_prompt,
     reply_system_prompt,
 )
-from gateway.settings.config import settings
 
 CONTEXT = {
     "catalog": {
         "template:char1": "カナタ",
         "template:char2": "ハルカ",
-        "custom:1": "サクラ",
+        "preset:1": "サクラ",
     },
     "self_mode_available": False,
 }
@@ -78,10 +74,10 @@ def test_proposal_accepts_catalog_ref_and_clamps_text() -> None:
 
 
 def test_proposal_maps_unique_name_to_ref() -> None:
-    assert _validate(_raw(character_ref="サクラ")).character_ref == "custom:1"
+    assert _validate(_raw(character_ref="サクラ")).character_ref == "preset:1"
 
 
-@pytest.mark.parametrize("ref", ["template:char9", "custom:2", "", None])
+@pytest.mark.parametrize("ref", ["template:char9", "preset:2", "", None])
 def test_proposal_rejects_unknown_character(ref) -> None:
     with pytest.raises(ValidationError) as excinfo:
         _validate(_raw(character_ref=ref))
@@ -136,14 +132,8 @@ def test_plan_play_proposal_coerces_strings() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def history_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "history_images_dir", tmp_path / "history_images")
-    return tmp_path / "history_images"
-
-
-def test_build_play_catalog_lists_templates_then_newest_custom(
-    history_dir, monkeypatch
+async def test_build_play_catalog_lists_templates_then_presets(
+    isolated_db, monkeypatch
 ) -> None:
     monkeypatch.setattr(
         proposal_module.character_manager,
@@ -159,43 +149,74 @@ def test_build_play_catalog_lists_templates_then_newest_custom(
             )
         ],
     )
-    custom_sessions.save_custom_character(
-        "old-id", b"png", {"id": "old-id", "name": "旧", "gender": "woman"}
-    )
-    custom_sessions.save_custom_character("new-id", b"png", {"id": "new-id"})
-    old_png = custom_sessions.custom_character_image_path("old-id")
-    os.utime(old_png, (time.time() - 100, time.time() - 100))
+    presets = [
+        {
+            "id": "new-id",
+            "name": "サクラ",
+            "description": "",
+            "pronoun": "僕",
+            "personality": "",
+            "gender": "other",
+            "base_tags": "",
+            "tsf_attitude": "",
+        },
+        {
+            "id": "old-id",
+            "name": "旧",
+            "description": "図書委員",
+            "pronoun": "私",
+            "personality": "物静か",
+            "gender": "woman",
+            "base_tags": "",
+            "tsf_attitude": "",
+        },
+    ]
+    limits: list[int] = []
 
-    catalog = build_play_catalog()
-    assert list(catalog) == ["template:char1", "custom:1", "custom:2"]
+    async def fake_presets(db, limit):
+        limits.append(limit)
+        return presets[:limit]
+
+    monkeypatch.setattr(proposal_module, "list_playable_presets", fake_presets)
+
+    catalog = await build_play_catalog()
+    assert list(catalog) == ["template:char1", "preset:1", "preset:2"]
     assert catalog["template:char1"].gender == "man"
-    assert catalog["custom:1"] == PlayCatalogEntry(
-        ref="custom:1",
-        source="custom",
+    assert catalog["preset:1"] == PlayCatalogEntry(
+        ref="preset:1",
+        source="preset",
         id="new-id",
-        name="カスタムキャラクター",
+        name="サクラ",
         gender="other",
         personality="",
         description="",
     )
-    assert catalog["custom:2"].id == "old-id"
-    assert catalog_names(catalog)["custom:2"] == "旧"
+    assert catalog["preset:2"].id == "old-id"
+    assert catalog_names(catalog)["preset:2"] == "旧"
 
     items = catalog_prompt_items(catalog)
     assert items[0] == {
         "ref": "template:char1",
-        "kind": "preset",
+        "kind": "built-in",
         "name": "カナタ",
         "starting_gender": "man",
         "description": "高校生",
         "personality": "素直",
     }
-    assert items[1]["kind"] == "saved custom"
-    # 作成済みキャラの uuid はプロンプトに載せず、連番の参照キーだけを見せる
+    assert items[2] == {
+        "ref": "preset:2",
+        "kind": "user-created",
+        "name": "旧",
+        "starting_gender": "woman",
+        "description": "図書委員",
+        "personality": "物静か",
+    }
+    # キャラクターの uuid はプロンプトに載せず、連番の参照キーだけを見せる
     assert "new-id" not in json.dumps(items, ensure_ascii=False)
 
-    monkeypatch.setattr(proposal_module, "PLAY_PROPOSAL_CUSTOM_MAX", 1)
-    assert list(build_play_catalog()) == ["template:char1", "custom:1"]
+    monkeypatch.setattr(proposal_module, "PLAY_PROPOSAL_PRESET_MAX", 1)
+    assert list(await build_play_catalog()) == ["template:char1", "preset:1"]
+    assert limits == [12, 1]
 
 
 def test_grounding_plan_skips_kinds_already_run() -> None:
@@ -230,11 +251,11 @@ def test_self_profile_hint() -> None:
 
 def test_play_proposal_meta_copies_character_from_catalog() -> None:
     proposal = _validate(
-        _raw(character_ref="custom:1", instruction_type="reality_alter")
+        _raw(character_ref="preset:1", instruction_type="reality_alter")
     )
     entry = PlayCatalogEntry(
-        ref="custom:1",
-        source="custom",
+        ref="preset:1",
+        source="preset",
         id="uuid-1",
         name="サクラ",
         gender="woman",
@@ -245,7 +266,7 @@ def test_play_proposal_meta_copies_character_from_catalog() -> None:
         "kind": "play",
         "title": "文化祭のメイド喫茶",
         "reason": "着せ替えのプレイが多いので",
-        "character": {"source": "custom", "id": "uuid-1", "name": "サクラ"},
+        "character": {"source": "preset", "id": "uuid-1", "name": "サクラ"},
         "self_mode": False,
         "first_instruction": {
             "instruction_type": "reality_alter",
@@ -324,7 +345,7 @@ def test_play_proposal_blocks() -> None:
         "kind": "play",
         "title": "もしも最初から女の子だったら",
         "reason": "現実改変を試したことが無いので",
-        "character": {"source": "custom", "id": "uuid-1", "name": "サクラ"},
+        "character": {"source": "preset", "id": "uuid-1", "name": "サクラ"},
         "self_mode": True,
         "first_instruction": {
             "instruction_type": "reality_alter",

@@ -2723,7 +2723,7 @@ class CharacterChatService:
         生成は返答と同じ設定プロバイダー(_generate_text)で行い、料金も同じ集計に載せる。
         """
         try:
-            catalog = build_play_catalog()
+            catalog = await build_play_catalog()
         except Exception as exc:
             logger.warning(
                 "character chat play catalog failed: %s: %s", type(exc).__name__, exc

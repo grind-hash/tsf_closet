@@ -24,25 +24,17 @@
   text-align: center;
   background: transparent;
   border: none;
-  cursor: default;
+  cursor: pointer;
   width: 100%;
   padding: 0;
-}
-
-.side-menu__title.is-clickable {
-  cursor: pointer;
   transition:
     color 0.2s,
     text-decoration 0.2s;
 }
 
-.side-menu__title.is-clickable:hover {
+.side-menu__title:hover {
   color: var(--accent-hover, #ff6b8a);
   text-decoration: underline;
-}
-
-.side-menu__title:disabled {
-  opacity: 0.8;
 }
 
 /* メニューリスト */

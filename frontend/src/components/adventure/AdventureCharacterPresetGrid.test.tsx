@@ -1,8 +1,15 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "../../i18n";
 import { adventure } from "../../i18n/ja/adventure";
+import { characters } from "../../i18n/ja/characters";
 import type { CharacterPreset } from "../../types";
 import AdventureCharacterPresetGrid from "./AdventureCharacterPresetGrid";
 import AdventureSessionPickerModal, {
@@ -46,7 +53,18 @@ function preset(overrides: Partial<CharacterPreset>): CharacterPreset {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.clear();
 });
+
+function tileNames(): string[] {
+  const grid = screen.getByRole("group", {
+    name: adventure.sourcePicker.tabCharacters,
+  });
+  return within(grid)
+    .getAllByRole("button")
+    .map((tile) => tile.querySelector(".adventure-session-picker__tile-name"))
+    .map((name) => name?.textContent ?? "");
+}
 
 describe("AdventureCharacterPresetGrid", () => {
   it("立ち絵の無いキャラクターは理由を添えて選べなくする", async () => {
@@ -92,6 +110,75 @@ describe("AdventureCharacterPresetGrid", () => {
       name: adventure.sourcePicker.characterCreateLink,
     });
     expect(link.getAttribute("href")).toBe("/characters");
+  });
+});
+
+describe("AdventureCharacterPresetGrid の並び順", () => {
+  const sortable = [
+    preset({ id: "p1", name: "サクラ", created_at: "2026-10-01T00:00:00Z" }),
+    preset({ id: "p2", name: "アオイ", created_at: "2026-10-05T00:00:00Z" }),
+    preset({ id: "p3", name: "ユウ", created_at: "2026-10-03T00:00:00Z" }),
+  ];
+
+  it("初期は作成日の新しい順に並べる", async () => {
+    mocks.listCharacterPresets.mockResolvedValue(sortable);
+    render(
+      <MemoryRouter>
+        <AdventureCharacterPresetGrid
+          selectedPresetId={null}
+          onSelect={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("button", { name: /サクラ/ });
+    expect(tileNames()).toEqual(["アオイ", "ユウ", "サクラ"]);
+  });
+
+  it("並び順を変えると並べ替え、キャラクター画面と共有する保存先に書く", async () => {
+    mocks.listCharacterPresets.mockResolvedValue(sortable);
+    render(
+      <MemoryRouter>
+        <AdventureCharacterPresetGrid
+          selectedPresetId={null}
+          onSelect={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("button", { name: /サクラ/ });
+    fireEvent.change(
+      screen.getByRole("combobox", { name: characters.sort.label }),
+      { target: { value: "name_asc" } },
+    );
+    expect(tileNames()).toEqual(["アオイ", "サクラ", "ユウ"]);
+    expect(localStorage.getItem("character_sort_order")).toBe("name_asc");
+  });
+
+  it("保存された並び順で開き、不正な保存値なら既定に戻す", async () => {
+    mocks.listCharacterPresets.mockResolvedValue(sortable);
+    localStorage.setItem("character_sort_order", "created_asc");
+    const { unmount } = render(
+      <MemoryRouter>
+        <AdventureCharacterPresetGrid
+          selectedPresetId={null}
+          onSelect={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("button", { name: /サクラ/ });
+    expect(tileNames()).toEqual(["サクラ", "ユウ", "アオイ"]);
+    unmount();
+
+    localStorage.setItem("character_sort_order", "broken");
+    render(
+      <MemoryRouter>
+        <AdventureCharacterPresetGrid
+          selectedPresetId={null}
+          onSelect={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("button", { name: /サクラ/ });
+    expect(tileNames()).toEqual(["アオイ", "ユウ", "サクラ"]);
   });
 });
 

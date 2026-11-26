@@ -67,7 +67,11 @@ export function usePreciseReferenceDropZone() {
   return {
     inputRef,
     error,
+    /** 一覧から選んだ画像の取得失敗など、ドロップゾーンの外で起きたエラーを同じ欄に出す */
+    setError,
     dragging,
+    /** 一覧から選んだ画像も、アップロードと同じ検証・エラー表示を通して追加する */
+    addFiles,
     openPicker,
     onFileChange,
     onDragEnter,

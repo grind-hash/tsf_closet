@@ -20,6 +20,7 @@ export const guide = {
         heading: "Precise reference",
         items: [
           'With NovelAI, add images under "Precise Reference Images" in the right panel to draw closer to that character or art style. Each reference costs 5 extra Anlas, and a confirmation appears before sending.',
+          'Besides uploading, press "Choose from list" to pick from sessions, favorites, Prompt Expander entries or character portraits. The Prompt Expander tab appears when Prompt Expander is enabled.',
           "Available with V4.5 and V5 (Full and Curated). Not available in V5 Full economy mode.",
           'V5 adds an "Outfit" reference type, and Character & Style or Character references offer "Also reference outfit". It is OFF by default, so clothing follows your instructions. Strength goes up to 5.0 and fidelity is not used.',
           "With V5, precise references are not sent on turns that use inpainting (a mask).",
@@ -34,7 +35,24 @@ export const guide = {
   characters: {
     title: "Characters",
     desc: "Create and manage characters. With a portrait (an uploaded image works too), you can start a play with that character. Set a name, personality, speech style, look and voice, and you can talk with them as that character in Character Chat.",
-    note: 'Starting a play from your own image has moved here from "Or use your own image" on the new-play screen. That entry on the new-play screen is deprecated and will be removed in v0.12.0.',
+    note: 'To start from your own image, upload it as the portrait and press "Play as this character". "Or use your own image" on the new-play screen was removed in v0.12.0 and moved here.',
+    details: [
+      {
+        heading: "Characters made earlier",
+        items: [
+          'Characters made with "Use your own image" on the new-play screen in v0.11.0 or earlier are imported into this screen automatically at startup. Their name, pronoun, personality, gender, attitude toward TSF, description (as the memo) and appearance tags carry over.',
+          "If such a customer was already booked in the salon, they visit as the imported character.",
+          'A play with such a character that Serena recommended earlier in Character Chat cannot be started from the proposal card. Start it with "Play as this character" on the Characters screen.',
+        ],
+      },
+      {
+        heading: "Sort order",
+        items: [
+          'Use "Sort" at the top right of the list to order by creation date (newest or oldest first) or by name (A–Z or Z–A). The default is newest first, so a character you just made comes first.',
+          "The chosen order is saved and also used on screens where you pick a character, such as precise reference and TSF Scenario.",
+        ],
+      },
+    ],
   },
   records: {
     title: "Endings & Achievements",
@@ -96,6 +114,18 @@ export const guide = {
         items: [
           'Pick a reference image under "Precise reference", separate from the i2i source, to keep the face or clothes consistent. Each reference costs 5 extra Anlas. Available with V4.5 and V5 (except economy mode).',
           'V5 offers the "Outfit" reference type and "Also reference outfit", with strength up to 5.0. With V5 it cannot be combined with inpainting.',
+        ],
+      },
+      {
+        heading: "Choosing images",
+        items: [
+          'For the i2i source, the inpaint source and the precise reference image, press "Choose from list" to pick from Prompt Expander entries, sessions, favorites or character portraits. A character portrait is used as an uploaded image.',
+        ],
+      },
+      {
+        heading: "Using entries elsewhere",
+        items: [
+          'Press "Make a character" on an entry to create a character with that image as the portrait and open the Characters screen. The appearance tags come from the prompt of the entry.',
         ],
       },
     ],

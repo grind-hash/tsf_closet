@@ -17,7 +17,6 @@ Endpoints (all under /api/game prefix when registered in app.py):
 - PUT    /game/character-presets/{preset_id}
 - DELETE /game/character-presets/{preset_id}
 - GET    /game/character-presets/{preset_id}/images/{filename}
-- POST   /game/character-presets/import-custom
 - POST   /game/character-presets/{preset_id}/portrait/from-source
 - POST   /game/character-presets/{preset_id}/portrait/upload
 - POST   /game/character-presets/{preset_id}/portrait/stream (SSE)
@@ -70,7 +69,6 @@ from ..schemas.characters import (
 )
 from ..services.character_preset_portrait import (
     CharacterPresetPortraitError,
-    import_custom_characters,
     import_preset_portrait,
     preset_image_file,
     preset_portrait_url,
@@ -730,18 +728,6 @@ async def upload_character_preset_portrait(
     except CharacterPresetPortraitError as error:
         raise _portrait_http_error(error) from error
     return _serialize_preset(record)
-
-
-@router.post(
-    "/character-presets/import-custom",
-    response_model=CharacterPresetListResponse,
-    summary="Import the custom characters made on the new-play screen (deprecated)",
-)
-async def import_custom_character_presets() -> CharacterPresetListResponse:
-    records = await import_custom_characters()
-    return CharacterPresetListResponse(
-        presets=[_serialize_preset(record) for record in records]
-    )
 
 
 @router.post(

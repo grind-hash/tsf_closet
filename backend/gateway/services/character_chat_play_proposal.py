@@ -12,15 +12,23 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from ..consts.character_chat import (
-    PLAY_PROPOSAL_CUSTOM_MAX,
     PLAY_PROPOSAL_KIND,
+    PLAY_PROPOSAL_PRESET_MAX,
     PLAY_PROPOSAL_RECENT_SESSIONS,
 )
+from ..databases.base import async_session_factory
 from .character_chat_models import CharacterChatPlan, CharacterChatPlayProposal
 from .characters import character_manager
-from .custom_sessions import list_custom_character_profiles, normalize_gender
+from .custom_sessions import normalize_gender
+from .preset_sessions import list_playable_presets
 
-PlayCharacterSource = Literal["template", "custom"]
+PlayCharacterSource = Literal["template", "preset"]
+
+# プロンプトに載せるキャラクターの種類
+_KIND_LABELS: dict[PlayCharacterSource, str] = {
+    "template": "built-in",
+    "preset": "user-created",
+}
 
 # プロンプトに載せる項目の上限
 _DESCRIPTION_MAX = 120
@@ -62,10 +70,11 @@ def _short(value: Any, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def build_play_catalog() -> dict[str, PlayCatalogEntry]:
-    """テンプレートキャラと作成済みキャラ(新しい順に上限まで)のカタログ。
+async def build_play_catalog() -> dict[str, PlayCatalogEntry]:
+    """同梱のテンプレートキャラと、キャラクター画面のキャラ(立ち絵のあるもの)のカタログ。
 
-    作成済みキャラの参照キーは、uuid を写し間違えないよう custom:1 からの連番にする。
+    キャラクター画面のキャラは更新が新しい順に上限まで。参照キーは uuid を写し間違えない
+    よう preset:1 からの連番にする。
     """
     catalog: dict[str, PlayCatalogEntry] = {}
     for character in character_manager.get_all():
@@ -79,17 +88,18 @@ def build_play_catalog() -> dict[str, PlayCatalogEntry]:
             personality=character.personality or "",
             description=character.description or "",
         )
-    profiles = list_custom_character_profiles(PLAY_PROPOSAL_CUSTOM_MAX)
-    for index, profile in enumerate(profiles, start=1):
-        ref = f"custom:{index}"
+    async with async_session_factory() as db:
+        presets = await list_playable_presets(db, PLAY_PROPOSAL_PRESET_MAX)
+    for index, profile in enumerate(presets, start=1):
+        ref = f"preset:{index}"
         catalog[ref] = PlayCatalogEntry(
             ref=ref,
-            source="custom",
-            id=str(profile["id"]),
-            name=str(profile.get("name") or ""),
-            gender=normalize_gender(profile.get("gender")),
-            personality=str(profile.get("personality") or ""),
-            description=str(profile.get("description") or ""),
+            source="preset",
+            id=profile["id"],
+            name=profile["name"],
+            gender=profile["gender"],
+            personality=profile["personality"],
+            description=profile["description"],
         )
     return catalog
 
@@ -105,7 +115,7 @@ def catalog_prompt_items(catalog: dict[str, PlayCatalogEntry]) -> list[dict[str,
     for entry in catalog.values():
         item = {
             "ref": entry.ref,
-            "kind": "preset" if entry.source == "template" else "saved custom",
+            "kind": _KIND_LABELS[entry.source],
             "name": entry.name,
             "starting_gender": entry.gender,
         }

@@ -2252,9 +2252,9 @@ def _patch_play_catalog(monkeypatch, *, profile: dict | None = None) -> None:
             personality="",
             description="",
         ),
-        "custom:1": PlayCatalogEntry(
-            ref="custom:1",
-            source="custom",
+        "preset:1": PlayCatalogEntry(
+            ref="preset:1",
+            source="preset",
             id="uuid-1",
             name="サクラ",
             gender="woman",
@@ -2262,7 +2262,7 @@ def _patch_play_catalog(monkeypatch, *, profile: dict | None = None) -> None:
             description="",
         ),
     }
-    monkeypatch.setattr(module, "build_play_catalog", lambda: catalog)
+    monkeypatch.setattr(module, "build_play_catalog", AsyncMock(return_value=catalog))
     monkeypatch.setattr(
         module.settings_service, "get_self_profile", AsyncMock(return_value=profile)
     )
@@ -2311,7 +2311,7 @@ async def test_forced_play_proposal_skips_planner_and_persists_card(
     payload = json.loads(user_prompt)
     assert [item["ref"] for item in payload["characters"]] == [
         "template:char1",
-        "custom:1",
+        "preset:1",
     ]
     assert payload["self_mode_available"] is True
     assert payload["self_profile"]["display_name"] == "ミナト"
@@ -2409,7 +2409,7 @@ async def test_play_proposal_failure_replies_without_card(
     assert "用意できませんでした" in captured["system"]
 
     # 候補のキャラクターがいなければ LLM を呼ばずに同じ扱いにする
-    monkeypatch.setattr(module, "build_play_catalog", lambda: {})
+    monkeypatch.setattr(module, "build_play_catalog", AsyncMock(return_value={}))
     calls.clear()
     events = await _collect(
         service.stream_message(

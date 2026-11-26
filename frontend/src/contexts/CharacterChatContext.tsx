@@ -590,10 +590,15 @@ export function CharacterChatProvider({ children }: { children: ReactNode }) {
 
   const startProposedPlay = useCallback(
     async (proposal: CharacterChatPlayProposal) => {
+      const { source } = proposal.character;
+      // v0.11.0 以前の提案(保存済みカスタムキャラ)は始められない。カード側で押せなくしている
+      if (source === "custom") {
+        throw new Error("legacy custom character proposal");
+      }
       // 読み上げ中の返答はプレイ画面へ持ち込まない
       voiceRef.current.stop();
       const sessionId = await startNewSession({
-        source: proposal.character.source,
+        source,
         characterId: proposal.character.id,
         selfMode: proposal.self_mode,
       });

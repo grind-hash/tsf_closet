@@ -1,6 +1,6 @@
 """FastAPI アプリケーションの組み立て。
 
-ライフサイクル（DB 初期化と終了）、CORS、各ルーターの登録、SPA 静的配信を行う。
+ライフサイクル（DB 初期化・旧カスタムキャラクターの取り込みと終了）、CORS、各ルーターの登録、SPA 静的配信を行う。
 エンドポイントの実装は routes/ に置き、ここには追加しない。"""
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from .routes import (
     settings_router,
     system_router,
 )
+from .services.character_preset_portrait import import_custom_characters
 from .settings.app_settings import configure_logging, settings
 
 # ログ設定を適用
@@ -55,6 +56,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting application...")
     await init_database(settings.database_path)
     logger.info("Database initialized")
+    # v0.11.0 以前のカスタムキャラクターをキャラクターへ取り込む(取り込み済みは飛ばす)
+    try:
+        imported = await import_custom_characters()
+    except Exception:
+        logger.exception("Failed to import legacy custom characters")
+    else:
+        if imported:
+            logger.info("Imported %d legacy custom characters", len(imported))
 
     yield
 

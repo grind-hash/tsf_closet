@@ -34,7 +34,7 @@ from .character_service import (
 from .cost_tracker import begin_cost_tracking
 from .custom_sessions import (
     custom_character_image_path,
-    list_custom_character_profiles,
+    list_unimported_custom_character_profiles,
     mark_custom_character_imported,
 )
 from .image_paths import resolve_stored_image_path
@@ -242,28 +242,34 @@ def _custom_profile_to_preset(profile: dict[str, Any]) -> dict[str, Any]:
 
 
 async def import_custom_characters() -> list[CharacterPreset]:
-    """以前の「作成したキャラクター」(新規プレイでアップロードした画像)をキャラクターにする。
+    """v0.11.0 以前の「作成したキャラクター」(新規プレイでアップロードした画像)をキャラクターにする。
 
-    画像は素材から取り込んだ立ち絵として写し、外見タグを入れる。取り込んだものには
-    印を付け、新規プレイの一覧とサロンの来店候補から外す(同じ人が2人にならないように)。
+    起動時に呼ぶ。画像は素材から取り込んだ立ち絵として写し、外見タグを入れる。取り込んだ
+    ものには印を付け、次の起動では飛ばす。1件の失敗で残りを止めず、失敗したものは次の
+    起動で取り込み直す。
     """
     imported: list[CharacterPreset] = []
     async with async_session_factory() as db:
-        for profile in reversed(list_custom_character_profiles()):
+        for profile in list_unimported_custom_character_profiles():
             custom_id = str(profile["id"])
             image_file = custom_character_image_path(custom_id)
             if not image_file.is_file():
                 continue
-            preset = await CharacterPresetService.create_preset_raw(
-                db,
-                name=str(profile.get("name") or "カスタムキャラクター")[:120],
-                appearance_tags=str(profile.get("base_tags") or ""),
-                profile=_custom_profile_to_preset(profile),
-            )
-            attach_preset_portrait(preset, image_file, generated=False)
-            imported.append(preset)
-            await db.commit()
+            try:
+                preset = await CharacterPresetService.create_preset_raw(
+                    db,
+                    name=str(profile.get("name") or "カスタムキャラクター")[:120],
+                    appearance_tags=str(profile.get("base_tags") or ""),
+                    profile=_custom_profile_to_preset(profile),
+                )
+                attach_preset_portrait(preset, image_file, generated=False)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                logger.exception("Failed to import custom character %s", custom_id)
+                continue
             mark_custom_character_imported(custom_id, preset.id)
+            imported.append(preset)
         for preset in imported:
             await db.refresh(preset)
     return imported

@@ -1,4 +1,4 @@
-"""キャラクター(CharacterPreset)から始めるセッション: 人物像の変換・立ち絵の写し・来店候補。"""
+"""キャラクター(CharacterPreset)から始めるセッション: 人物像の変換・立ち絵の写し・来店候補・旧カスタムキャラクターの取り込み。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import pytest
 from PIL import Image
 
 from gateway.databases.models import CharacterPreset, User
+from gateway.services import character_preset_portrait
 from gateway.services.character_preset_portrait import (
     CharacterPresetPortraitError,
     import_custom_characters,
@@ -18,13 +19,13 @@ from gateway.services.character_preset_portrait import (
 )
 from gateway.services.custom_sessions import (
     delete_custom_session_metadata,
-    list_custom_character_profiles,
-    load_custom_character_profile,
+    imported_preset_id,
+    list_unimported_custom_character_profiles,
     load_custom_session_metadata,
-    save_custom_character,
 )
 from gateway.services.game_service import GameServiceError, game_service
 from gateway.services.preset_sessions import (
+    list_playable_presets,
     list_salon_preset_customers,
     preset_play_profile,
 )
@@ -152,8 +153,8 @@ async def test_start_preset_session_copies_the_portrait(isolated_db, data_dir) -
     assert copy.read_bytes().startswith(b"\x89PNG")
     (data_dir / "character_images" / "p1" / "source-1.webp").unlink()
     assert copy.exists()
-    # 写しはカスタムキャラクターの一覧に混ざらない
-    assert list_custom_character_profiles() == []
+    # 写しは旧カスタムキャラクターの取り込み対象に混ざらない
+    assert list_unimported_custom_character_profiles() == []
     # 依頼・口コミが読む人物像も同じメタデータから組み立てられる
     profile = await session_profile(session.id)
     assert profile["name"] == "ミナト"
@@ -205,6 +206,34 @@ async def test_salon_customers_need_a_portrait_and_the_visit_setting(
     assert customers == [{"id": "a", "name": "アオイ", "gender": "man"}]
 
 
+async def test_playable_presets_need_a_portrait_newest_first(
+    isolated_db, data_dir
+) -> None:
+    from datetime import datetime
+
+    _add_preset(isolated_db, data_dir, "a", "アオイ", portrait=_png())
+    _add_preset(isolated_db, data_dir, "b", "ハルト", portrait=None)
+    _add_preset(
+        isolated_db, data_dir, "c", "ミナト", portrait=_png(), salon_enabled=False
+    )
+    with isolated_db.sync_factory() as db:
+        db.get(CharacterPreset, "a").updated_at = datetime(2026, 1, 1)
+        db.get(CharacterPreset, "c").updated_at = datetime(2026, 2, 1)
+        db.commit()
+
+    async with isolated_db.async_factory() as db:
+        presets = await list_playable_presets(db, 5)
+        limited = await list_playable_presets(db, 1)
+
+    # 来店する設定に関わらず、立ち絵があれば始められる
+    assert [item["id"] for item in presets] == ["c", "a"]
+    assert presets[0]["name"] == "ミナト"
+    assert presets[0]["personality"] == "明るくて人懐っこい"
+    assert presets[0]["description"] == "大学二年生"
+    assert presets[0]["gender"] == "man"
+    assert [item["id"] for item in limited] == ["c"]
+
+
 async def test_upload_portrait_stores_the_image_as_a_source_portrait(
     isolated_db, data_dir
 ) -> None:
@@ -241,14 +270,24 @@ async def test_upload_portrait_rejects_broken_images_and_unknown_characters(
     assert unknown.value.code == "preset_not_found"
 
 
+def _write_custom(custom_id: str, png: bytes, metadata: dict) -> None:
+    """v0.11.0 以前の新規プレイが保存したカスタムキャラクターと同じ形で置く。"""
+    directory = settings.history_images_dir / "custom"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{custom_id}.png").write_bytes(png)
+    (directory / f"{custom_id}.json").write_text(
+        json.dumps({"id": custom_id, **metadata}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 async def test_import_custom_characters_moves_them_to_the_character_screen(
     isolated_db, data_dir
 ) -> None:
-    save_custom_character(
+    _write_custom(
         "custom-1",
         _png("pink"),
         {
-            "id": "custom-1",
             "name": "サクラ",
             "description": "図書委員の高校生",
             "pronoun": "僕",
@@ -271,8 +310,43 @@ async def test_import_custom_characters_moves_them_to_the_character_screen(
     assert profile["pronoun"] == "僕"
     assert profile["gender"] == "man"
     assert profile["tsf_attitude"] == "可愛い服に憧れている"
-    # 新規プレイの一覧と来店候補からは外れるが、予約済みの来店は ID で始められる
-    assert list_custom_character_profiles() == []
-    assert load_custom_character_profile("custom-1")["name"] == "サクラ"
-    # 2回目は取り込むものがない
+    # 取り込み先は印から引ける(予約済みのサロンの来店を読み替えるため)
+    assert imported_preset_id("custom-1") == preset.id
+    assert list_unimported_custom_character_profiles() == []
+    # 2回目(次の起動)は取り込むものがない
     assert await import_custom_characters() == []
+
+
+async def test_import_custom_characters_skips_failures_and_retries_later(
+    isolated_db, data_dir, monkeypatch
+) -> None:
+    _write_custom("broken", _png("red"), {"name": "アオイ"})
+    _write_custom("ok", _png("blue"), {"name": "ハルト"})
+    attach = character_preset_portrait.attach_preset_portrait
+
+    def fail_on_broken(preset, source, *, generated):
+        if source.stem == "broken":
+            raise OSError("disk error")
+        attach(preset, source, generated=generated)
+
+    monkeypatch.setattr(
+        character_preset_portrait, "attach_preset_portrait", fail_on_broken
+    )
+    imported = await import_custom_characters()
+
+    # 1件の失敗で残りを止めず、失敗したものは作りかけのキャラクターを残さない
+    assert [preset.name for preset in imported] == ["ハルト"]
+    async with isolated_db.async_factory() as db:
+        from gateway.databases.character_repo import fetch_character_presets
+
+        assert [preset.name for preset in await fetch_character_presets(db)] == [
+            "ハルト"
+        ]
+    assert imported_preset_id("broken") is None
+    assert [item["id"] for item in list_unimported_custom_character_profiles()] == [
+        "broken"
+    ]
+
+    # 次の起動で取り込み直す
+    monkeypatch.setattr(character_preset_portrait, "attach_preset_portrait", attach)
+    assert [preset.name for preset in await import_custom_characters()] == ["アオイ"]

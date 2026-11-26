@@ -6,7 +6,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ..consts.character_profile import PROFILE_TSF_ATTITUDE_MAX_LEN
 from ..consts.play_limits import ATTRIBUTE_TEXT_MAX_LENGTH
 from ..consts.session_request import (
     REQUEST_QUESTION_LIMIT_DEFAULT,
@@ -318,33 +317,3 @@ class GameStartResponse(BaseModel):
     """ゲーム開始レスポンス"""
 
     session_id: str = Field(..., description="新規セッションID")
-
-
-class CustomStartRequest(BaseModel):
-    """カスタム画像でのセッション開始リクエスト"""
-
-    image: str | None = Field(None, description="Base64エンコードされた画像")
-    custom_character_id: str | None = Field(
-        None, description="再利用するカスタムキャラID"
-    )
-    difficulty: str = Field("normal", description="難易度")
-    nsfw_mode: bool = Field(False, description="NSFWモード")
-    name: str = Field("カスタムキャラクター", description="キャラクター名")
-    description: str = Field("", description="説明")
-    pronoun: str = Field("僕", description="一人称")
-    personality: str = Field("", description="パーソナリティ")
-    gender: str = Field("other", description="性別 (man/woman/other)")
-    base_tags: str = Field("", description="Danbooru形式の外見タグ (英語)")
-    tsf_attitude: str = Field(
-        "",
-        max_length=PROFILE_TSF_ATTITUDE_MAX_LEN,
-        description="TSF(性転換・変身)への態度。依頼モードの依頼文と反応に使う",
-    )
-    self_mode: bool = Field(False, description="自分自身モード")
-    use_saved_profile: bool = Field(
-        False,
-        description=(
-            "custom_character_id の保存済み人物設定を使う（name などの値は無視する）。"
-            "見つからなければセッションをリセットせずに 400 を返す"
-        ),
-    )

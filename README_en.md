@@ -54,7 +54,7 @@ This README describes the implementation on `develop`. For packaged versions, se
 
 | Feature                   | Description                                                                                                                                         |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Character Selection**   | Preset characters or custom image upload                                                                                                            |
+| **Character Selection**   | Bundled characters, or characters made on the Characters screen (an uploaded image can be the portrait)                                             |
 | **Dress-Up Execution**    | Natural language outfit instructions (e.g. "Change into a bunny suit")                                                                              |
 | **AI Image Generation**   | Switch between ComfyUI / OpenRouter / NovelAI providers                                                                                             |
 | **Mood Text Generation**  | Vision LLM + Text LLM stream character reactions in real-time                                                                                       |
@@ -395,18 +395,18 @@ Selected endpoints are listed below. For current request and response schemas, s
 
 ### Game (`/api/game`)
 
-| Method   | Path            | Description                      |
-| -------- | --------------- | -------------------------------- |
-| `POST`   | `/start`        | Start game session               |
-| `POST`   | `/start-custom` | Start session with custom image  |
-| `POST`   | `/play/stream`  | Execute dress-up (SSE streaming) |
-| `GET`    | `/characters`   | Get character list               |
-| `GET`    | `/session`      | Get active session               |
-| `GET`    | `/sessions`     | List sessions (paginated)        |
-| `DELETE` | `/session`      | Reset session                    |
-| `POST`   | `/chat`         | Chat with character              |
-| `GET`    | `/endings`      | List endings                     |
-| `GET`    | `/masks`        | Get mask list                    |
+| Method   | Path            | Description                                               |
+| -------- | --------------- | --------------------------------------------------------- |
+| `POST`   | `/start`        | Start game session                                        |
+| `POST`   | `/start-preset` | Start session with a character from the Characters screen |
+| `POST`   | `/play/stream`  | Execute dress-up (SSE streaming)                          |
+| `GET`    | `/characters`   | Get character list                                        |
+| `GET`    | `/session`      | Get active session                                        |
+| `GET`    | `/sessions`     | List sessions (paginated)                                 |
+| `DELETE` | `/session`      | Reset session                                             |
+| `POST`   | `/chat`         | Chat with character                                       |
+| `GET`    | `/endings`      | List endings                                              |
+| `GET`    | `/masks`        | Get mask list                                             |
 
 ### Gallery (`/api/gallery`)
 
@@ -587,7 +587,7 @@ Edit [backend/images/characters/characters.json](backend/images/characters/chara
 }
 ```
 
-You can also upload custom images through the UI when starting a game.
+To play with your own image, upload it as the portrait on the Characters screen and start with "Play as this character".
 
 ---
 

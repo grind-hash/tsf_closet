@@ -113,12 +113,8 @@ from .clothing_layers import (
 from .comfy import ComfyUIClient
 from .cost_tracker import CostTracker, begin_cost_tracking, record_cost
 from .custom_sessions import (
-    custom_character_image_path,
-    load_custom_character_profile,
     load_custom_session_metadata,
-    normalize_gender,
     preset_session_images_dir,
-    save_custom_character,
     save_custom_session_metadata,
 )
 from .endings import judge_ending
@@ -854,87 +850,6 @@ class GameService:
             after_description=initial_desc,
         )
         return session, stats, effective_difficulty
-
-    async def start_custom_session(
-        self,
-        *,
-        custom_character_id: str | None,
-        image: str | None,
-        name: str,
-        description: str,
-        pronoun: str,
-        personality: str,
-        gender: str | None,
-        base_tags: str,
-        difficulty: str,
-        nsfw_mode: bool,
-        self_mode: bool,
-        use_saved_profile: bool = False,
-        tsf_attitude: str = "",
-    ) -> tuple[PersistedSession, SessionStats, str]:
-        """アップロード画像（または保存済みカスタムキャラクター）でセッションを開始する。
-
-        use_saved_profile のときは custom_character_id の保存済み人物設定を使い、引数の
-        name などは無視する。見つからなければ、進行中のセッションをリセットする前に失敗する。
-
-        Raises: GameServiceError(code=invalid_image / custom_character_not_found)
-        """
-        if use_saved_profile:
-            saved = load_custom_character_profile(custom_character_id)
-            if saved is None:
-                raise GameServiceError(
-                    "保存済みのカスタムキャラクターが見つかりません",
-                    code="custom_character_not_found",
-                )
-            name = str(saved.get("name") or "カスタムキャラクター")
-            description = str(saved.get("description") or "")
-            pronoun = str(saved.get("pronoun") or "僕")
-            personality = str(saved.get("personality") or "")
-            gender = str(saved.get("gender") or "other")
-            base_tags = str(saved.get("base_tags") or "")
-            tsf_attitude = str(saved.get("tsf_attitude") or "")
-        await session_store.reset_session()
-
-        custom_image_id = custom_character_id or str(uuid.uuid4())
-        custom_image_path = custom_character_image_path(custom_image_id)
-        normalized_gender = normalize_gender(gender)
-        profile = {
-            "name": name,
-            "description": description,
-            "pronoun": pronoun,
-            "personality": personality,
-            "gender": normalized_gender,
-            "base_tags": base_tags,
-            "tsf_attitude": tsf_attitude.strip(),
-        }
-        if custom_character_id and custom_image_path.exists():
-            image_bytes = custom_image_path.read_bytes()
-        else:
-            try:
-                if not image:
-                    raise ValueError("画像が指定されていません")
-                image_data = image
-                if "," in image_data:
-                    image_data = image_data.split(",", 1)[1]
-                image_bytes = base64.b64decode(image_data)
-            except Exception as e:
-                raise GameServiceError(
-                    f"画像のデコードに失敗しました: {e}", code="invalid_image"
-                ) from e
-            save_custom_character(
-                custom_image_id, image_bytes, {"id": custom_image_id, **profile}
-            )
-        # 相対パス（BASE_DIR からの相対）
-        relative_path = f"data/history_images/custom/{custom_image_id}.png"
-        return await self._start_profiled_session(
-            image_bytes=image_bytes,
-            image_path=relative_path,
-            profile=profile,
-            metadata={"custom_character_id": custom_image_id, **profile},
-            difficulty=difficulty,
-            nsfw_mode=nsfw_mode,
-            self_mode=self_mode,
-        )
 
     async def start_preset_session(
         self,
