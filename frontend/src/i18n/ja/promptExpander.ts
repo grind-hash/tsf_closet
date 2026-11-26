@@ -124,7 +124,7 @@ export const promptExpander = {
     inpaintStrengthHint: "描き直しの強さとノイズは「i2i設定」の値を使います。",
     editMask: "マスクを編集",
     clearMask: "マスクを消す",
-    pickHistory: "履歴から選ぶ",
+    pickFromList: "一覧から選ぶ",
     uploadImage: "画像をアップロード",
     inheritSource: "参照元のプロンプトを引き継ぐ",
     inheritSourceHint:
@@ -431,9 +431,6 @@ export const promptExpander = {
   },
   picker: {
     title: "生成元を選ぶ",
-    tabEntries: "Prompt Expander",
-    tabPlay: "プレイセッション",
-    playTitle: "プレイセッションから選ぶ",
     titleReference: "参照画像を選ぶ",
     empty: "エントリがありません。",
     loading: "読み込み中…",
@@ -441,6 +438,9 @@ export const promptExpander = {
     resolving: "最新の履歴を取得しています…",
     noHistory: "このセッションには画像履歴がありません。",
     playLabelFallback: "プレイ履歴",
+    loadingCharacter: "キャラクターの立ち絵を読み込んでいます…",
+    characterLoadFailed: "キャラクターの立ち絵を読み込めませんでした。",
+    characterLabelFallback: "キャラクター",
     close: "閉じる",
   },
   reference: {

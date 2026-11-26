@@ -1174,7 +1174,7 @@ export default function PromptExpanderComposer() {
             className="prompt-expander__btn prompt-expander__btn--sm"
             onClick={() => openPicker("source")}
           >
-            {t("promptExpander.composer.pickHistory")}
+            {t("promptExpander.composer.pickFromList")}
           </button>
           <button
             type="button"
@@ -1319,7 +1319,7 @@ export default function PromptExpanderComposer() {
             className="prompt-expander__btn prompt-expander__btn--sm"
             onClick={() => openPicker("source")}
           >
-            {t("promptExpander.composer.pickHistory")}
+            {t("promptExpander.composer.pickFromList")}
           </button>
           <button
             type="button"
@@ -1466,7 +1466,7 @@ export default function PromptExpanderComposer() {
             className="prompt-expander__btn prompt-expander__btn--sm"
             onClick={() => openPicker("reference")}
           >
-            {t("promptExpander.composer.pickHistory")}
+            {t("promptExpander.composer.pickFromList")}
           </button>
           <button
             type="button"

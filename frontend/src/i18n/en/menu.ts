@@ -28,6 +28,7 @@ export const menu = {
   achievementsDesc: "View unlocked achievements",
   settings: "Settings",
   settingsDesc: "Application settings",
+  goNewGame: "Go to New Game",
   goActiveGame: "Go to active game",
   backToActiveGame: "Back to active game",
   goLastAdventure: "Go to last scenario",

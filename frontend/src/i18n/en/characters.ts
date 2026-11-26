@@ -7,6 +7,13 @@ export const characters = {
   newName: "New character",
   empty: "No characters yet.",
   loading: "Loading...",
+  sort: {
+    label: "Sort",
+    createdDesc: "Newest first",
+    createdAsc: "Oldest first",
+    nameAsc: "Name (A–Z)",
+    nameDesc: "Name (Z–A)",
+  },
   talk: "Talk with this character",
   talking: "Preparing the conversation...",
   edit: "Edit",

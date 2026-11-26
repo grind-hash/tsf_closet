@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { listCharacterPresets } from "../../apis/characters";
+import { useCharacterSortOrder } from "../../hooks/useCharacterSortOrder";
 import { ROUTES } from "../../routes";
 import type { CharacterPreset } from "../../types";
 import { mediaUrl } from "../../utils/adventureFormat";
+import { sortCharacterPresets } from "../../utils/characterSort";
+import CharacterSortSelect from "./CharacterSortSelect";
 import "./CharactersScreen.css";
 
 interface CharacterPickerModalProps {
@@ -19,10 +22,17 @@ export default function CharacterPickerModal({
   onSelect,
   onClose,
 }: CharacterPickerModalProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [presets, setPresets] = useState<CharacterPreset[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // 並び順はキャラクター画面の一覧と共有する
+  const [sortOrder, setSortOrder] = useCharacterSortOrder();
+  const sortedPresets = useMemo(
+    () =>
+      presets ? sortCharacterPresets(presets, sortOrder, i18n.language) : [],
+    [presets, sortOrder, i18n.language],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -85,32 +95,40 @@ export default function CharacterPickerModal({
               {t("characterChat.hub.characterPickerEmpty")}
             </p>
           ) : (
-            <ul className="character-picker__list">
-              {presets.map((preset) => (
-                <li key={preset.id}>
-                  <button
-                    type="button"
-                    className="character-picker__item"
-                    onClick={() => onSelect(preset)}
-                  >
-                    <span className="characters__thumb">
-                      {preset.thumbnail_url ? (
-                        <img src={mediaUrl(preset.thumbnail_url)} alt="" />
-                      ) : (
-                        <span aria-hidden>👤</span>
-                      )}
-                    </span>
-                    <span className="characters__card-text">
-                      <strong>{preset.name}</strong>
-                      <span className="characters__card-personality">
-                        {preset.profile?.personality ||
-                          t("characters.noPersonality")}
+            <>
+              <div className="character-picker__toolbar">
+                <CharacterSortSelect
+                  value={sortOrder}
+                  onChange={setSortOrder}
+                />
+              </div>
+              <ul className="character-picker__list">
+                {sortedPresets.map((preset) => (
+                  <li key={preset.id}>
+                    <button
+                      type="button"
+                      className="character-picker__item"
+                      onClick={() => onSelect(preset)}
+                    >
+                      <span className="characters__thumb">
+                        {preset.thumbnail_url ? (
+                          <img src={mediaUrl(preset.thumbnail_url)} alt="" />
+                        ) : (
+                          <span aria-hidden>👤</span>
+                        )}
                       </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+                      <span className="characters__card-text">
+                        <strong>{preset.name}</strong>
+                        <span className="characters__card-personality">
+                          {preset.profile?.personality ||
+                            t("characters.noPersonality")}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
         <footer className="character-picker__footer">

@@ -971,7 +971,7 @@ test("precise reference is off in economy mode, needs an image and an Anlas conf
   await expect(page.getByLabel(/参照強度/)).toBeDisabled();
 
   // 画像一覧から参照画像を選ぶ（i2i 元は空のまま）
-  await section.getByRole("button", { name: "履歴から選ぶ" }).click();
+  await section.getByRole("button", { name: "一覧から選ぶ" }).click();
   const picker = page.getByRole("dialog", { name: "参照画像を選ぶ" });
   await expect(picker).toBeVisible();
   await picker.locator(".prompt-expander__entry-grid-item").first().click();

@@ -7,6 +7,13 @@ export const characters = {
   newName: "新しいキャラクター",
   empty: "まだキャラクターがありません。",
   loading: "読み込み中...",
+  sort: {
+    label: "並び順",
+    createdDesc: "作成日が新しい順",
+    createdAsc: "作成日が古い順",
+    nameAsc: "名前順（昇順）",
+    nameDesc: "名前順（降順）",
+  },
   talk: "このキャラと話す",
   talking: "会話を準備しています...",
   edit: "編集する",

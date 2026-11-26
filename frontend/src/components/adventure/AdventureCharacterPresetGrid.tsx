@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { listCharacterPresets } from "../../apis/characters";
+import { useCharacterSortOrder } from "../../hooks/useCharacterSortOrder";
 import { ROUTES } from "../../routes";
 import type { CharacterPreset } from "../../types";
 import { mediaUrl } from "../../utils/adventureFormat";
+import { sortCharacterPresets } from "../../utils/characterSort";
+import CharacterSortSelect from "../characters/CharacterSortSelect";
 
 interface AdventureCharacterPresetGridProps {
   selectedPresetId: string | null;
@@ -22,9 +25,16 @@ export default function AdventureCharacterPresetGrid({
   onSelect,
   onLoaded,
 }: AdventureCharacterPresetGridProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [presets, setPresets] = useState<CharacterPreset[] | null>(null);
   const [failed, setFailed] = useState(false);
+  // 並び順はキャラクター画面の一覧と共有する
+  const [sortOrder, setSortOrder] = useCharacterSortOrder();
+  const sortedPresets = useMemo(
+    () =>
+      presets ? sortCharacterPresets(presets, sortOrder, i18n.language) : [],
+    [presets, sortOrder, i18n.language],
+  );
 
   const load = useCallback(async () => {
     setFailed(false);
@@ -71,45 +81,50 @@ export default function AdventureCharacterPresetGrid({
     );
   }
   return (
-    <div
-      className="adventure-session-picker__grid"
-      role="group"
-      aria-label={t("adventure.sourcePicker.tabCharacters")}
-    >
-      {presets.map((preset) => {
-        const usable = Boolean(preset.portrait_url);
-        const isSelected = preset.id === selectedPresetId;
-        const image = preset.portrait_url ?? preset.thumbnail_url;
-        return (
-          <button
-            type="button"
-            key={preset.id}
-            className={isSelected ? "is-selected" : ""}
-            data-selected={isSelected || undefined}
-            disabled={!usable}
-            onClick={() => onSelect(preset)}
-          >
-            <span className="adventure-session-picker__thumb adventure-session-picker__thumb--portrait">
-              {image ? (
-                <img src={mediaUrl(image)} alt="" />
-              ) : (
-                <span aria-hidden>👤</span>
+    <>
+      <div className="adventure-session-picker__sort">
+        <CharacterSortSelect value={sortOrder} onChange={setSortOrder} />
+      </div>
+      <div
+        className="adventure-session-picker__grid"
+        role="group"
+        aria-label={t("adventure.sourcePicker.tabCharacters")}
+      >
+        {sortedPresets.map((preset) => {
+          const usable = Boolean(preset.portrait_url);
+          const isSelected = preset.id === selectedPresetId;
+          const image = preset.portrait_url ?? preset.thumbnail_url;
+          return (
+            <button
+              type="button"
+              key={preset.id}
+              className={isSelected ? "is-selected" : ""}
+              data-selected={isSelected || undefined}
+              disabled={!usable}
+              onClick={() => onSelect(preset)}
+            >
+              <span className="adventure-session-picker__thumb adventure-session-picker__thumb--portrait">
+                {image ? (
+                  <img src={mediaUrl(image)} alt="" />
+                ) : (
+                  <span aria-hidden>👤</span>
+                )}
+              </span>
+              <span className="adventure-session-picker__tile-name">
+                {preset.name}
+              </span>
+              <span className="adventure-session-picker__tile-label adventure-session-picker__tile-label--persona">
+                {preset.profile?.personality || t("characters.noPersonality")}
+              </span>
+              {!usable && (
+                <small className="adventure-session-picker__tile-note">
+                  {t("adventure.sourcePicker.characterNoPortrait")}
+                </small>
               )}
-            </span>
-            <span className="adventure-session-picker__tile-name">
-              {preset.name}
-            </span>
-            <span className="adventure-session-picker__tile-label adventure-session-picker__tile-label--persona">
-              {preset.profile?.personality || t("characters.noPersonality")}
-            </span>
-            {!usable && (
-              <small className="adventure-session-picker__tile-note">
-                {t("adventure.sourcePicker.characterNoPortrait")}
-              </small>
-            )}
-          </button>
-        );
-      })}
-    </div>
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
 }

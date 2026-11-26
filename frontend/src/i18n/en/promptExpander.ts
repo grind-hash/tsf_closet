@@ -124,7 +124,7 @@ export const promptExpander = {
       'Redraw strength and noise come from the "i2i settings" section.',
     editMask: "Edit mask",
     clearMask: "Clear mask",
-    pickHistory: "Pick from history",
+    pickFromList: "Choose from list",
     uploadImage: "Upload image",
     inheritSource: "Inherit source prompts",
     inheritSourceHint:
@@ -434,9 +434,6 @@ export const promptExpander = {
   },
   picker: {
     title: "Choose a source",
-    tabEntries: "Prompt Expander",
-    tabPlay: "Play sessions",
-    playTitle: "Choose from play sessions",
     titleReference: "Choose a reference image",
     empty: "No entries.",
     loading: "Loading…",
@@ -444,6 +441,9 @@ export const promptExpander = {
     resolving: "Fetching the latest history…",
     noHistory: "This session has no image history.",
     playLabelFallback: "Play history",
+    loadingCharacter: "Loading the character portrait…",
+    characterLoadFailed: "Could not load the character portrait.",
+    characterLabelFallback: "Character",
     close: "Close",
   },
   reference: {

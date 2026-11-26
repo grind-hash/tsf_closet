@@ -95,7 +95,11 @@ export function selectionFromCharacterPreset(
 const PAGE_SIZE = 20;
 const HISTORY_PAGE_SIZE = 30;
 
-type PickerTab = "sessions" | "favorites" | "prompt_expander" | "characters";
+export type AdventurePickerTab =
+  | "sessions"
+  | "favorites"
+  | "prompt_expander"
+  | "characters";
 
 /**
  * キャラクタータブの出し方。off は出さない、tab は他のタブと並べる、
@@ -264,6 +268,13 @@ interface AdventureSessionPickerModalProps {
   allowPromptExpander?: boolean;
   /** キャラクターメイクのキャラクターを選ぶタブの出し方。既定は出さない */
   characters?: AdventurePickerCharacters;
+  /** selected から初期タブが決まらないときに開くタブ。既定はセッション */
+  defaultTab?: AdventurePickerTab;
+  /**
+   * 選択後の処理(画像の取り込みなど)を待つ間に出す文言。
+   * 指定中はスピナーでモーダルを覆い、閉じる操作も受け付けない
+   */
+  busyLabel?: string | null;
 }
 
 /**
@@ -281,10 +292,13 @@ export default function AdventureSessionPickerModal({
   onClose,
   allowPromptExpander = false,
   characters = "off",
+  defaultTab = "sessions",
+  busyLabel = null,
 }: AdventureSessionPickerModalProps) {
   const { t, i18n } = useTranslation();
+  const isBusy = Boolean(busyLabel);
   const charactersOnly = characters === "only";
-  const [tab, setTab] = useState<PickerTab>(() => {
+  const [tab, setTab] = useState<AdventurePickerTab>(() => {
     if (charactersOnly) return "characters";
     if (selected?.origin === "character" && characters === "tab") {
       return "characters";
@@ -293,7 +307,14 @@ export default function AdventureSessionPickerModal({
     if (selected?.origin === "prompt_expander" && allowPromptExpander) {
       return "prompt_expander";
     }
-    return "sessions";
+    // 出していないタブは初期タブにしない
+    if (defaultTab === "prompt_expander" && !allowPromptExpander) {
+      return "sessions";
+    }
+    if (defaultTab === "characters" && characters !== "tab") {
+      return "sessions";
+    }
+    return defaultTab;
   });
   const [drilldownSession, setDrilldownSession] =
     useState<GallerySession | null>(null);
@@ -332,7 +353,9 @@ export default function AdventureSessionPickerModal({
   const favoritesLoadingRef = useRef(false);
 
   // Prompt Expander・キャラクターの一覧は各グリッドが読み込む。初回の読み込みを終えたタブ
-  const [loadedGridTab, setLoadedGridTab] = useState<PickerTab | null>(null);
+  const [loadedGridTab, setLoadedGridTab] = useState<AdventurePickerTab | null>(
+    null,
+  );
   const markCharactersLoaded = useCallback(
     () => setLoadedGridTab("characters"),
     [],
@@ -427,11 +450,11 @@ export default function AdventureSessionPickerModal({
   // Escape で閉じる
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !isBusy) onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, [onClose, isBusy]);
 
   // オープン時の初期フォーカス: 選択中カードがあればそこへ、
   // 無ければ検索欄または先頭のボタンへ倒す
@@ -718,7 +741,7 @@ export default function AdventureSessionPickerModal({
     <div
       className="adventure-session-picker"
       onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
+        if (event.currentTarget === event.target && !isBusy) onClose();
       }}
     >
       <section
@@ -734,6 +757,7 @@ export default function AdventureSessionPickerModal({
             className="adventure-scenario-modal__close"
             aria-label={t("adventure.sourcePicker.close")}
             onClick={onClose}
+            disabled={isBusy}
           >
             ×
           </button>
@@ -873,6 +897,15 @@ export default function AdventureSessionPickerModal({
           )}
         </div>
       </section>
+      {isBusy && (
+        <div className="adventure-session-picker__busy" role="status">
+          <span
+            className="adventure-session-picker__busy-spinner"
+            aria-hidden
+          />
+          <span>{busyLabel}</span>
+        </div>
+      )}
     </div>
   );
 }

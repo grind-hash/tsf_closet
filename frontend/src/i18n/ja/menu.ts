@@ -26,6 +26,7 @@ export const menu = {
   achievementsDesc: "達成した実績を確認",
   settings: "設定",
   settingsDesc: "アプリの設定",
+  goNewGame: "新規プレイの画面へ",
   goActiveGame: "プレイ中のゲームに移動",
   backToActiveGame: "プレイ中のゲームに戻る",
   goLastAdventure: "直前のシナリオへ",

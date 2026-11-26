@@ -1,27 +1,5 @@
 /* Prompt Expander 生成元ピッカー / エントリグリッド */
 
-.prompt-expander__picker-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.prompt-expander__picker-tab {
-  min-height: 38px;
-  border: 1px solid var(--border-color, #333);
-  border-radius: 6px;
-  color: var(--text-color, #eee);
-  background: var(--bg-color, #1a1a2e);
-  cursor: pointer;
-}
-
-.prompt-expander__picker-tab.is-active {
-  border-color: var(--accent-color, #e94560);
-  background: var(--accent-color, #e94560);
-  color: #fff;
-  font-weight: 700;
-}
-
 .prompt-expander__entry-grid-wrap {
   display: flex;
   flex-direction: column;

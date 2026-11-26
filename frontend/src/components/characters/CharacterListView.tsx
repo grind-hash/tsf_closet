@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { openCharacterChatForPreset } from "../../apis/characterChat";
@@ -8,20 +8,24 @@ import {
   listCharacterPresets,
 } from "../../apis/characters";
 import { useSettings } from "../../contexts/SettingsContext";
+import { useCharacterSortOrder } from "../../hooks/useCharacterSortOrder";
 import { ROUTES } from "../../routes";
 import type { CharacterPreset } from "../../types";
 import { mediaUrl } from "../../utils/adventureFormat";
+import { sortCharacterPresets } from "../../utils/characterSort";
 import MainLayout from "../layout/MainLayout";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import CharacterPlayStartDialog from "./CharacterPlayStartDialog";
+import CharacterSortSelect from "./CharacterSortSelect";
 import { EMPTY_CHARACTER_PROFILE } from "./characterMaker";
 import TrashIcon from "./TrashIcon";
 
 /** キャラクターの一覧。作成・プレイの開始・会話の開始・編集・削除の入口 */
 export default function CharacterListView() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { state: settingsState } = useSettings();
+  const [sortOrder, setSortOrder] = useCharacterSortOrder();
   const chatEnabled = settingsState.characterChatEnabled;
   const [presets, setPresets] = useState<CharacterPreset[] | null>(null);
   const [playTarget, setPlayTarget] = useState<CharacterPreset | null>(null);
@@ -32,6 +36,11 @@ export default function CharacterListView() {
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  const sortedPresets = useMemo(
+    () =>
+      presets ? sortCharacterPresets(presets, sortOrder, i18n.language) : null,
+    [presets, sortOrder, i18n.language],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -129,83 +138,90 @@ export default function CharacterListView() {
         ) : presets.length === 0 ? (
           <p className="character-chat__empty">{t("characters.empty")}</p>
         ) : (
-          <ul className="characters__grid">
-            {presets.map((preset) => (
-              <li key={preset.id} className="characters__card">
-                <button
-                  type="button"
-                  className="characters__card-open"
-                  onClick={() => navigate(`${ROUTES.CHARACTERS}/${preset.id}`)}
-                >
-                  <span className="characters__thumb">
-                    {preset.thumbnail_url ? (
-                      <img src={mediaUrl(preset.thumbnail_url)} alt="" />
-                    ) : (
-                      <span aria-hidden>👤</span>
-                    )}
-                  </span>
-                  <span className="characters__card-text">
-                    <strong>{preset.name}</strong>
-                    <span className="characters__card-personality">
-                      {preset.profile?.personality ||
-                        t("characters.noPersonality")}
-                    </span>
-                  </span>
-                  <span className="characters__badges">
-                    {preset.avatar_model_id && (
-                      <span className="character-chat__chip">
-                        {t("characters.badgeVrm")}
-                      </span>
-                    )}
-                    {preset.voice && (
-                      <span className="character-chat__chip">
-                        {t("characters.badgeVoice")}
-                      </span>
-                    )}
-                  </span>
-                </button>
-                <div className="characters__card-actions">
+          <>
+            <div className="characters__toolbar">
+              <CharacterSortSelect value={sortOrder} onChange={setSortOrder} />
+            </div>
+            <ul className="characters__grid">
+              {(sortedPresets ?? []).map((preset) => (
+                <li key={preset.id} className="characters__card">
                   <button
                     type="button"
-                    className="character-chat__primary"
-                    onClick={() => setPlayTarget(preset)}
-                  >
-                    {t("characters.play.open")}
-                  </button>
-                  {chatEnabled && (
-                    <button
-                      type="button"
-                      className="character-chat__secondary"
-                      disabled={talkingId !== null}
-                      onClick={() => void handleTalk(preset)}
-                    >
-                      {talkingId === preset.id
-                        ? t("characters.talking")
-                        : t("characters.talk")}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="character-chat__secondary"
+                    className="characters__card-open"
                     onClick={() =>
                       navigate(`${ROUTES.CHARACTERS}/${preset.id}`)
                     }
                   >
-                    {t("characters.edit")}
+                    <span className="characters__thumb">
+                      {preset.thumbnail_url ? (
+                        <img src={mediaUrl(preset.thumbnail_url)} alt="" />
+                      ) : (
+                        <span aria-hidden>👤</span>
+                      )}
+                    </span>
+                    <span className="characters__card-text">
+                      <strong>{preset.name}</strong>
+                      <span className="characters__card-personality">
+                        {preset.profile?.personality ||
+                          t("characters.noPersonality")}
+                      </span>
+                    </span>
+                    <span className="characters__badges">
+                      {preset.avatar_model_id && (
+                        <span className="character-chat__chip">
+                          {t("characters.badgeVrm")}
+                        </span>
+                      )}
+                      {preset.voice && (
+                        <span className="character-chat__chip">
+                          {t("characters.badgeVoice")}
+                        </span>
+                      )}
+                    </span>
                   </button>
-                  <button
-                    type="button"
-                    className="character-chat__delete"
-                    aria-label={t("characters.delete")}
-                    title={t("characters.delete")}
-                    onClick={() => setDeleteTarget(preset)}
-                  >
-                    <TrashIcon />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+                  <div className="characters__card-actions">
+                    <button
+                      type="button"
+                      className="character-chat__primary"
+                      onClick={() => setPlayTarget(preset)}
+                    >
+                      {t("characters.play.open")}
+                    </button>
+                    {chatEnabled && (
+                      <button
+                        type="button"
+                        className="character-chat__secondary"
+                        disabled={talkingId !== null}
+                        onClick={() => void handleTalk(preset)}
+                      >
+                        {talkingId === preset.id
+                          ? t("characters.talking")
+                          : t("characters.talk")}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="character-chat__secondary"
+                      onClick={() =>
+                        navigate(`${ROUTES.CHARACTERS}/${preset.id}`)
+                      }
+                    >
+                      {t("characters.edit")}
+                    </button>
+                    <button
+                      type="button"
+                      className="character-chat__delete"
+                      aria-label={t("characters.delete")}
+                      title={t("characters.delete")}
+                      onClick={() => setDeleteTarget(preset)}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
 

@@ -22,6 +22,12 @@ const mocks = vi.hoisted(() => ({
   fetchGallerySessions: vi.fn(),
   fetchGallerySession: vi.fn(),
   fetchGalleryList: vi.fn(),
+  fetchPromptExpanderEntries: vi.fn(),
+}));
+
+vi.mock("../../apis/promptExpander", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../apis/promptExpander")>()),
+  fetchPromptExpanderEntries: mocks.fetchPromptExpanderEntries,
 }));
 
 vi.mock("../../apis/characters", async (importOriginal) => ({
@@ -169,6 +175,88 @@ describe("AdventureSessionPickerModal の選択中カード", () => {
 
     const tile = await screen.findByRole("button", { name: /キャラp3/ });
     await waitFor(() => expect(document.activeElement).toBe(tile));
+  });
+});
+
+describe("AdventureSessionPickerModal の初期タブ", () => {
+  it("defaultTab のタブで開く", () => {
+    mocks.fetchGallerySessions.mockResolvedValue({
+      sessions: [],
+      has_more: false,
+    });
+    mocks.fetchPromptExpanderEntries.mockResolvedValue({
+      items: [],
+      page: 1,
+      has_more: false,
+    });
+    render(
+      <MemoryRouter>
+        <AdventureSessionPickerModal
+          title="生成元を選ぶ"
+          selected={null}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+          allowPromptExpander
+          characters="tab"
+          defaultTab="prompt_expander"
+        />
+      </MemoryRouter>,
+    );
+    const tab = screen.getByRole("tab", {
+      name: adventure.sourcePicker.tabPromptExpander,
+    });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("出していないタブが defaultTab ならセッションタブで開く", () => {
+    mocks.fetchGallerySessions.mockResolvedValue({
+      sessions: [],
+      has_more: false,
+    });
+    render(
+      <MemoryRouter>
+        <AdventureSessionPickerModal
+          title="精密参照に使う画像を選ぶ"
+          selected={null}
+          onSelect={vi.fn()}
+          onClose={vi.fn()}
+          characters="tab"
+          defaultTab="prompt_expander"
+        />
+      </MemoryRouter>,
+    );
+    const tab = screen.getByRole("tab", { name: gallery.tabSessions });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+  });
+});
+
+describe("AdventureSessionPickerModal の取り込み中表示", () => {
+  it("busyLabel の間はスピナーと文言を出し、閉じる操作を受け付けない", () => {
+    mocks.fetchGallerySessions.mockResolvedValue({
+      sessions: [],
+      has_more: false,
+    });
+    const onClose = vi.fn();
+    render(
+      <MemoryRouter>
+        <AdventureSessionPickerModal
+          title="精密参照に使う画像を選ぶ"
+          selected={null}
+          onSelect={vi.fn()}
+          onClose={onClose}
+          busyLabel="画像を読み込んでいます…"
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "画像を読み込んでいます…",
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    const close = screen.getByRole("button", {
+      name: adventure.sourcePicker.close,
+    }) as HTMLButtonElement;
+    expect(close.disabled).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
 
