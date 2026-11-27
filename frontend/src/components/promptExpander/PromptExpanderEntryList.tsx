@@ -73,6 +73,7 @@ export default function PromptExpanderEntryList() {
     loadingSession,
     generatingSessionId,
     entryRevealRequest,
+    completeEntryReveal,
   } = usePromptExpander();
   // 生成中の表示は、生成を始めたセッションを開いているときだけ出す
   const generating =
@@ -168,23 +169,22 @@ export default function PromptExpanderEntryList() {
   }, [generating]);
 
   // 生成バーの「結果を見る」: 生成履歴を開き、絞り込みで隠れていれば「すべて」に戻して
-  // そのカードへ移る。セッションを移った直後はまだ一覧が届いていないので、届くまで待つ
-  const handledRevealSeq = useRef(0);
+  // そのカードへ移る。セッションを移った直後はまだ一覧が届いていないので、届くまで待つ。
+  // 見せ終えた要求は消す（セッションを開き直して一覧を作り直したとき、同じ要求でもう一度動かないように）
   const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
   useEffect(() => {
     if (!entryRevealRequest) return;
-    if (entryRevealRequest.seq === handledRevealSeq.current) return;
     const target = entries.find(
       (entry) => entry.id === entryRevealRequest.entryId,
     );
     if (!target) return;
-    handledRevealSeq.current = entryRevealRequest.seq;
+    completeEntryReveal(entryRevealRequest.seq);
     if (filter !== "all" && classifyEntry(target) !== filter) {
       setFilter("all");
     }
     revealPromptExpanderSection("history", { focus: false });
     setFocusEntryId(target.id);
-  }, [entries, entryRevealRequest, filter, setFilter]);
+  }, [completeEntryReveal, entries, entryRevealRequest, filter, setFilter]);
   // 絞り込みを戻した描画の後でカードが現れるので、現れてからスクロールとフォーカスをする
   useEffect(() => {
     if (!focusEntryId) return;

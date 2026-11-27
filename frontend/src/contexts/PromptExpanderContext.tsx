@@ -247,6 +247,27 @@ function writeSessionDraft(sessionId: string, draft: SessionDraft): void {
   writeStorage("session", sessionDraftKey(sessionId), JSON.stringify(draft));
 }
 
+/**
+ * 開いていないセッションの書きかけを書き換える。
+ * LLM に頼んだあとで別のセッションへ移ったとき、届いた結果を依頼元のセッションにだけ入れるために使う
+ */
+function updateStoredSessionDraft(
+  sessionId: string,
+  update: (draft: SessionDraft) => SessionDraft,
+): void {
+  const current: SessionDraft = readSessionDraft(sessionId) ?? {
+    positiveText: "",
+    negativeText: "",
+    characterSlots: [],
+    positiveOrigin: null,
+    negativeOrigin: null,
+    pendingExpansions: NO_PENDING_EXPANSIONS,
+    latestExpansionTarget: null,
+    scriptDraftBackup: null,
+  };
+  writeSessionDraft(sessionId, update(current));
+}
+
 /** 「欄へ復元」の前に控える内容 */
 interface RestoreSnapshot {
   positiveText: string;
@@ -256,6 +277,8 @@ interface RestoreSnapshot {
   positiveOrigin: PromptExpanderPositiveOrigin | null;
   negativeOrigin: PromptExpanderNegativeOrigin | null;
   pendingExpansions: PromptExpanderPendingExpansions;
+  latestExpansionTarget: PromptExpanderExpansionTarget | null;
+  scriptDraftBackup: { source: string; script: string } | null;
   settings: PromptExpanderSettingsPatch;
   references: PromptExpanderReference[];
   inpaintMask: PromptExpanderMask | null;
@@ -356,6 +379,8 @@ interface PromptExpanderContextValue {
   /** 生成履歴で見せたいエントリ（「結果を見る」で設定し、EntryList が絞り込みを解いてそこへ移る） */
   entryRevealRequest: PromptExpanderEntryRevealRequest | null;
   requestEntryReveal: (entryId: string) => void;
+  /** EntryList が見せ終えた要求を消す（一覧を開き直したときに、前の要求でもう一度動かないように） */
+  completeEntryReveal: (seq: number) => void;
   uploading: boolean;
   suggesting: boolean;
   error: string | null;
@@ -412,7 +437,8 @@ interface PromptExpanderContextValue {
   // アクション: セッション
   loadSessions: () => Promise<void>;
   createSession: (title?: string) => Promise<PromptExpanderSession | null>;
-  renameSession: (id: string, title: string) => Promise<void>;
+  /** 保存できたら true。失敗したら通知を出して false */
+  renameSession: (id: string, title: string) => Promise<boolean>;
   deleteSession: (id: string) => Promise<void>;
   openSession: (id: string) => Promise<void>;
   // アクション: 設定
@@ -459,6 +485,16 @@ interface PromptExpanderContextValue {
   ) => Promise<void>;
   /** 指定した欄の変換カードを閉じる（省略時は両方） */
   discardExpansion: (target?: PromptExpanderExpansionTarget) => void;
+  /** 変換カードで手直しした内容を書き戻す（書きかけと一緒にセッションごとに保存される） */
+  editPendingExpansion: (
+    target: PromptExpanderExpansionTarget,
+    patch: Partial<
+      Pick<
+        PromptExpanderPendingExpansion,
+        "positivePrompt" | "characterPrompts" | "negativePrompt"
+      >
+    >,
+  ) => void;
   /** 欄の内容をそのまま生成する */
   runGenerate: () => Promise<void>;
   confirmUsageWarn: (suppress: boolean) => Promise<void>;
@@ -977,13 +1013,15 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   );
 
   const renameSession = useCallback(
-    async (id: string, title: string) => {
+    async (id: string, title: string): Promise<boolean> => {
       try {
         const updated = await renamePromptExpanderSession(id, title);
         setSessions((prev) => prev.map((s) => (s.id === id ? updated : s)));
         setActiveSession((prev) => (prev?.id === id ? updated : prev));
+        return true;
       } catch (err) {
         reportError("Prompt Expander", err);
+        return false;
       }
     },
     [reportError],
@@ -1007,11 +1045,15 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     [activeSession?.id, navigate, reportError],
   );
 
+  // 最後に開こうとしたセッション。先に頼んだ読み込みが後から返ってきても、それで上書きしない
+  const requestedSessionIdRef = useRef<string | null>(null);
   const openSession = useCallback(
     async (id: string) => {
+      requestedSessionIdRef.current = id;
       setLoadingSession(true);
       try {
         const detail = await fetchPromptExpanderSession(id);
+        if (requestedSessionIdRef.current !== id) return;
         setActiveSession(detail.session);
         setEntries(detail.entries);
         setSessions((prev) => {
@@ -1021,11 +1063,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
             : [detail.session, ...prev];
         });
       } catch (err) {
+        if (requestedSessionIdRef.current !== id) return;
         setActiveSession(null);
         setEntries([]);
         reportError("Prompt Expander", err);
       } finally {
-        setLoadingSession(false);
+        if (requestedSessionIdRef.current === id) setLoadingSession(false);
       }
     },
     [reportError],
@@ -1385,6 +1428,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     entryRevealSeq.current += 1;
     setEntryRevealRequest({ entryId, seq: entryRevealSeq.current });
   }, []);
+  const completeEntryReveal = useCallback((seq: number) => {
+    setEntryRevealRequest((prev) => (prev?.seq === seq ? null : prev));
+  }, []);
 
   const generate = useCallback(
     async (payload: PromptExpanderGenerateRequest) => {
@@ -1492,6 +1538,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       return;
     }
     setExpansionError(null);
+    // 依頼したセッション。応答までに別のセッションへ移っていたら、結果はこのセッションの書きかけにだけ入れる
+    const requestSessionId = activeSessionIdRef.current;
     // 今の変換カードは新しい結果が届くまで残す（失敗したときに手直しを失わないように）
     setExpandingTarget("positive");
     try {
@@ -1520,16 +1568,28 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           ? { cast: referenceCast }
           : {}),
       });
-      setPendingExpansionFor("positive", {
+      const card: PromptExpanderPendingExpansion = {
         target: "positive",
         mode: effectivePositiveMode,
         instruction,
         positivePrompt: resp.positive_prompt ?? "",
         characterPrompts: characterMode ? resp.character_prompts : null,
         negativePrompt: null,
-      });
+      };
+      if (activeSessionIdRef.current === requestSessionId) {
+        setPendingExpansionFor("positive", card);
+      } else if (requestSessionId) {
+        updateStoredSessionDraft(requestSessionId, (draft) => ({
+          ...draft,
+          pendingExpansions: { ...draft.pendingExpansions, positive: card },
+          latestExpansionTarget: "positive",
+        }));
+      }
     } catch (err) {
-      failExpansion("positive", err);
+      // 別のセッションへ移っていたら、そのセッションの欄にエラーを出さない
+      if (activeSessionIdRef.current === requestSessionId) {
+        failExpansion("positive", err);
+      }
     } finally {
       setExpandingTarget(null);
     }
@@ -1563,6 +1623,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       return;
     }
     setExpansionError(null);
+    // 依頼したセッション。応答までに別のセッションへ移っていたら、ネームはこのセッションの書きかけにだけ入れる
+    const requestSessionId = activeSessionIdRef.current;
     setDraftingScript(true);
     try {
       const resp = await draftMangaScript({
@@ -1575,11 +1637,23 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         ...(referenceCast.length > 0 ? { cast: referenceCast } : {}),
       });
       // 欄をネームで置き換える。元の文は「元の文に戻す」用に保持する
-      setScriptDraftBackup({ source: positiveText, script: resp.script });
-      setPositiveText(resp.script);
-      setPositiveOrigin(null);
+      const backup = { source: positiveText, script: resp.script };
+      if (activeSessionIdRef.current === requestSessionId) {
+        setScriptDraftBackup(backup);
+        setPositiveText(resp.script);
+        setPositiveOrigin(null);
+      } else if (requestSessionId) {
+        updateStoredSessionDraft(requestSessionId, (draft) => ({
+          ...draft,
+          positiveText: resp.script,
+          positiveOrigin: null,
+          scriptDraftBackup: backup,
+        }));
+      }
     } catch (err) {
-      failExpansion("positive", err);
+      if (activeSessionIdRef.current === requestSessionId) {
+        failExpansion("positive", err);
+      }
     } finally {
       setDraftingScript(false);
     }
@@ -1610,6 +1684,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       return;
     }
     setExpansionError(null);
+    // 依頼したセッション。応答までに別のセッションへ移っていたら、結果はこのセッションの書きかけにだけ入れる
+    const requestSessionId = activeSessionIdRef.current;
     // 今の変換カードは新しい結果が届くまで残す（正プロンプト側のカードにも触れない）
     setExpandingTarget("negative");
     try {
@@ -1629,16 +1705,27 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         inherit_source_prompts: settings.inherit_source_prompts,
         current_character_prompts: characterMode ? characterSlots : [],
       });
-      setPendingExpansionFor("negative", {
+      const card: PromptExpanderPendingExpansion = {
         target: "negative",
         mode: negativeMode,
         instruction: null,
         positivePrompt: null,
         characterPrompts: null,
         negativePrompt: resp.negative_prompt ?? "",
-      });
+      };
+      if (activeSessionIdRef.current === requestSessionId) {
+        setPendingExpansionFor("negative", card);
+      } else if (requestSessionId) {
+        updateStoredSessionDraft(requestSessionId, (draft) => ({
+          ...draft,
+          pendingExpansions: { ...draft.pendingExpansions, negative: card },
+          latestExpansionTarget: "negative",
+        }));
+      }
     } catch (err) {
-      failExpansion("negative", err);
+      if (activeSessionIdRef.current === requestSessionId) {
+        failExpansion("negative", err);
+      }
     } finally {
       setExpandingTarget(null);
     }
@@ -1689,17 +1776,17 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           characterMode ||
           (edited.characterPrompts !== null &&
             edited.characterPrompts.length > 0);
-        // 原文はクリック時点の入力欄の内容を優先する（拡張後に手直しした分も残す）。
-        // 欄が空なら拡張時のスナップショットへ戻す
-        const liveInstruction =
-          positiveText.trim() || edited.instruction || null;
+        // 履歴の原文には、このカードを作った原文を記録する。変換したあとで欄の原文を書き換えていても、
+        // 送るプロンプトはカードのものなので、履歴と「欄へ復元」が送った内容と食い違わないようにする
+        // （書き換えた原文で残したいときは、カードの「いまの原文で再変換」で作り直す）
+        const cardInstruction = edited.instruction?.trim() || null;
         fields = {
           positive: edited.positivePrompt ?? "",
           characterMode: withCharacters,
           slots,
           negative: negativeText,
-          positiveOrigin: liveInstruction
-            ? { mode: edited.mode, instruction: liveInstruction }
+          positiveOrigin: cardInstruction
+            ? { mode: edited.mode, instruction: cardInstruction }
             : null,
           negativeOrigin,
         };
@@ -1749,6 +1836,25 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       setExpansionError(null);
     },
     [setPendingExpansionFor],
+  );
+
+  const editPendingExpansion = useCallback(
+    (
+      target: PromptExpanderExpansionTarget,
+      patch: Partial<
+        Pick<
+          PromptExpanderPendingExpansion,
+          "positivePrompt" | "characterPrompts" | "negativePrompt"
+        >
+      >,
+    ) => {
+      setPendingExpansions((prev) => {
+        const current = prev[target];
+        if (!current) return prev;
+        return { ...prev, [target]: { ...current, ...patch } };
+      });
+    },
+    [],
   );
 
   const confirmUsageWarn = useCallback(
@@ -1990,6 +2096,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           positiveOrigin,
           negativeOrigin,
           pendingExpansions,
+          latestExpansionTarget,
+          // ネーム下書き前のあらすじも控え、「元に戻す」で「元のあらすじを見る」も戻す
+          scriptDraftBackup,
           settings: previousSettings as PromptExpanderSettingsPatch,
           references,
           inpaintMask,
@@ -2006,6 +2115,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       characterMode,
       characterSlots,
       inpaintMask,
+      latestExpansionTarget,
       negativeOrigin,
       negativeText,
       pendingExpansion,
@@ -2014,6 +2124,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       positiveText,
       references,
       restoreReferences,
+      scriptDraftBackup,
       setCharacterMode,
       settings,
       updateSettings,
@@ -2032,6 +2143,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     setPositiveOrigin(snapshot.positiveOrigin);
     setNegativeOrigin(snapshot.negativeOrigin);
     setPendingExpansions(snapshot.pendingExpansions);
+    setLatestExpansionTarget(snapshot.latestExpansionTarget);
+    setScriptDraftBackup(snapshot.scriptDraftBackup);
     setExpansionError(null);
     setReferences(snapshot.references);
     setInpaintMaskState(snapshot.inpaintMask);
@@ -2238,6 +2351,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       dismissGenerateOutcome,
       entryRevealRequest,
       requestEntryReveal,
+      completeEntryReveal,
       uploading,
       suggesting,
       error,
@@ -2307,6 +2421,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       applyExpansion,
       generateFromExpansion,
       discardExpansion,
+      editPendingExpansion,
       runGenerate,
       confirmUsageWarn,
       cancelUsageWarn,
@@ -2341,6 +2456,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       dismissGenerateOutcome,
       entryRevealRequest,
       requestEntryReveal,
+      completeEntryReveal,
       uploading,
       suggesting,
       error,
@@ -2405,6 +2521,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       applyExpansion,
       generateFromExpansion,
       discardExpansion,
+      editPendingExpansion,
       runGenerate,
       confirmUsageWarn,
       cancelUsageWarn,

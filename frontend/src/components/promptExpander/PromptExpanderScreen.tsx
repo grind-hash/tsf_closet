@@ -72,6 +72,13 @@ export default function PromptExpanderScreen() {
     const id = segments[2];
     return id ? decodeURIComponent(id) : null;
   }, [location.pathname]);
+  // URL のセッションを読み込み終えるまでは、前に開いていたセッションの欄・生成履歴・生成バーを出さない。
+  // 読み込み中に操作すると、前のセッションの原稿をそのセッションへ生成に送ってしまうため
+  const sessionReady = sessionId !== null && activeSession?.id === sessionId;
+  const sessionPending =
+    sessionId !== null &&
+    !sessionReady &&
+    (loadingSession || activeSession !== null);
 
   const [showSettings, setShowSettings] = usePersistedState<boolean>(
     PROMPT_EXPANDER_SETTINGS_PANEL_OPEN_KEY,
@@ -161,7 +168,8 @@ export default function PromptExpanderScreen() {
                       Experimental
                     </span>
                   </h1>
-                  {activeSession &&
+                  {sessionReady &&
+                    activeSession &&
                     (renamingSession ? (
                       <PromptExpanderSessionRenameForm
                         session={activeSession}
@@ -268,12 +276,12 @@ export default function PromptExpanderScreen() {
                 className="prompt-expander__workspace-composer"
                 aria-label={t("promptExpander.composer.sectionLabel")}
               >
-                {loadingSession && !activeSession ? (
-                  <p className="prompt-expander__empty">
+                {sessionReady ? (
+                  <PromptExpanderComposer />
+                ) : sessionPending ? (
+                  <p className="prompt-expander__empty" role="status">
                     {t("promptExpander.sessions.loading")}
                   </p>
-                ) : activeSession ? (
-                  <PromptExpanderComposer />
                 ) : (
                   <p className="prompt-expander__empty">
                     {t("promptExpander.sessions.notFound")}
@@ -284,7 +292,13 @@ export default function PromptExpanderScreen() {
                 className="prompt-expander__workspace-entries"
                 aria-label={t("promptExpander.entry.sectionLabel")}
               >
-                <PromptExpanderEntryList />
+                {sessionPending ? (
+                  <p className="prompt-expander__empty">
+                    {t("promptExpander.sessions.loading")}
+                  </p>
+                ) : (
+                  <PromptExpanderEntryList />
+                )}
               </section>
             </div>
           ) : (
@@ -292,7 +306,7 @@ export default function PromptExpanderScreen() {
           )}
         </div>
         {/* セクションを開いても生成操作が隠れないよう、下端に固定して置く */}
-        {sessionId && activeSession && <PromptExpanderControlBar />}
+        {sessionReady && <PromptExpanderControlBar />}
       </div>
 
       <AnlasConfirmDialog

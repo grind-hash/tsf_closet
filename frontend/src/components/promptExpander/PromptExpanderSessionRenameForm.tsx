@@ -2,9 +2,10 @@
  * セッション名を変える入力欄（保存・キャンセル）。
  * 一覧の行と、セッションを開いているときの見出しの両方で使う。
  * Enter で保存、Esc でキャンセル。名前が空か変わっていなければ保存せずに閉じる。
+ * 保存に失敗したときは閉じずに、入力した名前を残す。
  */
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PromptExpanderSession } from "../../apis/promptExpander";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
@@ -25,6 +26,7 @@ export default function PromptExpanderSessionRenameForm({
   const { renameSession } = usePromptExpander();
   const [draftTitle, setDraftTitle] = useState(session.title);
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -34,9 +36,15 @@ export default function PromptExpanderSessionRenameForm({
       return;
     }
     setBusy(true);
-    await renameSession(session.id, next);
+    const saved = await renameSession(session.id, next);
     setBusy(false);
-    onDone();
+    // 保存できなかったときは入力した名前を残し、そのまま保存し直せるようにする（エラーは通知で出る）
+    if (saved) {
+      onDone();
+      return;
+    }
+    // 保存中は入力欄を無効にしていてフォーカスが外れるので、戻してから打ち直せるようにする
+    window.requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   return (
@@ -47,6 +55,7 @@ export default function PromptExpanderSessionRenameForm({
       onSubmit={submit}
     >
       <input
+        ref={inputRef}
         className="prompt-expander__input"
         value={draftTitle}
         onChange={(e) => setDraftTitle(e.target.value)}

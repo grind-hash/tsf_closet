@@ -2430,3 +2430,98 @@ test("after editing a drafted storyboard, the original synopsis can still be vie
     synopsis,
   );
 });
+
+test("while another session loads, the previous session's fields, history and generate bar are not shown", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  state.sessions.push(
+    sessionPayload({
+      id: "pe-session-2",
+      title: "もうひとつのセッション",
+      entry_count: 0,
+      thumbnail_url: null,
+    }),
+  );
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // 2 つ目のセッションの読み込みだけを止めておく
+  await page.route(
+    (url) => url.pathname === "/api/prompt-expander/sessions/pe-session-2",
+    async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await gate;
+      await route.fallback();
+    },
+  );
+  await openSession(page);
+  await positiveField(page).fill("1girl, first session");
+  // 画面を読み込み直さずに、一覧から別のセッションを開く
+  await page.getByRole("button", { name: "← 一覧へ戻る" }).click();
+  await page
+    .getByRole("button", { name: "もうひとつのセッション を開く" })
+    .click();
+  await expect(page).toHaveURL(/\/prompt-expander\/pe-session-2$/);
+
+  // 読み込み中は、前のセッションの欄・生成履歴・生成バーを出さない
+  await expect(
+    page.locator(".prompt-expander__workspace-composer"),
+  ).toContainText("読み込み中…");
+  await expect(
+    page.locator(".prompt-expander__workspace-entries"),
+  ).toContainText("読み込み中…");
+  await expect(positiveField(page)).toHaveCount(0);
+  await expect(generateButton(page)).toHaveCount(0);
+  await expect(page.locator("[data-entry-id]")).toHaveCount(0);
+  await page.keyboard.press("Control+Shift+Enter");
+
+  release();
+  await expect(positiveField(page)).toBeVisible();
+  await expect(positiveField(page)).toHaveValue("");
+  await expect(generateButton(page)).toBeVisible();
+  expect(state.generateBodies).toHaveLength(0);
+});
+
+test("a rename that fails keeps the typed name so it can be saved again", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  let failRename = true;
+  await page.route(
+    (url) => url.pathname === `/api/prompt-expander/sessions/${SESSION_ID}`,
+    async (route) => {
+      if (route.request().method() === "PATCH" && failRename) {
+        await route.fulfill({
+          status: 503,
+          json: { detail: { code: "unavailable", message: "unavailable" } },
+        });
+        return;
+      }
+      await route.fallback();
+    },
+  );
+  await openSession(page);
+  const header = page.locator(".prompt-expander__header");
+  await header.getByRole("button", { name: "名前変更" }).click();
+  const input = header.getByLabel("セッション名");
+  await input.fill("改名したセッション");
+  await input.press("Enter");
+  // 失敗しても閉じず、入力した名前が残る
+  await expect(input).toHaveValue("改名したセッション");
+  await expect(input).toBeFocused();
+  await expect(header).not.toContainText("改名したセッション", {
+    useInnerText: true,
+  });
+
+  failRename = false;
+  await input.press("Enter");
+  await expect(header.getByLabel("セッション名")).toHaveCount(0);
+  await expect(header).toContainText("改名したセッション");
+});

@@ -5,9 +5,9 @@
  * 「欄へ反映」「この内容で生成」「破棄」のいずれかを選ぶ。
  * その欄の変換カード（pendingExpansions[target]）があるときだけ描画する。
  * 正プロンプトのカードは、変換したときの原文と今の欄の内容が違えば、そのことと再変換の操作を出す。
+ * カードで手直しした内容は Context に書き戻し、書きかけと一緒にセッションごとに保存する。
  */
 
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type PromptExpanderExpansionTarget,
@@ -26,6 +26,7 @@ export default function PromptExpanderExpansionPanel({
   const { t } = useTranslation();
   const {
     pendingExpansions,
+    editPendingExpansion,
     applyExpansion,
     generateFromExpansion,
     discardExpansion,
@@ -36,23 +37,14 @@ export default function PromptExpanderExpansionPanel({
     positiveText,
   } = usePromptExpander();
 
-  const [positive, setPositive] = useState("");
-  const [characters, setCharacters] = useState<string[] | null>(null);
-  const [negative, setNegative] = useState("");
-
   const active = pendingExpansions[target];
-
-  // 拡張結果が届くたびに編集欄を初期化する
-  useEffect(() => {
-    if (!active) return;
-    setPositive(active.positivePrompt ?? "");
-    setCharacters(active.characterPrompts);
-    setNegative(active.negativePrompt ?? "");
-  }, [active]);
 
   if (!active) return null;
 
   const isPositive = target === "positive";
+  const positive = active.positivePrompt ?? "";
+  const characters = active.characterPrompts;
+  const negative = active.negativePrompt ?? "";
   const edited = {
     ...active,
     positivePrompt: isPositive ? positive : null,
@@ -116,7 +108,9 @@ export default function PromptExpanderExpansionPanel({
               className="prompt-expander__textarea"
               rows={5}
               value={positive}
-              onChange={(e) => setPositive(e.target.value)}
+              onChange={(e) =>
+                editPendingExpansion(target, { positivePrompt: e.target.value })
+              }
             />
           </div>
           {characters?.map((text, index) => (
@@ -139,11 +133,13 @@ export default function PromptExpanderExpansionPanel({
                 rows={2}
                 value={text}
                 onChange={(e) =>
-                  setCharacters((prev) =>
-                    prev
-                      ? prev.map((p, i) => (i === index ? e.target.value : p))
-                      : prev,
-                  )
+                  editPendingExpansion(target, {
+                    characterPrompts: characters
+                      ? characters.map((p, i) =>
+                          i === index ? e.target.value : p,
+                        )
+                      : characters,
+                  })
                 }
               />
             </div>
@@ -162,7 +158,9 @@ export default function PromptExpanderExpansionPanel({
             className="prompt-expander__textarea"
             rows={3}
             value={negative}
-            onChange={(e) => setNegative(e.target.value)}
+            onChange={(e) =>
+              editPendingExpansion(target, { negativePrompt: e.target.value })
+            }
           />
         </div>
       )}

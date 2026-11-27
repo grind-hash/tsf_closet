@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromptExpanderEntry } from "../../apis/promptExpander";
@@ -33,6 +34,12 @@ interface MockState {
   generateGate: Promise<void> | null;
   /** 生成をこのエラーコードで失敗させる（null なら成功） */
   generateErrorCode: string | null;
+  /** /expand と /manga-script の応答をこの Promise が解けるまで待たせる（null なら待たない） */
+  llmGate: Promise<void> | null;
+  /** セッション詳細の応答を、ID ごとにこの Promise が解けるまで待たせる */
+  sessionGates: Partial<Record<string, Promise<void>>>;
+  /** セッション名の保存をこのエラーコードで失敗させる（null なら成功） */
+  renameErrorCode: string | null;
 }
 
 const mockState: MockState = {
@@ -42,6 +49,9 @@ const mockState: MockState = {
   restoreSeed: false,
   generateGate: null,
   generateErrorCode: null,
+  llmGate: null,
+  sessionGates: {},
+  renameErrorCode: null,
 };
 
 const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -210,15 +220,37 @@ const fetchMock = vi.fn(
       return jsonResponse(anlasPayload());
     }
     if (url === "/api/prompt-expander/sessions/sess-1" && method === "GET") {
+      if (mockState.sessionGates["sess-1"]) {
+        await mockState.sessionGates["sess-1"];
+      }
       return jsonResponse({ session: SESSION, entries: [OLD_ENTRY] });
     }
+    if (url === "/api/prompt-expander/sessions/sess-1" && method === "PATCH") {
+      if (mockState.renameErrorCode) {
+        return jsonResponse(
+          {
+            detail: {
+              code: mockState.renameErrorCode,
+              message: `failed: ${mockState.renameErrorCode}`,
+            },
+          },
+          503,
+        );
+      }
+      const body = JSON.parse(String(init?.body));
+      return jsonResponse({ ...SESSION, title: body.title });
+    }
     if (url === "/api/prompt-expander/sessions/sess-2" && method === "GET") {
+      if (mockState.sessionGates["sess-2"]) {
+        await mockState.sessionGates["sess-2"];
+      }
       return jsonResponse({
         session: { ...SESSION, id: "sess-2", title: "Other", entry_count: 0 },
         entries: [],
       });
     }
     if (url === "/api/prompt-expander/expand" && method === "POST") {
+      if (mockState.llmGate) await mockState.llmGate;
       if (mockState.expandErrorCode) {
         return jsonResponse(
           {
@@ -246,6 +278,7 @@ const fetchMock = vi.fn(
       });
     }
     if (url === "/api/prompt-expander/manga-script" && method === "POST") {
+      if (mockState.llmGate) await mockState.llmGate;
       const body = JSON.parse(String(init?.body));
       return jsonResponse({
         script: `①${body.instruction}「え…？」\n②戸惑う『どうして…』`,
@@ -307,8 +340,34 @@ function lastBody(urlPart: string, method: string): Record<string, unknown> {
 function Probe() {
   const ctx = usePromptExpander();
   const { notifications } = useNotification();
+  const [renameResult, setRenameResult] = useState("none");
   return (
     <>
+      <div data-testid="session-title">{ctx.activeSession?.title ?? ""}</div>
+      <div data-testid="rename-result">{renameResult}</div>
+      <button
+        type="button"
+        onClick={() =>
+          void ctx
+            .renameSession("sess-1", "New name")
+            .then((ok) => setRenameResult(ok ? "saved" : "failed"))
+        }
+      >
+        rename
+      </button>
+      <div data-testid="pending-positive-prompt">
+        {ctx.pendingExpansions.positive?.positivePrompt ?? "none"}
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.editPendingExpansion("positive", {
+            positivePrompt: "hand edited",
+          })
+        }
+      >
+        edit-card
+      </button>
       <div data-testid="notifications">
         {notifications.map((n) => n.title).join("|")}
       </div>
@@ -879,6 +938,9 @@ beforeEach(() => {
   mockState.restoreSeed = false;
   mockState.generateGate = null;
   mockState.generateErrorCode = null;
+  mockState.llmGate = null;
+  mockState.sessionGates = {};
+  mockState.renameErrorCode = null;
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -1018,20 +1080,20 @@ describe("PromptExpanderContext", () => {
     expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
   });
 
-  it("generateFromExpansion saves the field content at click time as the instruction", async () => {
+  it("generateFromExpansion records the instruction the card was made from", async () => {
     await openSessionAndWait();
     fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
     await clickAndWaitPending("expand-positive");
 
-    // 拡張後に原文を手直しした場合はその内容が原文として保存される
+    // 変換したあとで原文を書き換えても、送るのはカードのプロンプトなので、履歴の原文もカードの変換元にする
     fireEvent.click(screen.getByRole("button", { name: "set-positive-2" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
-    expect(lastBody("/generate", "POST").instruction).toBe("a dog girl");
+    expect(lastBody("/generate", "POST").instruction).toBe("a cat girl");
 
-    // 欄を空にしたときは拡張時のスナップショットへ戻す
+    // 欄を空にしても同じ
     fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
@@ -1977,5 +2039,167 @@ describe("PromptExpanderContext", () => {
       expect(screen.getByTestId("positive").textContent).toBe("a cat girl"),
     );
     expect(screen.getByTestId("negative").textContent).toBe("blurry");
+  });
+
+  it("a storyboard requested in one session lands only in that session's draft", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    let release: () => void = () => {};
+    mockState.llmGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
+    });
+
+    // 応答の前に別のセッションへ移る
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open-2" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("session").textContent).toBe("sess-2"),
+    );
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("drafting").textContent).toBe("no"),
+    );
+    // 移った先の欄は書き換えない
+    expect(screen.getByTestId("positive").textContent).toBe("");
+    expect(screen.getByTestId("draft-backup").textContent).toBe("none");
+
+    // 依頼したセッションへ戻ると、ネームと元のあらすじが入っている
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("positive").textContent).toContain(
+        "①a cat girl",
+      ),
+    );
+    expect(screen.getByTestId("draft-backup").textContent).toBe("a cat girl");
+  });
+
+  it("a conversion requested in one session lands only in that session's draft", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    let release: () => void = () => {};
+    mockState.llmGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "expand-positive" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open-2" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("session").textContent).toBe("sess-2"),
+    );
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("expanding").textContent).toBe("none"),
+    );
+    expect(screen.getByTestId("pending-targets").textContent).toBe("none");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("pending-positive-prompt").textContent).toBe(
+        "expanded: a cat girl",
+      ),
+    );
+  });
+
+  it("a session load that returns late does not replace the session opened after it", async () => {
+    renderProvider();
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-loaded").textContent).toBe("yes"),
+    );
+    let release: () => void = () => {};
+    mockState.sessionGates["sess-1"] = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open-2" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("session").textContent).toBe("sess-2"),
+    );
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(findCalls("/sessions/sess-1", "GET")).toHaveLength(1),
+    );
+    expect(screen.getByTestId("session").textContent).toBe("sess-2");
+    expect(screen.getByTestId("entries").textContent).toBe("");
+  });
+
+  it("keeps hand edits on a conversion card in the session draft across a reload", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await clickAndWaitPending("expand-positive");
+    fireEvent.click(screen.getByRole("button", { name: "edit-card" }));
+    expect(screen.getByTestId("pending-positive-prompt").textContent).toBe(
+      "hand edited",
+    );
+
+    cleanup();
+    await openSessionAndWait();
+    await waitFor(() =>
+      expect(screen.getByTestId("pending-positive-prompt").textContent).toBe(
+        "hand edited",
+      ),
+    );
+  });
+
+  it("undoing a restore also brings back the synopsis kept before the storyboard draft", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("draft-backup").textContent).toBe("a cat girl"),
+    );
+    const script = screen.getByTestId("positive").textContent;
+
+    fireEvent.click(screen.getByRole("button", { name: "restore" }));
+    expect(screen.getByTestId("draft-backup").textContent).toBe("none");
+
+    fireEvent.click(screen.getByRole("button", { name: "undo-restore" }));
+    expect(screen.getByTestId("positive").textContent).toBe(script);
+    expect(screen.getByTestId("draft-backup").textContent).toBe("a cat girl");
+  });
+
+  it("renameSession tells whether the name was saved", async () => {
+    await openSessionAndWait();
+    mockState.renameErrorCode = "unavailable";
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "rename" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("rename-result").textContent).toBe("failed"),
+    );
+    expect(screen.getByTestId("session-title").textContent).toBe(
+      "Test session",
+    );
+
+    mockState.renameErrorCode = null;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "rename" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("rename-result").textContent).toBe("saved"),
+    );
+    expect(screen.getByTestId("session-title").textContent).toBe("New name");
   });
 });
