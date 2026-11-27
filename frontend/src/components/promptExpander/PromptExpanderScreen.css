@@ -80,6 +80,20 @@
   content: "/ ";
 }
 
+/* 見出しでセッション名を変える入力欄（題名の右に、残りの幅いっぱいに広げる） */
+.prompt-expander__header-rename {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+/* Prompt Expander の画面では、通知を右上（見出しの設定ボタン・エラー行の「閉じる」の上）ではなく、
+   右下の生成バーのすぐ上に出す。生成バーの高さは PromptExpanderControlBar が変数に入れる */
+body:has(.prompt-expander) .notification-container {
+  top: auto;
+  bottom: calc(var(--prompt-expander-control-bar-height, 0px) + 16px);
+  flex-direction: column-reverse;
+}
+
 .prompt-expander__title {
   display: flex;
   align-items: center;

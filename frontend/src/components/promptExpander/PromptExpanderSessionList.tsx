@@ -12,6 +12,7 @@ import type { PromptExpanderSession } from "../../apis/promptExpander";
 import { promptExpanderImageUrl } from "../../apis/promptExpander";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
 import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
+import PromptExpanderSessionRenameForm from "./PromptExpanderSessionRenameForm";
 import "./PromptExpanderShared.css";
 import "./PromptExpanderSessionList.css";
 
@@ -34,26 +35,11 @@ interface SessionRowProps {
 function SessionRow({ session }: SessionRowProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { renameSession, deleteSession } = usePromptExpander();
+  const { deleteSession } = usePromptExpander();
   const [editing, setEditing] = useState(false);
-  const [draftTitle, setDraftTitle] = useState(session.title);
   const [busy, setBusy] = useState(false);
 
   const title = session.title || t("promptExpander.sessions.untitled");
-
-  const submitRename = async (event: FormEvent) => {
-    event.preventDefault();
-    const next = draftTitle.trim();
-    if (!next || next === session.title) {
-      setEditing(false);
-      setDraftTitle(session.title);
-      return;
-    }
-    setBusy(true);
-    await renameSession(session.id, next);
-    setBusy(false);
-    setEditing(false);
-  };
 
   const handleDelete = async () => {
     if (
@@ -89,37 +75,10 @@ function SessionRow({ session }: SessionRowProps) {
       </button>
       <div className="prompt-expander__session-main">
         {editing ? (
-          <form
-            className="prompt-expander__session-rename"
-            onSubmit={submitRename}
-          >
-            <input
-              className="prompt-expander__input"
-              value={draftTitle}
-              onChange={(e) => setDraftTitle(e.target.value)}
-              maxLength={200}
-              disabled={busy}
-              aria-label={t("promptExpander.sessions.renameLabel")}
-            />
-            <button
-              type="submit"
-              className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--primary"
-              disabled={busy}
-            >
-              {t("promptExpander.sessions.renameSave")}
-            </button>
-            <button
-              type="button"
-              className="prompt-expander__btn prompt-expander__btn--sm"
-              onClick={() => {
-                setEditing(false);
-                setDraftTitle(session.title);
-              }}
-              disabled={busy}
-            >
-              {t("promptExpander.sessions.renameCancel")}
-            </button>
-          </form>
+          <PromptExpanderSessionRenameForm
+            session={session}
+            onDone={() => setEditing(false)}
+          />
         ) : (
           <button
             type="button"

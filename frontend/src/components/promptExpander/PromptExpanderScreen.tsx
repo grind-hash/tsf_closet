@@ -28,6 +28,7 @@ import PromptExpanderComposer from "./PromptExpanderComposer";
 import PromptExpanderControlBar from "./PromptExpanderControlBar";
 import PromptExpanderEntryList from "./PromptExpanderEntryList";
 import PromptExpanderSessionList from "./PromptExpanderSessionList";
+import PromptExpanderSessionRenameForm from "./PromptExpanderSessionRenameForm";
 import PromptExpanderSettingsPanel, {
   PROMPT_EXPANDER_SETTINGS_PANEL_ID,
 } from "./PromptExpanderSettingsPanel";
@@ -85,6 +86,12 @@ export default function PromptExpanderScreen() {
     () => !hasApiKeyConsent(),
   );
   const [apiKeyConsentDeclined, setApiKeyConsentDeclined] = useState(false);
+  // 見出しでセッション名を変えている途中か（別のセッションへ移ったら閉じる）
+  const [renamingSession, setRenamingSession] = useState(false);
+  useEffect(() => {
+    void sessionId;
+    setRenamingSession(false);
+  }, [sessionId]);
 
   // ルートに応じて一覧/詳細を読み込む
   useEffect(() => {
@@ -154,14 +161,32 @@ export default function PromptExpanderScreen() {
                       Experimental
                     </span>
                   </h1>
-                  {activeSession && (
-                    <span
-                      className="prompt-expander__breadcrumb-title"
-                      title={activeSession.title}
-                    >
-                      {activeSession.title}
-                    </span>
-                  )}
+                  {activeSession &&
+                    (renamingSession ? (
+                      <PromptExpanderSessionRenameForm
+                        session={activeSession}
+                        onDone={() => setRenamingSession(false)}
+                        className="prompt-expander__header-rename"
+                      />
+                    ) : (
+                      <>
+                        <span
+                          className="prompt-expander__breadcrumb-title"
+                          title={activeSession.title}
+                        >
+                          {activeSession.title ||
+                            t("promptExpander.sessions.untitled")}
+                        </span>
+                        {/* 詳細画面でもセッション名を変えられるようにする（一覧の行と同じ入力欄） */}
+                        <button
+                          type="button"
+                          className="prompt-expander__btn prompt-expander__btn--sm"
+                          onClick={() => setRenamingSession(true)}
+                        >
+                          {t("promptExpander.sessions.rename")}
+                        </button>
+                      </>
+                    ))}
                 </div>
               ) : (
                 <>

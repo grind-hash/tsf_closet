@@ -7,7 +7,7 @@
  * 値はすべて PromptExpanderContext から取り、props は増やさない。
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
@@ -90,6 +90,27 @@ export default function PromptExpanderControlBar() {
   const disabledReasonText = useDisabledReasonText(generateDisabledReason);
   const busy = generating || expanding || draftingScript;
 
+  // 通知を生成バーのすぐ上に出すため、バーの高さを CSS 変数に入れる（折り返しで高さが変わる）
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const root = document.documentElement;
+    const apply = () =>
+      root.style.setProperty(
+        "--prompt-expander-control-bar-height",
+        `${bar.offsetHeight}px`,
+      );
+    apply();
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(apply);
+    observer?.observe(bar);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty("--prompt-expander-control-bar-height");
+    };
+  }, []);
+
   // Ctrl+Shift+Enter（Mac は ⌘+Shift+Enter）で生成する。ダイアログを開いている間と
   // 変換中の入力では反応しない（確認ダイアログの裏で生成が走らないように）
   useEffect(() => {
@@ -162,6 +183,7 @@ export default function PromptExpanderControlBar() {
 
   return (
     <div
+      ref={barRef}
       className="prompt-expander__control-bar"
       role="toolbar"
       aria-label={t("promptExpander.controlBar.label")}

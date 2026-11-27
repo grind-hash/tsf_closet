@@ -300,6 +300,12 @@ async function mockPromptExpanderApis(page: Page) {
         await route.fulfill({ status: 404, json: { detail: "not found" } });
         return;
       }
+      if (route.request().method() === "PATCH") {
+        const body = route.request().postDataJSON() as { title: string };
+        session.title = body.title;
+        await route.fulfill({ json: session });
+        return;
+      }
       await route.fulfill({
         json: {
           session,
@@ -2286,4 +2292,65 @@ test("the workspace becomes one column when the settings panel narrows it", asyn
     .getByRole("button", { name: "設定" })
     .click();
   await expect.poll(columns).toBe(1);
+});
+
+test("the session can be renamed from the workspace header", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await openSession(page);
+  const header = page.locator(".prompt-expander__header");
+  await header.getByRole("button", { name: "名前変更" }).click();
+  const input = header.getByLabel("セッション名");
+  await expect(input).toBeFocused();
+  // Esc で閉じる
+  await input.press("Escape");
+  await expect(header.getByLabel("セッション名")).toHaveCount(0);
+  await expect(header).toContainText("テストセッション");
+  // Enter で保存すると、見出しと生成履歴の題名が変わる
+  await header.getByRole("button", { name: "名前変更" }).click();
+  await header.getByLabel("セッション名").fill("改名したセッション");
+  await header.getByLabel("セッション名").press("Enter");
+  await expect(header).toContainText("改名したセッション");
+  await expect(header.getByLabel("セッション名")).toHaveCount(0);
+});
+
+test("notifications sit above the generate bar instead of over the header buttons", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await page.route(
+    (url) => url.pathname.endsWith("/generate"),
+    async (route) => {
+      await route.fulfill({
+        status: 502,
+        json: { detail: { code: "image_failed", message: "timeout" } },
+      });
+    },
+  );
+  await openSession(page);
+  await positiveField(page).fill("1girl, standing");
+  await generateButton(page).click();
+  const toast = page.locator(".notification-toast").first();
+  await expect(toast).toBeVisible();
+  const toastBox = await toast.boundingBox();
+  const barBox = await page
+    .getByRole("toolbar", { name: "生成操作" })
+    .boundingBox();
+  const settingsBox = await page
+    .locator(".prompt-expander__header")
+    .getByRole("button", { name: "設定" })
+    .boundingBox();
+  expect(toastBox && barBox && settingsBox).toBeTruthy();
+  if (!toastBox || !barBox || !settingsBox) return;
+  // 生成バーより上で、見出しの設定ボタンとは重ならない
+  expect(toastBox.y + toastBox.height).toBeLessThanOrEqual(barBox.y);
+  expect(toastBox.y).toBeGreaterThan(settingsBox.y + settingsBox.height);
+  // 見出しの設定ボタンは押せる
+  await page
+    .locator(".prompt-expander__header")
+    .getByRole("button", { name: "設定" })
+    .click();
 });
