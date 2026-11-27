@@ -14,6 +14,9 @@ from ..consts.prompt_expander import (
     DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
     DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
     PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
+    PROMPT_EXPANDER_CAST_MAX,
+    PROMPT_EXPANDER_CAST_NAME_MAX_LEN,
+    PROMPT_EXPANDER_CAST_TAGS_MAX_LEN,
     PROMPT_EXPANDER_CHARACTER_PROMPT_MAX_LEN,
     PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS,
     PROMPT_EXPANDER_IMAGE_SIZES,
@@ -26,6 +29,8 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MEMORY_MAX_LEN,
     PROMPT_EXPANDER_NEGATIVE_MAX_LEN,
     PROMPT_EXPANDER_PROMPT_MAX_LEN,
+    PROMPT_EXPANDER_REFERENCE_KINDS,
+    PROMPT_EXPANDER_REFERENCE_MAX_COUNT,
     PROMPT_EXPANDER_REFERENCE_TYPES,
     PROMPT_EXPANDER_SUGGESTION_COUNT_DEFAULT,
     PROMPT_EXPANDER_SUGGESTION_COUNT_MAX,
@@ -34,7 +39,7 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS,
     PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN,
 )
-from ..services.prompt_expander_prompts import MangaOptions
+from ..services.prompt_expander_prompts import CastMember, MangaOptions
 from .novelai import AnlasBalanceResponse
 
 ImageSizeLiteral = Literal["portrait", "landscape", "square"]
@@ -44,6 +49,8 @@ ExpandModeLiteral = Literal["japanese", "tags"]
 StoredExpandModeLiteral = Literal["off", "japanese", "tags"]
 
 SourceKindLiteral = Literal["none", "history", "entry", "upload"]
+
+ReferenceKindLiteral = Literal["history", "entry", "upload", "character"]
 
 MangaLayoutLiteral = Literal["auto", "vertical", "horizontal", "grid"]
 
@@ -72,6 +79,8 @@ assert set(MangaReadingDirectionLiteral.__args__) == set(
 )  # type: ignore[attr-defined]
 
 assert set(ReferenceTypeLiteral.__args__) == set(PROMPT_EXPANDER_REFERENCE_TYPES)  # type: ignore[attr-defined]
+
+assert set(ReferenceKindLiteral.__args__) == set(PROMPT_EXPANDER_REFERENCE_KINDS)  # type: ignore[attr-defined]
 
 assert set(TransparentEmphasisLiteral.__args__) == set(  # type: ignore[attr-defined]
     PROMPT_EXPANDER_TRANSPARENT_EMPHASIS_LEVELS
@@ -126,10 +135,6 @@ class PromptExpanderSettingsModel(BaseModel):
     manga_reading_direction: str = "rtl"
     manga_narration: bool = False
     use_precise_reference: bool = False
-    reference_type: str = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE
-    reference_include_outfit: bool = False
-    reference_strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
-    reference_fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
     transparent_background: bool = False
     transparent_emphasis: int = DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS
     use_inpaint: bool = False
@@ -190,12 +195,6 @@ class PromptExpanderSettingsUpdateRequest(BaseModel):
     manga_reading_direction: MangaReadingDirectionLiteral | None = None
     manga_narration: bool | None = None
     use_precise_reference: bool | None = None
-    reference_type: ReferenceTypeLiteral | None = None
-    reference_include_outfit: bool | None = None
-    reference_strength: float | None = Field(
-        None, ge=0.0, le=PRECISE_REFERENCE_STRENGTH_MAX["v5"]
-    )
-    reference_fidelity: float | None = Field(None, ge=0.0, le=1.0)
     transparent_background: bool | None = None
     transparent_emphasis: TransparentEmphasisLiteral | None = None
     use_inpaint: bool | None = None
@@ -222,6 +221,22 @@ class PromptExpanderSessionListResponse(BaseModel):
     sessions: list[PromptExpanderSessionResponse]
 
 
+class PromptExpanderEntryReference(BaseModel):
+    """エントリに記録した精密参照 1 枚分（upload の画像本体は保存しない）。"""
+
+    kind: str
+    history_id: str | None = None
+    entry_id: str | None = None
+    character_preset_id: str | None = None
+    type: str
+    # 衣装も参照したか（V5 の参照のときだけ値を持つ）
+    include_outfit: bool | None = None
+    strength: float
+    # 忠実度（V4.5 の参照のときだけ値を持つ）
+    fidelity: float | None = None
+    name: str | None = None
+
+
 class PromptExpanderEntryResponse(BaseModel):
     id: str
     session_id: str
@@ -245,14 +260,8 @@ class PromptExpanderEntryResponse(BaseModel):
     source_history_id: str | None = None
     source_entry_id: str | None = None
     transparent_background: bool = False
-    reference_kind: str = "none"
-    reference_history_id: str | None = None
-    reference_entry_id: str | None = None
-    reference_type: str | None = None
-    # 衣装も参照したか（V5 の参照のときだけ値を持つ）
-    reference_include_outfit: bool | None = None
-    reference_strength: float | None = None
-    reference_fidelity: float | None = None
+    # 生成に使った精密参照（空なら参照なし）
+    references: list[PromptExpanderEntryReference] = Field(default_factory=list)
     inpaint: bool = False
     mask_url: str | None = None
     image_url: str
@@ -282,6 +291,48 @@ class UploadRequest(BaseModel):
     )
 
 
+class CastMemberModel(BaseModel):
+    """名前を付けた精密参照から作る登場人物（LLM に渡す）。"""
+
+    name: str = Field(..., min_length=1, max_length=PROMPT_EXPANDER_CAST_NAME_MAX_LEN)
+    appearance_tags: str = Field("", max_length=PROMPT_EXPANDER_CAST_TAGS_MAX_LEN)
+
+    def to_cast_member(self) -> CastMember:
+        return CastMember(name=self.name, appearance_tags=self.appearance_tags)
+
+
+class PromptExpanderReferenceItem(BaseModel):
+    """生成リクエストの精密参照 1 枚分。参照元の種類ごとに必要な ID / 画像が変わる。"""
+
+    kind: ReferenceKindLiteral
+    history_id: str | None = Field(None, max_length=80)
+    entry_id: str | None = Field(None, max_length=80)
+    character_preset_id: str | None = Field(None, max_length=80)
+    image: str | None = Field(None, max_length=PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN)
+    type: ReferenceTypeLiteral = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE  # type: ignore[assignment]
+    include_outfit: bool = False
+    # 強度の上限・衣装参照の可否はモデルで異なるため、サービス側で検証する
+    strength: float = Field(
+        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+        ge=0.0,
+        le=PRECISE_REFERENCE_STRENGTH_MAX["v5"],
+    )
+    fidelity: float = Field(DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY, ge=0.0, le=1.0)
+    name: str | None = Field(None, max_length=PROMPT_EXPANDER_CAST_NAME_MAX_LEN)
+
+    @model_validator(mode="after")
+    def _check(self) -> PromptExpanderReferenceItem:
+        if self.kind == "history" and not self.history_id:
+            raise ValueError("history_id が必要です")
+        if self.kind == "entry" and not self.entry_id:
+            raise ValueError("entry_id が必要です")
+        if self.kind == "upload" and not self.image:
+            raise ValueError("image が必要です")
+        if self.kind == "character" and not self.character_preset_id:
+            raise ValueError("character_preset_id が必要です")
+        return self
+
+
 class PromptExpandRequest(BaseModel):
     instruction: str = Field("", max_length=PROMPT_EXPANDER_INSTRUCTION_MAX_LEN)
     expand_positive: bool = True
@@ -308,6 +359,10 @@ class PromptExpandRequest(BaseModel):
     manga: MangaOptionsModel | None = None
     # 背景透過 ON のとき、背景・情景を描写しない規則を system prompt に足す
     transparent_background: bool = False
+    # 名前を付けた精密参照の登場人物。キャラ枠 ON のときだけ使う
+    cast: list[CastMemberModel] = Field(
+        default_factory=list, max_length=PROMPT_EXPANDER_CAST_MAX
+    )
 
     @model_validator(mode="after")
     def _check(self) -> PromptExpandRequest:
@@ -341,6 +396,10 @@ class MangaScriptRequest(BaseModel):
     text_model: NovelAITextModel
     language: Literal["ja", "en"] = "ja"
     manga: MangaOptionsModel | None = None
+    # 名前を付けた精密参照の登場人物。ネームの話者名に使わせる
+    cast: list[CastMemberModel] = Field(
+        default_factory=list, max_length=PROMPT_EXPANDER_CAST_MAX
+    )
 
 
 class MangaScriptResponse(BaseModel):
@@ -377,23 +436,9 @@ class PromptExpanderGenerateRequest(BaseModel):
         ge=PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
         le=PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
     )
-    # 精密参照（V5 節約モード以外）。reference_kind != "none" が「参照を送った」唯一の根拠。
-    # 強度の上限・衣装参照の可否はモデルで異なるため、サービス側で検証する
-    reference_kind: SourceKindLiteral = "none"
-    reference_history_id: str | None = Field(None, max_length=80)
-    reference_entry_id: str | None = Field(None, max_length=80)
-    reference_image: str | None = Field(
-        None, max_length=PROMPT_EXPANDER_UPLOAD_MAX_BASE64_LEN
-    )
-    reference_type: ReferenceTypeLiteral = DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE  # type: ignore[assignment]
-    reference_include_outfit: bool = False
-    reference_strength: float = Field(
-        DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
-        ge=0.0,
-        le=PRECISE_REFERENCE_STRENGTH_MAX["v5"],
-    )
-    reference_fidelity: float = Field(
-        DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY, ge=0.0, le=1.0
+    # 精密参照（V5 節約モード以外）。空でなければ「参照を送った」（1 枚ごとに Anlas を消費）
+    references: list[PromptExpanderReferenceItem] = Field(
+        default_factory=list, max_length=PROMPT_EXPANDER_REFERENCE_MAX_COUNT
     )
     # 背景透過（V5 はプロンプト指示、V4.5 は白背景生成 + フロント切り抜き）
     transparent_background: bool = False
@@ -417,12 +462,6 @@ class PromptExpanderGenerateRequest(BaseModel):
             raise ValueError("source_entry_id が必要です")
         if self.source_kind == "upload" and not self.source_image:
             raise ValueError("source_image が必要です")
-        if self.reference_kind == "history" and not self.reference_history_id:
-            raise ValueError("reference_history_id が必要です")
-        if self.reference_kind == "entry" and not self.reference_entry_id:
-            raise ValueError("reference_entry_id が必要です")
-        if self.reference_kind == "upload" and not self.reference_image:
-            raise ValueError("reference_image が必要です")
         if self.inpaint_mask and self.inpaint_mask_entry_id:
             raise ValueError("インペイントマスクの指定はどちらか一方だけです")
         if (

@@ -605,6 +605,70 @@ async def test_expand_invalid_llm_output_and_suggest(factory, monkeypatch):
     assert "銀髪が好き" in system and "propose 2 favorite" in system
 
 
+async def test_expand_prompts_fills_cast_appearance(factory, monkeypatch):
+    """キャストに一致した枠だけ、抜けた外見カテゴリを補う（LLM の髪色は上書きしない）。"""
+    calls: list[tuple[str, str]] = []
+
+    async def _fake_generate_text(system_prompt, user_prompt, **kwargs):
+        calls.append((system_prompt, user_prompt))
+        return SimpleNamespace(
+            content=(
+                '{"base_tags":"2girls, japanese text, text, speech bubble, border",'
+                '"panel_description":"There are two comic panels.",'
+                '"character_prompts":['
+                '{"name":"サクラ","prompt":"girl, smile, saying \\"お待たせ！\\" in the first panel"},'
+                '{"name":" ユイ ","prompt":"girl, blonde hair, reading a book"},'
+                '{"name":"","prompt":"boy, waiter"}]}'
+            ),
+            cost_usd=None,
+        )
+
+    monkeypatch.setattr(pe.llm_service, "generate_text", _fake_generate_text)
+    cast = [
+        pe.CastMember(
+            name="サクラ", appearance_tags="1girl, long hair, pink hair, pink eyes"
+        ),
+        pe.CastMember(
+            name="ユイ", appearance_tags="1girl, black hair, glasses, grey eyes"
+        ),
+    ]
+    result = await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="サクラとユイが喫茶店で会う",
+            character_mode=True,
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            manga=pe.MangaOptions(text_language="ja"),
+            cast=cast,
+        )
+    )
+    assert result.character_prompts == [
+        'pink hair, long hair, pink eyes, girl, smile, saying "お待たせ！" in the first panel',
+        # LLM が書いた金髪は残し、抜けた瞳色だけ補う
+        "grey eyes, girl, blonde hair, reading a book",
+        "boy, waiter",
+    ]
+    system, user = calls[-1]
+    assert '"character_prompts":[{"name":"...","prompt":"..."}]' in system
+    assert "never by a cast name" in system
+    assert "- サクラ: 1girl, long hair, pink hair, pink eyes" in user
+
+    # キャラ枠 OFF ならキャストは渡さない
+    await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="サクラとユイが喫茶店で会う",
+            character_mode=False,
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            manga=pe.MangaOptions(),
+            cast=cast,
+        )
+    )
+    system, user = calls[-1]
+    assert "Cast" not in user
+    assert '{"name":"..."' not in system
+
+
 async def test_expand_prompts_manga_mode(factory, monkeypatch):
     """漫画モードは V5 専用で、JSON をタグ見出し + コマ説明に結合する。"""
     calls: list[tuple[str, str]] = []
@@ -1289,6 +1353,11 @@ async def test_delete_entry_removes_inpaint_mask(factory, monkeypatch, tmp_path:
     assert not pe.entry_image_file(session.id, entry_id).exists()
 
 
+def _ref(**kwargs) -> pe.ReferenceParams:
+    params = {"kind": "upload", "image": _png_base64("blue"), **kwargs}
+    return pe.ReferenceParams(**params)
+
+
 @pytest.mark.asyncio
 async def test_generate_entry_passes_character_reference_on_v45(factory, monkeypatch):
     generate_mock = AsyncMock(
@@ -1313,11 +1382,7 @@ async def test_generate_entry_passes_character_reference_on_v45(factory, monkeyp
         pe.GenerateParams(
             prompt="1girl, standing",
             image_model="nai-diffusion-4-5-full",
-            reference_kind="upload",
-            reference_image=_png_base64("blue"),
-            reference_type="character&style",
-            reference_strength=0.6,
-            reference_fidelity=0.9,
+            references=[_ref(type="character&style", strength=0.6, fidelity=0.9)],
         ),
     )
     refs = generate_mock.await_args.kwargs["character_references"]
@@ -1326,14 +1391,21 @@ async def test_generate_entry_passes_character_reference_on_v45(factory, monkeyp
     assert refs[0]["strength"] == 0.6 and refs[0]["fidelity"] == 0.9
     assert isinstance(refs[0]["image"], bytes)
     assert refs[0]["image"] == pe.decode_image_base64(_png_base64("blue"))
-    entry = outcome.entry
-    assert entry["reference_kind"] == "upload"
-    assert entry["reference_entry_id"] is None
-    assert entry["reference_history_id"] is None
-    assert entry["reference_type"] == "character&style"
-    assert entry["reference_strength"] == 0.6
-    assert entry["reference_fidelity"] == 0.9
-    assert entry["transparent_background"] is False
+    assert outcome.entry["references"] == [
+        {
+            "kind": "upload",
+            "history_id": None,
+            "entry_id": None,
+            "character_preset_id": None,
+            "type": "character&style",
+            # V4.5 は衣装の有無を残さず、忠実度を残す
+            "include_outfit": None,
+            "strength": 0.6,
+            "fidelity": 0.9,
+            "name": None,
+        }
+    ]
+    assert outcome.entry["transparent_background"] is False
 
     # entry 参照: 参照元 ID を記録し、i2i 元（image_bytes）とは独立
     outcome = await pe.generate_entry(
@@ -1341,8 +1413,7 @@ async def test_generate_entry_passes_character_reference_on_v45(factory, monkeyp
         pe.GenerateParams(
             prompt="1girl, sitting",
             image_model="nai-diffusion-4-5-curated",
-            reference_kind="entry",
-            reference_entry_id=uploaded.id,
+            references=[pe.ReferenceParams(kind="entry", entry_id=uploaded.id)],
         ),
     )
     kwargs = generate_mock.await_args.kwargs
@@ -1351,9 +1422,10 @@ async def test_generate_entry_passes_character_reference_on_v45(factory, monkeyp
     assert ref["image"] == pe.entry_image_file(session.id, uploaded.id).read_bytes()
     assert ref["type"] == "character"
     assert ref["strength"] == 0.85 and ref["fidelity"] == 1.0
-    assert outcome.entry["reference_kind"] == "entry"
-    assert outcome.entry["reference_entry_id"] == uploaded.id
-    assert outcome.entry["reference_type"] == "character"
+    recorded = outcome.entry["references"][0]
+    assert recorded["kind"] == "entry"
+    assert recorded["entry_id"] == uploaded.id
+    assert recorded["type"] == "character"
 
     # 参照なしなら渡さない
     outcome = await pe.generate_entry(
@@ -1361,8 +1433,7 @@ async def test_generate_entry_passes_character_reference_on_v45(factory, monkeyp
         pe.GenerateParams(prompt="1girl", image_model="nai-diffusion-4-5-full"),
     )
     assert generate_mock.await_args.kwargs["character_references"] is None
-    assert outcome.entry["reference_kind"] == "none"
-    assert outcome.entry["reference_type"] is None
+    assert outcome.entry["references"] == []
 
 
 @pytest.mark.asyncio
@@ -1385,23 +1456,22 @@ async def test_generate_entry_passes_v5_reference_with_outfit(factory, monkeypat
         pe.GenerateParams(
             prompt="1girl, standing",
             image_model="nai-diffusion-5-full",
-            reference_kind="upload",
-            reference_image=_png_base64("blue"),
-            reference_type="character",
-            reference_include_outfit=True,
-            reference_strength=3.0,
+            references=[
+                _ref(type="character", include_outfit=True, strength=3.0, name="サクラ")
+            ],
         ),
     )
     ref = generate_mock.await_args.kwargs["character_references"][0]
     assert ref["type"] == "character"
     assert ref["include_outfit"] is True
     assert ref["strength"] == 3.0
-    entry = outcome.entry
-    assert entry["reference_type"] == "character"
-    assert entry["reference_include_outfit"] is True
-    assert entry["reference_strength"] == 3.0
+    recorded = outcome.entry["references"][0]
+    assert recorded["type"] == "character"
+    assert recorded["include_outfit"] is True
+    assert recorded["strength"] == 3.0
+    assert recorded["name"] == "サクラ"
     # V5 では忠実度は廃止されたため残さない
-    assert entry["reference_fidelity"] is None
+    assert recorded["fidelity"] is None
 
     # 衣装参照も V5 なら送れる
     await pe.generate_entry(
@@ -1409,9 +1479,7 @@ async def test_generate_entry_passes_v5_reference_with_outfit(factory, monkeypat
         pe.GenerateParams(
             prompt="1girl",
             image_model="nai-diffusion-5-curated",
-            reference_kind="upload",
-            reference_image=_png_base64("blue"),
-            reference_type="costume",
+            references=[_ref(type="costume")],
         ),
     )
     assert generate_mock.await_args.kwargs["character_references"][0]["type"] == (
@@ -1420,19 +1488,138 @@ async def test_generate_entry_passes_v5_reference_with_outfit(factory, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_generate_entry_sends_multiple_references_and_cross_negatives(
+    factory, monkeypatch, tmp_path
+):
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(
+            images=[_png("purple")],
+            provider="novelai",
+            model="nai-diffusion-5-full",
+            seed=7,
+        )
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    portrait = tmp_path / "portrait.png"
+    portrait.write_bytes(_png("yellow"))
+    from gateway.databases.models import CharacterPreset
+    from gateway.services import character_preset_portrait
+
+    monkeypatch.setattr(
+        character_preset_portrait,
+        "preset_portrait_file",
+        lambda preset: portrait if preset.id == "preset-1" else None,
+    )
+    async with factory() as db:
+        db.add(
+            CharacterPreset(
+                id="preset-1",
+                name="サクラ",
+                appearance_tags="1girl, pink hair",
+                portrait_path="character_images/preset-1/portrait.png",
+            )
+        )
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="2girls, comic",
+            image_model="nai-diffusion-5-full",
+            character_prompts=[
+                'girl, pink hair, pink eyes, saying "black hair" in the first panel',
+                "girl, black hair, grey eyes",
+            ],
+            references=[
+                pe.ReferenceParams(
+                    kind="character",
+                    character_preset_id="preset-1",
+                    strength=0.5,
+                    name="サクラ",
+                ),
+                _ref(strength=0.5, name="ユイ"),
+            ],
+        ),
+    )
+    kwargs = generate_mock.await_args.kwargs
+    refs = kwargs["character_references"]
+    assert [ref["image"] for ref in refs] == [
+        _png("yellow"),
+        pe.decode_image_base64(_png_base64("blue")),
+    ]
+    # 台詞の文（引用符入り）は判定から外し、他キャラの髪色・瞳色だけを negative にする
+    assert [c["negative_prompt"] for c in kwargs["characters"]] == [
+        "black hair, grey eyes",
+        "pink hair, pink eyes",
+    ]
+    recorded = outcome.entry["references"]
+    assert [r["kind"] for r in recorded] == ["character", "upload"]
+    assert recorded[0]["character_preset_id"] == "preset-1"
+    assert [r["name"] for r in recorded] == ["サクラ", "ユイ"]
+
+    # 参照が 1 枚なら枠ごとの negative は付けない
+    await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="2girls",
+            image_model="nai-diffusion-5-full",
+            character_prompts=["girl, pink hair", "girl, black hair"],
+            references=[_ref()],
+        ),
+    )
+    assert [
+        c["negative_prompt"] for c in generate_mock.await_args.kwargs["characters"]
+    ] == [
+        "",
+        "",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_entry_reports_missing_reference_with_index(
+    factory, monkeypatch
+):
+    generate_mock = AsyncMock()
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+    for missing in (
+        pe.ReferenceParams(kind="entry", entry_id="nope"),
+        pe.ReferenceParams(kind="character", character_preset_id="nope"),
+    ):
+        with pytest.raises(pe.PromptExpanderError) as exc:
+            await pe.generate_entry(
+                session.id,
+                pe.GenerateParams(
+                    prompt="1girl",
+                    image_model="nai-diffusion-5-full",
+                    references=[_ref(), missing],
+                ),
+            )
+        assert exc.value.code == "reference_not_found"
+        assert "参照 2 枚目" in exc.value.message
+    generate_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("overrides", "code"),
+    ("overrides", "reference", "code"),
     [
         (
             {"image_model": "nai-diffusion-5-full-medium"},
+            {},
             "precise_reference_unsupported_model",
         ),
         (
-            {"image_model": "nai-diffusion-4-5-full", "reference_type": "costume"},
+            {"image_model": "nai-diffusion-4-5-full"},
+            {"type": "costume"},
             "precise_reference_type_unsupported",
         ),
         (
-            {"image_model": "nai-diffusion-4-5-full", "reference_strength": 1.5},
+            {"image_model": "nai-diffusion-4-5-full"},
+            {"strength": 1.5},
             "precise_reference_strength_out_of_range",
         ),
         (
@@ -1442,28 +1629,55 @@ async def test_generate_entry_passes_v5_reference_with_outfit(factory, monkeypat
                 "source_image": _png_base64(),
                 "inpaint_mask": _png_base64("white"),
             },
+            {},
             "precise_reference_inpaint_unsupported",
         ),
     ],
 )
 async def test_generate_entry_rejects_unsupported_reference(
-    factory, monkeypatch, overrides, code
+    factory, monkeypatch, overrides, reference, code
 ):
     generate_mock = AsyncMock()
     monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
     async with factory() as db:
         session = await pe.PromptExpanderService.create_session(db, title="s")
         await db.commit()
-    params = {
-        "prompt": "1girl",
-        "reference_kind": "upload",
-        "reference_image": _png_base64(),
-        **overrides,
-    }
+    params = {"prompt": "1girl", "references": [_ref(**reference)], **overrides}
     with pytest.raises(pe.PromptExpanderError) as exc:
         await pe.generate_entry(session.id, pe.GenerateParams(**params))
     assert exc.value.code == code
     generate_mock.assert_not_awaited()
+
+
+def test_entry_references_fall_back_to_legacy_columns() -> None:
+    from gateway.databases.models import PromptExpanderEntry
+
+    legacy = PromptExpanderEntry(
+        reference_kind="history",
+        reference_history_id="hist-1",
+        reference_type="style",
+        reference_strength=0.7,
+        reference_fidelity=0.8,
+    )
+    assert pe._load_entry_references(legacy) == [
+        {
+            "kind": "history",
+            "history_id": "hist-1",
+            "entry_id": None,
+            "character_preset_id": None,
+            "type": "style",
+            "include_outfit": None,
+            "strength": 0.7,
+            "fidelity": 0.8,
+            "name": None,
+        }
+    ]
+    assert pe._load_entry_references(PromptExpanderEntry(reference_kind="none")) == []
+    # 壊れた要素は読み捨てる
+    broken = PromptExpanderEntry(
+        references_json=json.dumps([{"kind": "bad"}, {"kind": "upload", "strength": 1}])
+    )
+    assert [r["kind"] for r in pe._load_entry_references(broken)] == ["upload"]
 
 
 @pytest.mark.asyncio
@@ -1551,54 +1765,28 @@ async def test_settings_reference_and_transparent_roundtrip(factory):
     async with factory() as db:
         current = await pe.PromptExpanderService.get_settings(db)
         assert current.use_precise_reference is False
-        assert current.reference_type == "character"
-        assert current.reference_strength == 0.85
-        assert current.reference_fidelity == 1.0
         assert current.transparent_background is False
         saved = await pe.PromptExpanderService.save_settings(
             db,
-            patch={
-                "use_precise_reference": True,
-                "reference_type": "style",
-                "reference_strength": 0.5,
-                "reference_fidelity": 0.25,
-                "transparent_background": True,
-            },
+            patch={"use_precise_reference": True, "transparent_background": True},
         )
         await db.commit()
         assert saved.use_precise_reference is True
-        assert saved.reference_type == "style"
-        assert saved.reference_strength == 0.5
-        assert saved.reference_fidelity == 0.25
         assert saved.transparent_background is True
-        # 不正な種別は既定へ倒し、範囲外の強度は invalid_settings
-        saved = await pe.PromptExpanderService.save_settings(
-            db, patch={"reference_type": "vibe"}
-        )
-        assert saved.reference_type == "character"
-        # V5 向けの強度（1.0 超）と衣装参照の指定は保存できる
-        saved = await pe.PromptExpanderService.save_settings(
-            db,
-            patch={
-                "reference_type": "costume",
-                "reference_include_outfit": True,
-                "reference_strength": 3.0,
-            },
-        )
-        assert saved.reference_type == "costume"
-        assert saved.reference_include_outfit is True
-        assert saved.reference_strength == 3.0
-        with pytest.raises(pe.PromptExpanderError) as exc:
-            await pe.PromptExpanderService.save_settings(
-                db, patch={"reference_strength": 5.5}
-            )
-        assert exc.value.code == "invalid_settings"
-    # 壊れた保存値は該当キーだけ捨てる
+    # 画像ごとの設定へ移った旧キー（reference_type 等）は読み捨て、壊れたキーだけ捨てる
     loaded = pe._settings_from_json(
-        json.dumps({"reference_strength": "x", "transparent_background": True})
+        json.dumps(
+            {
+                "reference_type": "style",
+                "reference_strength": "x",
+                "use_precise_reference": True,
+                "transparent_background": True,
+            }
+        )
     )
-    assert loaded.reference_strength == 0.85
+    assert loaded.use_precise_reference is True
     assert loaded.transparent_background is True
+    assert not hasattr(loaded, "reference_type")
 
 
 @pytest.mark.asyncio

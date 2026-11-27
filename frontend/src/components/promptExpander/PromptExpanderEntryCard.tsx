@@ -24,6 +24,7 @@ import {
 import {
   getPromptExpanderImageModelShortLabel,
   PROMPT_EXPANDER_ALPHA_OPTIONS,
+  PROMPT_EXPANDER_REFERENCE_MAX_COUNT,
   referenceTypeI18nKey,
 } from "../../constants/promptExpander";
 import { useNotification } from "../../contexts/NotificationContext";
@@ -73,7 +74,7 @@ export default function PromptExpanderEntryCard({
     selectEntryAsReference,
     deleteEntry,
     source,
-    reference,
+    references,
     generating,
   } = usePromptExpander();
   const [expanded, setExpanded] = useState(false);
@@ -106,9 +107,8 @@ export default function PromptExpanderEntryCard({
     !expanded && mainText.length > MAIN_TEXT_LIMIT
       ? `${mainText.slice(0, MAIN_TEXT_LIMIT)}…`
       : mainText;
-  const hasReference = Boolean(
-    entry.reference_kind && entry.reference_kind !== "none",
-  );
+  const entryReferences = entry.references ?? [];
+  const hasReference = entryReferences.length > 0;
   const hasDetails =
     mainText.length > MAIN_TEXT_LIMIT ||
     Boolean(entry.final_prompt?.trim()) ||
@@ -117,8 +117,11 @@ export default function PromptExpanderEntryCard({
     hasReference;
   const isCurrentSource =
     source?.kind === "entry" && source.entryId === entry.id;
-  const isCurrentReference =
-    reference?.kind === "entry" && reference.entryId === entry.id;
+  const isCurrentReference = references.some(
+    (ref) => ref.kind === "entry" && ref.entryId === entry.id,
+  );
+  const referenceFull =
+    references.length >= PROMPT_EXPANDER_REFERENCE_MAX_COUNT;
 
   const badges: string[] = [];
   if (entry.image_model) {
@@ -155,7 +158,13 @@ export default function PromptExpanderEntryCard({
     badges.push(t("promptExpander.entry.inpaintBadge"));
   }
   if (hasReference) {
-    badges.push(t("promptExpander.entry.referenceBadge"));
+    badges.push(
+      entryReferences.length > 1
+        ? t("promptExpander.entry.referenceBadgeCount", {
+            count: entryReferences.length,
+          })
+        : t("promptExpander.entry.referenceBadge"),
+    );
   }
   if (entry.transparent_background) {
     badges.push(t("promptExpander.entry.transparentBadge"));
@@ -309,35 +318,47 @@ export default function PromptExpanderEntryCard({
                 <dd>{entry.final_negative_prompt}</dd>
               </>
             )}
-            {hasReference && entry.reference_type && (
+            {hasReference && (
               <>
                 <dt>{t("promptExpander.entry.referenceDetail")}</dt>
                 <dd>
-                  {(() => {
-                    const typeName = t(
-                      `promptExpander.composer.referenceType.${referenceTypeI18nKey(entry.reference_type)}`,
-                    );
-                    const strength = (entry.reference_strength ?? 0).toFixed(2);
-                    // V5 の参照は忠実度を持たず、衣装の有無を記録している
-                    if (entry.reference_fidelity === null) {
-                      return t("promptExpander.entry.referenceDetailValueV5", {
-                        type: entry.reference_include_outfit
-                          ? t(
-                              "promptExpander.composer.referenceTypeWithOutfit",
-                              {
-                                type: typeName,
-                              },
-                            )
-                          : typeName,
-                        strength,
-                      });
-                    }
-                    return t("promptExpander.entry.referenceDetailValue", {
-                      type: typeName,
-                      strength,
-                      fidelity: entry.reference_fidelity.toFixed(2),
-                    });
-                  })()}
+                  <ol className="prompt-expander__entry-characters">
+                    {entryReferences.map((ref, index) => {
+                      const typeName = t(
+                        `promptExpander.composer.referenceType.${referenceTypeI18nKey(ref.type)}`,
+                      );
+                      const strength = ref.strength.toFixed(2);
+                      // V5 の参照は忠実度を持たず、衣装の有無を記録している
+                      const value =
+                        ref.fidelity === null
+                          ? t("promptExpander.entry.referenceDetailValueV5", {
+                              type: ref.include_outfit
+                                ? t(
+                                    "promptExpander.composer.referenceTypeWithOutfit",
+                                    { type: typeName },
+                                  )
+                                : typeName,
+                              strength,
+                            })
+                          : t("promptExpander.entry.referenceDetailValue", {
+                              type: typeName,
+                              strength,
+                              fidelity: ref.fidelity.toFixed(2),
+                            });
+                      return (
+                        // 参照は並び順が意味を持ち、同じ内容の参照も並びうるため番号で区別する
+                        // biome-ignore lint/suspicious/noArrayIndexKey: 記録済みの参照は並べ替えない
+                        <li key={index}>
+                          {ref.name
+                            ? t("promptExpander.entry.referenceDetailNamed", {
+                                name: ref.name,
+                                value,
+                              })
+                            : value}
+                        </li>
+                      );
+                    })}
+                  </ol>
                 </dd>
               </>
             )}
@@ -373,8 +394,18 @@ export default function PromptExpanderEntryCard({
             type="button"
             className={`prompt-expander__btn prompt-expander__btn--sm ${isCurrentReference ? "prompt-expander__btn--primary" : ""}`}
             onClick={() => selectEntryAsReference(entry)}
+            disabled={!isCurrentReference && referenceFull}
+            title={
+              !isCurrentReference && referenceFull
+                ? t("promptExpander.composer.referenceMaxReached", {
+                    max: PROMPT_EXPANDER_REFERENCE_MAX_COUNT,
+                  })
+                : undefined
+            }
           >
-            {t("promptExpander.entry.useAsReference")}
+            {isCurrentReference
+              ? t("promptExpander.entry.removeFromReference")
+              : t("promptExpander.entry.useAsReference")}
           </button>
           {entry.transparent_background && (
             // 切り抜き後の blob URL（V5 はサーバーの透過 PNG）をそのまま保存させる

@@ -39,6 +39,8 @@ export interface AdventureSourceSelection {
   characterPresetId?: string;
   /** origin が character のときのキャラクターの一人称(未設定なら undefined) */
   characterPronoun?: string;
+  /** origin が character のときのキャラクターの外見タグ(未設定なら undefined) */
+  characterAppearanceTags?: string;
   characterName: string | null;
   thumbnailUrl: string;
   /** 時点の指示テキストまたはお気に入りラベル。null = 現在の状態 */
@@ -85,6 +87,7 @@ export function selectionFromCharacterPreset(
     historyId: undefined,
     characterPresetId: preset.id,
     characterPronoun: preset.profile?.pronoun?.trim() || undefined,
+    characterAppearanceTags: preset.appearance_tags?.trim() || undefined,
     characterName: preset.name,
     thumbnailUrl: preset.portrait_url ?? preset.thumbnail_url ?? "",
     pointLabel: preset.profile?.personality?.trim() || null,

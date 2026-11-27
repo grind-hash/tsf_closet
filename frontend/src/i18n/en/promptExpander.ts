@@ -134,6 +134,7 @@ export const promptExpander = {
       history: "Play history",
       entry: "Prompt Expander",
       upload: "Upload",
+      character: "Character",
     },
     promptLabel: "Prompt / Instruction",
     promptPlaceholder:
@@ -218,9 +219,9 @@ export const promptExpander = {
     referenceSummaryInpaintV5: "inactive during V5 inpainting",
     referenceSummaryCostumeV45: "outfit is V5 only (inactive with this model)",
     referenceSummaryNoImage: "no reference image",
-    referenceSummaryOn:
-      "{{type}} · strength {{strength}} · fidelity {{fidelity}} · +{{cost}} Anlas",
-    referenceSummaryOnV5: "{{type}} · strength {{strength}} · +{{cost}} Anlas",
+    referenceSummaryCount: "{{count}} image(s) · +{{cost}} Anlas",
+    referenceSummaryCountWithCast:
+      "{{count}} image(s) ({{cast}} character(s)) · +{{cost}} Anlas",
     referenceTypeWithOutfit: "{{type}} (with outfit)",
     referenceUnsupportedModel:
       "Precise references are not available in V5 Full economy mode. The settings are kept but not used for generation. Use a V4.5 model or a V5 model other than economy mode.",
@@ -238,12 +239,34 @@ export const promptExpander = {
     referenceFidelityV5Unused:
       "V5 does not use fidelity (adjust with strength only).",
     referenceHint:
-      "Locks the face and body of the person in the reference image. It is independent of the i2i source, so you can set only a reference and generate standing-picture variants (new pose / outfit) with text-to-image.",
+      "Locks the face and body of the person in the reference image. Independent of the i2i source, you can add up to {{max}} images and set the type and strength of each. You can also set only references and generate standing-picture variants (new pose / outfit) with text-to-image.",
     referenceNoImage: "Select a reference image to enable it.",
     referenceNone: "No reference image",
-    referenceClear: "Clear",
+    referenceClearAll: "Remove all",
+    referenceRemove: "Remove",
+    referenceCount: "{{count}} / {{max}}",
+    referenceMaxReached: "Up to {{max}} precise references are allowed.",
+    referenceIndex: "Ref {{index}}:",
+    referenceName: "Character name (optional)",
+    referenceNamePlaceholder: "e.g. Sakura",
+    referenceAppearance: "Appearance tags",
+    referenceAppearancePlaceholder:
+      "e.g. 1girl, long hair, pink hair, pink eyes, white beret",
+    referenceAppearanceHint:
+      "Hair color, hairstyle, eye color and clothing (with colors) help keep characters apart. Picking a character fills this in.",
+    referenceMultiCharacterHint:
+      "With two or more character references, a strength around {{strength}} keeps the characters from blending. Characters with similar hair colors blend easily, so write the hair color in the appearance tags.",
+    referenceAlignStrength: "Set character references to strength {{strength}}",
+    referenceMultiCharacterV45:
+      "With V4.5, multiple character references blend into one person (per NovelAI's documentation). Use V5 to draw them separately.",
+    referenceCastHint:
+      "Named character references are used as the cast when converting prompts and drafting the storyboard. Missing traits such as hair color are filled in from the appearance tags only when a character prompt lacks them.",
+    referenceCastHintNoCharacterMode:
+      "Named character references are used as speaker names when drafting the storyboard. Turn on character prompts to use them as the cast when converting prompts.",
     referenceCostHint:
       "Each reference image costs an extra {{cost}} Anlas (even at free-tier sizes).",
+    referenceCostTotalHint:
+      "{{count}} precise reference(s) cost an extra {{cost}} Anlas.",
     referenceCostBadge: "+{{cost}} Anlas",
     referenceTypeLabel: "Reference type",
     referenceType: {
@@ -254,8 +277,6 @@ export const promptExpander = {
     },
     referenceStrength: "Reference strength",
     referenceFidelity: "Fidelity",
-    referenceDisabledReason:
-      "Select a reference image to adjust strength and the other options.",
     generate: "Generate",
     expanding: "Converting…",
     expandingHint:
@@ -334,14 +355,17 @@ export const promptExpander = {
     mangaBadgeCount: "Comic {{count}} panels",
     inpaintBadge: "Inpaint",
     referenceBadge: "Precise ref",
+    referenceBadgeCount: "Precise refs {{count}}",
     transparentBadge: "Transparent",
     useAsReference: "Use as reference",
+    removeFromReference: "Remove from references",
     downloadTransparent: "Save transparent PNG",
     transparentProcessing: "Cutting out the background…",
     referenceDetail: "Precise reference",
     referenceDetailValue:
       "{{type}} · strength {{strength}} · fidelity {{fidelity}}",
     referenceDetailValueV5: "{{type}} · strength {{strength}}",
+    referenceDetailNamed: "{{name}}: {{value}}",
     restore: "Restore to fields",
     regenerate: "Regenerate with this prompt",
     regenerateTitle:
@@ -410,7 +434,7 @@ export const promptExpander = {
     useAsInpaintDesc: "Redraw part of this image (then edit the mask)",
     useAsReference: "Use as precise reference",
     useAsReferenceDesc:
-      "Lock the character's identity with this reference (extra Anlas)",
+      "Add as a reference that locks the character's identity (extra Anlas per image)",
   },
   suggest: {
     title: "Suggest characters from memory",
@@ -448,7 +472,10 @@ export const promptExpander = {
   },
   reference: {
     anlasBody:
-      "Using a precise reference image costs an extra {{cost}} Anlas per reference. Continue?",
+      "Using {{count}} precise reference image(s) costs an extra {{total}} Anlas ({{cost}} Anlas per reference). Continue?",
+    regenerateSkippedTitle: "Regenerating without some precise references",
+    regenerateSkippedBody:
+      "{{count}} reference(s) cannot be reproduced (uploaded images are not stored, or the original image was deleted), so they are left out.",
   },
   errors: {
     emptyPrompt: "Enter a prompt / instruction.",

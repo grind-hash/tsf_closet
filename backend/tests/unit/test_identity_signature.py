@@ -9,8 +9,10 @@ from gateway.services.identity_signature import (
     complete_age_signature,
     compose_signature,
     cross_identity_negative,
+    fill_missing_identity_tags,
     has_explicit_adult_age,
     signature_from_tags,
+    tag_like_text,
 )
 
 
@@ -254,3 +256,50 @@ def test_cross_identity_negative_dedupes_across_others() -> None:
     own = "1girl, black hair, long hair"
     others = ["blonde hair, short hair", "Blonde Hair, short hair, blue eyes"]
     assert cross_identity_negative(own, others) == "blonde hair, short hair"
+
+
+def test_cross_identity_negative_compares_color_words_only() -> None:
+    # 長さの語（long）が重なっても色が違えば negative に入れる
+    assert (
+        cross_identity_negative("long brown hair, brown eyes", ["long black hair"])
+        == "long black hair"
+    )
+    # light / dark だけの重なりでは同色扱いしない
+    assert cross_identity_negative("light brown hair", ["light purple hair"]) == (
+        "light purple hair"
+    )
+    assert cross_identity_negative("light blue hair", ["blue hair"]) == ""
+
+
+def test_tag_like_text_drops_quoted_lines_and_sentences() -> None:
+    prompt = (
+        'girl, long hair, saying "お待たせ！" in the first panel, '
+        "she waves at her friend from the cafe door, smile"
+    )
+    assert tag_like_text(prompt) == "girl, long hair, smile"
+
+
+def test_fill_missing_identity_tags_only_adds_missing_categories() -> None:
+    cast = "1girl, long hair, pink hair, pink eyes, white beret, pink cardigan"
+    # 台詞の文は書き換えず、抜けた髪色・長さ・瞳色を先頭に足す（性別は girl がある）
+    assert fill_missing_identity_tags(
+        'girl, smile, saying "お待たせ！" in the first panel', cast
+    ) == (
+        'pink hair, long hair, pink eyes, girl, smile, saying "お待たせ！" in the first panel'
+    )
+    # LLM が書いた髪色（変身後など）は上書きしない
+    assert fill_missing_identity_tags("girl, blonde hair, short hair", cast) == (
+        "pink eyes, girl, blonde hair, short hair"
+    )
+    # 髪の長さが既にあれば、補う髪色から長さの語を除く
+    assert fill_missing_identity_tags(
+        "girl, short hair", "1girl, long pink hair, pink eyes"
+    ) == ("pink hair, pink eyes, girl, short hair")
+    # short pink hair は長さも決めているので long hair を足さない
+    assert fill_missing_identity_tags(
+        "girl, short pink hair", "1girl, long hair, pink eyes"
+    ) == ("pink eyes, girl, short pink hair")
+    assert fill_missing_identity_tags("girl, pink hair, pink eyes", "") == (
+        "girl, pink hair, pink eyes"
+    )
+    assert fill_missing_identity_tags("", cast) == ""

@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { fetchAnlasBalance } from "../apis/anlas";
 import { getMemoryText } from "../apis/memory";
@@ -30,9 +31,11 @@ import {
   fetchPromptExpanderSessions,
   fetchPromptExpanderSettings,
   generatePromptExpanderImage,
+  type PromptExpanderCastMember,
   type PromptExpanderEntry,
   type PromptExpanderGenerateRequest,
   type PromptExpanderMangaOptions,
+  type PromptExpanderReferenceRequest,
   type PromptExpanderSession,
   type PromptExpanderSettings,
   type PromptExpanderSettingsPatch,
@@ -58,12 +61,17 @@ import {
   DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
   DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
   getMaxCharacterPrompts,
+  isCharacterReferenceType,
   NOVELAI_TEXT_MODEL_OPTIONS,
   PROMPT_EXPANDER_ANLAS_PER_REFERENCE,
   PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY,
+  PROMPT_EXPANDER_CAST_NAME_MAX_LENGTH,
+  PROMPT_EXPANDER_CAST_TAGS_MAX_LENGTH,
   PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS,
   PROMPT_EXPANDER_IMAGE_SIZES,
+  PROMPT_EXPANDER_REFERENCE_MAX_COUNT,
   type PromptExpanderImageSize,
+  type PromptExpanderReferenceType,
   type PromptExpandMode,
   supportsMangaMode,
   supportsPreciseReference,
@@ -98,6 +106,53 @@ export interface PromptExpanderSource {
   thumbnailUrl: string;
   label: string;
 }
+
+/** 精密参照の参照元（i2i 元の種類に加え、キャラクターの立ち絵を ID で指せる） */
+export type PromptExpanderReferenceSourceType =
+  | PromptExpanderSourceType
+  | "character";
+
+/** 精密参照に足す画像。種別・強度などは足した時点の既定値から始まる */
+export interface PromptExpanderReferenceInput {
+  kind: PromptExpanderReferenceSourceType;
+  historyId?: string;
+  entryId?: string;
+  /** kind="character" のときのキャラクタープリセット ID（再生成でも同じ立ち絵を使える） */
+  characterPresetId?: string;
+  /** kind="upload" のときの data URL（履歴に残さないアップロード） */
+  uploadDataUrl?: string;
+  thumbnailUrl: string;
+  label: string;
+  /** 登場人物としての名前（キャラクターの立ち絵ならプリセット名が入る） */
+  name?: string;
+  /** 登場人物の外見タグ（キャラクターの立ち絵ならプリセットの外見タグが入る） */
+  appearanceTags?: string;
+}
+
+/** 精密参照 1 枚分。画像ごとに種別・強度などを持ち、セッション内だけ保持する */
+export interface PromptExpanderReference extends PromptExpanderReferenceInput {
+  id: string;
+  type: PromptExpanderReferenceType;
+  /** 衣装も参照するか（V5 のキャラ系の参照だけ効く） */
+  includeOutfit: boolean;
+  strength: number;
+  /** 忠実度（V4.5 の参照だけ効く） */
+  fidelity: number;
+  name: string;
+  appearanceTags: string;
+}
+
+export type PromptExpanderReferencePatch = Partial<
+  Pick<
+    PromptExpanderReference,
+    | "type"
+    | "includeOutfit"
+    | "strength"
+    | "fidelity"
+    | "name"
+    | "appearanceTags"
+  >
+>;
 
 /** 画像ピッカー／アップロードの入れ先（i2i 元 or 精密参照） */
 export type PromptExpanderPickerTarget = "source" | "reference";
@@ -189,17 +244,21 @@ interface PromptExpanderContextValue {
   clearExpansionError: () => void;
   // コンポーザ
   source: PromptExpanderSource | null;
-  /** 精密参照に使う画像（i2i 元とは独立。セッション内だけ保持する） */
-  reference: PromptExpanderSource | null;
+  /** 精密参照に使う画像（i2i 元とは独立。セッション内だけ保持する。最大 6 枚） */
+  references: PromptExpanderReference[];
+  /** 生成に載る精密参照（設定 ON・対応モデル・対応種別のものだけ） */
+  sendableReferences: PromptExpanderReference[];
+  /** 名前を付けたキャラ系の参照から作る登場人物（プロンプト化・ネーム下書きに渡す） */
+  referenceCast: PromptExpanderCastMember[];
   /** 現在の画像モデルで精密参照が使えるか（V5 Full の節約モードは不可） */
   referenceSupported: boolean;
   /** 現在の画像モデルでの精密参照の送信形式（使えないモデルは null） */
   referenceFormat: PreciseReferenceFormat | null;
   /** V5 でインペイント中のため精密参照を送れない状態か */
   referenceInpaintBlocked: boolean;
-  /** 精密参照が実際に生成へ載る状態か（設定 ON かつ対応モデル・種別かつ参照画像あり） */
+  /** 精密参照が 1 枚以上生成へ載る状態か */
   referenceActive: boolean;
-  /** 精密参照で追加消費する Anlas（referenceActive のときだけ > 0） */
+  /** 精密参照で追加消費する Anlas（載る枚数 × 1 枚あたりの消費） */
   referenceAnlasCost: number;
   /** 背景透過が実際に効く状態か（設定 ON かつ漫画モード OFF） */
   transparentActive: boolean;
@@ -241,8 +300,11 @@ interface PromptExpanderContextValue {
   // アクション: コンポーザ
   setSource: (source: PromptExpanderSource | null) => void;
   clearSource: () => void;
-  setReference: (reference: PromptExpanderSource | null) => void;
-  clearReference: () => void;
+  /** 精密参照を末尾に足す。上限に達していれば足さずに false を返す */
+  addReference: (input: PromptExpanderReferenceInput) => boolean;
+  updateReference: (id: string, patch: PromptExpanderReferencePatch) => void;
+  removeReference: (id: string) => void;
+  clearReferences: () => void;
   setInpaintMask: (mask: PromptExpanderMask | null) => void;
   clearInpaintMask: () => void;
   setPositiveText: (text: string) => void;
@@ -284,6 +346,7 @@ interface PromptExpanderContextValue {
   /** エントリのプロンプト・設定のまま、seed だけ新規（ランダム）で生成し直す */
   regenerateEntry: (entry: PromptExpanderEntry) => Promise<void>;
   selectEntryAsSource: (entry: PromptExpanderEntry) => void;
+  /** エントリを精密参照に足す。既に参照に入っていれば外す */
   selectEntryAsReference: (entry: PromptExpanderEntry) => void;
   deleteEntry: (id: string) => Promise<void>;
   suggestCharacters: (
@@ -317,10 +380,6 @@ const DEFAULT_SETTINGS: PromptExpanderSettings = {
   manga_reading_direction: "rtl",
   manga_narration: false,
   use_precise_reference: false,
-  reference_type: DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
-  reference_include_outfit: false,
-  reference_strength: DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
-  reference_fidelity: DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
   transparent_background: false,
   transparent_emphasis: DEFAULT_PROMPT_EXPANDER_TRANSPARENT_EMPHASIS,
   use_inpaint: false,
@@ -408,6 +467,67 @@ interface GenerateFields {
   negativeOrigin: PromptExpanderNegativeOrigin | null;
 }
 
+let referenceIdSeq = 0;
+
+/** 足した参照に既定の種別・強度などを付ける（衣装も参照するの初期値は OFF） */
+function createReference(
+  input: PromptExpanderReferenceInput,
+): PromptExpanderReference {
+  referenceIdSeq += 1;
+  return {
+    ...input,
+    id: `ref-${Date.now()}-${referenceIdSeq}`,
+    type: DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+    includeOutfit: false,
+    strength: DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+    fidelity: DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
+    name: (input.name ?? "").slice(0, PROMPT_EXPANDER_CAST_NAME_MAX_LENGTH),
+    appearanceTags: (input.appearanceTags ?? "").slice(
+      0,
+      PROMPT_EXPANDER_CAST_TAGS_MAX_LENGTH,
+    ),
+  };
+}
+
+/** 名前を付けたキャラ系の参照から登場人物を作る（同じ名前は先頭だけ） */
+export function buildReferenceCast(
+  references: PromptExpanderReference[],
+): PromptExpanderCastMember[] {
+  const seen = new Set<string>();
+  const cast: PromptExpanderCastMember[] = [];
+  for (const ref of references) {
+    const name = ref.name.trim().replace(/\s+/g, " ");
+    if (!name || !isCharacterReferenceType(ref.type)) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cast.push({ name, appearance_tags: ref.appearanceTags.trim() });
+  }
+  return cast;
+}
+
+/** 生成リクエストに載せる参照 1 枚分。強度はモデルの上限に収める */
+function toReferenceRequest(
+  ref: PromptExpanderReference,
+  format: PreciseReferenceFormat,
+): PromptExpanderReferenceRequest {
+  const request: PromptExpanderReferenceRequest = {
+    kind: ref.kind,
+    type: ref.type,
+    include_outfit: ref.includeOutfit,
+    strength: clampReferenceStrength(ref.strength, format),
+    fidelity: ref.fidelity,
+  };
+  if (ref.kind === "history") request.history_id = ref.historyId;
+  else if (ref.kind === "entry") request.entry_id = ref.entryId;
+  else if (ref.kind === "character")
+    request.character_preset_id = ref.characterPresetId;
+  else request.image = ref.uploadDataUrl;
+  const name = ref.name.trim();
+  if (name && isCharacterReferenceType(ref.type)) request.name = name;
+  return request;
+}
+
 // ----------------------------------------------------------------
 // Provider
 // ----------------------------------------------------------------
@@ -416,6 +536,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const { state: settingsState, setAnlasBalance } = useSettings();
   const { showNotification } = useNotification();
+  const { t } = useTranslation();
   const imageProvider = settingsState.imageProvider;
   const language = settingsState.language;
   const globalAnlas = settingsState.anlasBalance;
@@ -452,10 +573,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
 
   // コンポーザ
   const [source, setSourceState] = useState<PromptExpanderSource | null>(null);
-  // 精密参照の画像。i2i 元と同じ型だが独立して選ぶ（永続化しない）
-  const [reference, setReferenceState] = useState<PromptExpanderSource | null>(
-    null,
-  );
+  // 精密参照の画像（複数枚）。i2i 元とは独立して選び、画像ごとに設定を持つ（永続化しない）
+  const [references, setReferences] = useState<PromptExpanderReference[]>([]);
   // インペイントのマスク。ベース画像は i2i 元を使うので、ここには形だけを持つ
   const [inpaintMask, setInpaintMaskState] =
     useState<PromptExpanderMask | null>(null);
@@ -743,14 +862,32 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const referenceSupported = supportsPreciseReference(settings.image_model);
   const referenceFormat = preciseReferenceFormat(settings.image_model);
   const referenceInpaintBlocked = referenceFormat === "v5" && inpaintActive;
-  const referenceActive =
-    settings.use_precise_reference &&
-    referenceSupported &&
-    referenceFormat !== null &&
-    !referenceInpaintBlocked &&
-    isReferenceTypeSupported(settings.reference_type, referenceFormat) &&
-    reference !== null;
-  const referenceAnlasCost = referenceActive ? options.anlasPerReference : 0;
+  const sendableReferences = useMemo(() => {
+    if (
+      !settings.use_precise_reference ||
+      !referenceSupported ||
+      referenceFormat === null ||
+      referenceInpaintBlocked
+    ) {
+      return [];
+    }
+    return references.filter((ref) =>
+      isReferenceTypeSupported(ref.type, referenceFormat),
+    );
+  }, [
+    referenceFormat,
+    referenceInpaintBlocked,
+    referenceSupported,
+    references,
+    settings.use_precise_reference,
+  ]);
+  const referenceActive = sendableReferences.length > 0;
+  const referenceAnlasCost =
+    sendableReferences.length * options.anlasPerReference;
+  const referenceCast = useMemo(
+    () => buildReferenceCast(sendableReferences),
+    [sendableReferences],
+  );
   const mangaRequest = useMemo<PromptExpanderMangaOptions>(
     () => ({
       panel_count: settings.manga_panel_count,
@@ -776,10 +913,41 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     setSourceState(next);
   }, []);
   const clearSource = useCallback(() => setSourceState(null), []);
-  const setReference = useCallback((next: PromptExpanderSource | null) => {
-    setReferenceState(next);
+  const addReference = useCallback(
+    (input: PromptExpanderReferenceInput) => {
+      if (references.length >= PROMPT_EXPANDER_REFERENCE_MAX_COUNT) {
+        return false;
+      }
+      setReferences((prev) =>
+        prev.length >= PROMPT_EXPANDER_REFERENCE_MAX_COUNT
+          ? prev
+          : [...prev, createReference(input)],
+      );
+      return true;
+    },
+    [references.length],
+  );
+  const updateReference = useCallback(
+    (id: string, patch: PromptExpanderReferencePatch) => {
+      setReferences((prev) =>
+        prev.map((ref) => {
+          if (ref.id !== id) return ref;
+          const next = { ...ref, ...patch };
+          next.name = next.name.slice(0, PROMPT_EXPANDER_CAST_NAME_MAX_LENGTH);
+          next.appearanceTags = next.appearanceTags.slice(
+            0,
+            PROMPT_EXPANDER_CAST_TAGS_MAX_LENGTH,
+          );
+          return next;
+        }),
+      );
+    },
+    [],
+  );
+  const removeReference = useCallback((id: string) => {
+    setReferences((prev) => prev.filter((ref) => ref.id !== id));
   }, []);
-  const clearReference = useCallback(() => setReferenceState(null), []);
+  const clearReferences = useCallback(() => setReferences([]), []);
   const setInpaintMask = useCallback((next: PromptExpanderMask | null) => {
     setInpaintMaskState(next);
   }, []);
@@ -810,14 +978,24 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       label: entry.instruction || entry.final_prompt || entry.id,
     });
   }, []);
-  const selectEntryAsReference = useCallback((entry: PromptExpanderEntry) => {
-    setReferenceState({
-      kind: "entry",
-      entryId: entry.id,
-      thumbnailUrl: promptExpanderImageUrl(entry),
-      label: entry.instruction || entry.final_prompt || entry.id,
-    });
-  }, []);
+  const selectEntryAsReference = useCallback(
+    (entry: PromptExpanderEntry) => {
+      const existing = references.find(
+        (ref) => ref.kind === "entry" && ref.entryId === entry.id,
+      );
+      if (existing) {
+        removeReference(existing.id);
+        return;
+      }
+      addReference({
+        kind: "entry",
+        entryId: entry.id,
+        thumbnailUrl: promptExpanderImageUrl(entry),
+        label: entry.instruction || entry.final_prompt || entry.id,
+      });
+    },
+    [addReference, references, removeReference],
+  );
 
   const uploadImage = useCallback(
     async (
@@ -827,11 +1005,14 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (!uploadOptions.keepAsEntry && !uploadOptions.useAsSource) {
         return false;
       }
-      // 精密参照向けのアップロードは i2i 元ではなく参照画像の選択状態に入れる
-      const assign =
-        uploadOptions.target === "reference"
-          ? setReferenceState
-          : setSourceState;
+      // 精密参照向けのアップロードは i2i 元ではなく参照画像の一覧へ足す
+      const assign = (input: PromptExpanderSource) => {
+        if (uploadOptions.target === "reference") {
+          addReference(input);
+        } else {
+          setSourceState(input);
+        }
+      };
       setUploading(true);
       try {
         const dataUrl = await readFileAsDataUrl(file);
@@ -870,7 +1051,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         setUploading(false);
       }
     },
-    [activeSession, bumpSessionEntryCount, reportError],
+    [activeSession, addReference, bumpSessionEntryCount, reportError],
   );
 
   // 生成に渡す最終ペイロードを組み立てる
@@ -910,25 +1091,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (settings.seed !== null && settings.seed !== undefined) {
         payload.seed = settings.seed;
       }
-      // 精密参照は i2i 元とは別の画像を、有効なとき（対応モデルかつ ON かつ選択済み）だけ
-      // 載せる。強度はモデルの上限に収める（V4.5 は 1.0、V5 は 5.0）
-      if (referenceActive && reference && referenceFormat !== null) {
-        payload.reference_kind = reference.kind;
-        payload.reference_type = settings.reference_type;
-        payload.reference_include_outfit =
-          settings.reference_include_outfit ?? false;
-        payload.reference_strength = clampReferenceStrength(
-          settings.reference_strength,
-          referenceFormat,
+      // 精密参照は i2i 元とは別の画像を、載せられるもの（ON・対応モデル・対応種別）だけ
+      // 送る。強度はモデルの上限に収める（V4.5 は 1.0、V5 は 5.0）
+      if (sendableReferences.length > 0 && referenceFormat !== null) {
+        payload.references = sendableReferences.map((ref) =>
+          toReferenceRequest(ref, referenceFormat),
         );
-        payload.reference_fidelity = settings.reference_fidelity;
-        if (reference.kind === "history") {
-          payload.reference_history_id = reference.historyId;
-        } else if (reference.kind === "entry") {
-          payload.reference_entry_id = reference.entryId;
-        } else if (reference.kind === "upload") {
-          payload.reference_image = reference.uploadDataUrl;
-        }
       }
       if (source) {
         payload.i2i_strength = settings.i2i_strength;
@@ -947,9 +1115,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       inpaintActive,
       inpaintMask,
       mangaActive,
-      reference,
-      referenceActive,
       referenceFormat,
+      sendableReferences,
       settings,
       source,
       transparentActive,
@@ -991,7 +1158,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       }
       // 精密参照は参照 1 枚ごとに Anlas を消費するため、生成前に確認を挟む
       if (
-        (payload.reference_kind ?? "none") !== "none" &&
+        (payload.references?.length ?? 0) > 0 &&
         !readReferenceWarnSuppressed()
       ) {
         setPendingReferenceWarn(payload);
@@ -1108,6 +1275,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         ...(mangaActive ? { manga: mangaRequest } : {}),
         // 背景透過 ON のときは背景・情景を描写しない規則を LLM に足す
         transparent_background: transparentActive,
+        // 名前を付けた精密参照は、キャラ枠 ON のとき登場人物として渡す
+        ...(characterMode && referenceCast.length > 0
+          ? { cast: referenceCast }
+          : {}),
       });
       setPendingExpansion({
         target: "positive",
@@ -1132,6 +1303,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     mangaRequest,
     negativeMode,
     positiveText,
+    referenceCast,
     settings.image_model,
     settings.inherit_source_prompts,
     settings.text_model,
@@ -1158,6 +1330,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         text_model: settings.text_model,
         language,
         manga: mangaRequest,
+        // 名前を付けた精密参照の登場人物は、ネームの話者名に使わせる
+        ...(referenceCast.length > 0 ? { cast: referenceCast } : {}),
       });
       // 欄をネームで置き換える。元の文は「元の文に戻す」用に保持する
       setScriptDraftBackup({ source: positiveText, script: resp.script });
@@ -1173,6 +1347,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     language,
     mangaRequest,
     positiveText,
+    referenceCast,
     settings.image_model,
     settings.text_model,
   ]);
@@ -1337,7 +1512,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (!payload) return;
       // 精密参照も送る生成なら、続けて Anlas の確認へ進む
       if (
-        (payload.reference_kind ?? "none") !== "none" &&
+        (payload.references?.length ?? 0) > 0 &&
         !readReferenceWarnSuppressed()
       ) {
         setPendingReferenceWarn(payload);
@@ -1427,33 +1602,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (entry.manga_mode) {
         patch.manga_panel_count = entry.manga_panel_count ?? 0;
       }
-      // 背景透過の印も戻す。精密参照は参照付きエントリのときだけ ON と強度を戻し、
-      // 参照画像そのものは i2i 元と同じく復元しない（参照なしのエントリでは触らない）
+      // 背景透過の印も戻す。精密参照は参照付きエントリのときだけ ON にし、
+      // 参照画像と画像ごとの設定は i2i 元と同じく復元しない（参照なしのエントリでは触らない）
       patch.transparent_background = Boolean(entry.transparent_background);
-      if (entry.reference_kind && entry.reference_kind !== "none") {
+      if ((entry.references?.length ?? 0) > 0) {
         patch.use_precise_reference = true;
-        if (entry.reference_type) {
-          patch.reference_type = entry.reference_type;
-        }
-        // 衣装の有無は V5 の参照のときだけ記録されている
-        if (
-          entry.reference_include_outfit !== null &&
-          entry.reference_include_outfit !== undefined
-        ) {
-          patch.reference_include_outfit = entry.reference_include_outfit;
-        }
-        if (
-          entry.reference_strength !== null &&
-          entry.reference_strength !== undefined
-        ) {
-          patch.reference_strength = entry.reference_strength;
-        }
-        if (
-          entry.reference_fidelity !== null &&
-          entry.reference_fidelity !== undefined
-        ) {
-          patch.reference_fidelity = entry.reference_fidelity;
-        }
       }
       // インペイントのマスクは保存済みなので、同じ領域で差分を作り続けられるよう戻す
       // （ベース画像は i2i 元と同じく復元しない。インペイントでないエントリでは触らない）
@@ -1500,25 +1653,39 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       if (entry.transparent_background) {
         payload.transparent_emphasis = settings.transparent_emphasis;
       }
-      // 精密参照も同じ参照元で再現する（アップロード参照は保持していないので参照なしに落とす）
-      if (entry.reference_kind === "history" && entry.reference_history_id) {
-        payload.reference_kind = "history";
-        payload.reference_history_id = entry.reference_history_id;
-      } else if (entry.reference_kind === "entry" && entry.reference_entry_id) {
-        payload.reference_kind = "entry";
-        payload.reference_entry_id = entry.reference_entry_id;
+      // 精密参照も同じ参照元で再現する。アップロード参照は画像を保持していないので外し、
+      // 外した枚数を知らせる（参照の数が変わると絵が変わるため黙って落とさない）
+      const entryReferences = entry.references ?? [];
+      const reproducible = entryReferences.filter(
+        (ref) =>
+          (ref.kind === "history" && ref.history_id) ||
+          (ref.kind === "entry" && ref.entry_id) ||
+          (ref.kind === "character" && ref.character_preset_id),
+      );
+      if (reproducible.length > 0) {
+        payload.references = reproducible.map((ref) => ({
+          kind: ref.kind,
+          ...(ref.history_id ? { history_id: ref.history_id } : {}),
+          ...(ref.entry_id ? { entry_id: ref.entry_id } : {}),
+          ...(ref.character_preset_id
+            ? { character_preset_id: ref.character_preset_id }
+            : {}),
+          type: ref.type,
+          include_outfit: ref.include_outfit ?? false,
+          strength: ref.strength,
+          fidelity: ref.fidelity ?? DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
+          ...(ref.name ? { name: ref.name } : {}),
+        }));
       }
-      if (payload.reference_kind) {
-        payload.reference_type =
-          entry.reference_type ?? settings.reference_type;
-        payload.reference_include_outfit =
-          entry.reference_include_outfit ??
-          settings.reference_include_outfit ??
-          false;
-        payload.reference_strength =
-          entry.reference_strength ?? settings.reference_strength;
-        payload.reference_fidelity =
-          entry.reference_fidelity ?? settings.reference_fidelity;
+      const skipped = entryReferences.length - reproducible.length;
+      if (skipped > 0) {
+        showNotification(
+          "warning",
+          t("promptExpander.reference.regenerateSkippedTitle"),
+          t("promptExpander.reference.regenerateSkippedBody", {
+            count: skipped,
+          }),
+        );
       }
       // 参照元が履歴/エントリなら同じ元で i2i する（アップロード元は保持していないので t2i に落とす）
       if (entry.source_kind === "history" && entry.source_history_id) {
@@ -1547,12 +1714,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       settings.i2i_strength,
       settings.image_model,
       settings.image_size,
-      settings.reference_fidelity,
-      settings.reference_include_outfit,
-      settings.reference_strength,
-      settings.reference_type,
       settings.text_model,
       settings.transparent_emphasis,
+      showNotification,
+      t,
     ],
   );
 
@@ -1568,9 +1733,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         if (source?.kind === "entry" && source.entryId === id) {
           setSourceState(null);
         }
-        if (reference?.kind === "entry" && reference.entryId === id) {
-          setReferenceState(null);
-        }
+        // 消したエントリを指す参照だけ外す（他の参照は残す）
+        setReferences((prev) =>
+          prev.filter((ref) => !(ref.kind === "entry" && ref.entryId === id)),
+        );
         // マスクの実体は元エントリと一緒に消えるので、参照だけ残さない
         if (inpaintMask?.fromEntryId === id) {
           setInpaintMaskState(null);
@@ -1579,14 +1745,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         reportError("Prompt Expander", err);
       }
     },
-    [
-      bumpSessionEntryCount,
-      entries,
-      inpaintMask,
-      reference,
-      reportError,
-      source,
-    ],
+    [bumpSessionEntryCount, entries, inpaintMask, reportError, source],
   );
 
   const suggestCharacters = useCallback(
@@ -1654,7 +1813,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       expansionError,
       clearExpansionError,
       source,
-      reference,
+      references,
+      sendableReferences,
+      referenceCast,
       referenceSupported,
       referenceFormat,
       referenceInpaintBlocked,
@@ -1691,8 +1852,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       importGlobalMemory,
       setSource,
       clearSource,
-      setReference,
-      clearReference,
+      addReference,
+      updateReference,
+      removeReference,
+      clearReferences,
       setInpaintMask,
       clearInpaintMask,
       setPositiveText,
@@ -1745,7 +1908,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       expansionError,
       clearExpansionError,
       source,
-      reference,
+      references,
+      sendableReferences,
+      referenceCast,
       referenceSupported,
       referenceFormat,
       referenceInpaintBlocked,
@@ -1781,8 +1946,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       importGlobalMemory,
       setSource,
       clearSource,
-      setReference,
-      clearReference,
+      addReference,
+      updateReference,
+      removeReference,
+      clearReferences,
       setInpaintMask,
       clearInpaintMask,
       setCharacterMode,

@@ -134,6 +134,7 @@ export const promptExpander = {
       history: "プレイ履歴",
       entry: "Prompt Expander",
       upload: "アップロード",
+      character: "キャラクター",
     },
     promptLabel: "プロンプト／指示",
     promptPlaceholder:
@@ -217,9 +218,9 @@ export const promptExpander = {
     referenceSummaryInpaintV5: "V5 のインペイント中は無効",
     referenceSummaryCostumeV45: "衣装は V5 専用（現在のモデルでは無効）",
     referenceSummaryNoImage: "参照画像なし",
-    referenceSummaryOn:
-      "{{type}} · 強度 {{strength}} · 忠実度 {{fidelity}} · +{{cost}} Anlas",
-    referenceSummaryOnV5: "{{type}} · 強度 {{strength}} · +{{cost}} Anlas",
+    referenceSummaryCount: "{{count}} 枚 · +{{cost}} Anlas",
+    referenceSummaryCountWithCast:
+      "{{count}} 枚（登場人物 {{cast}} 人）· +{{cost}} Anlas",
     referenceTypeWithOutfit: "{{type}}（衣装も参照）",
     referenceUnsupportedModel:
       "V5 Full の節約モードでは精密参照は使えません。設定は保持されますが、生成には使われません。V4.5 か V5（節約モード以外）のモデルで使えます。",
@@ -237,12 +238,34 @@ export const promptExpander = {
     referenceFidelityV5Unused:
       "V5 では忠実度は使われません（強度だけで調整します）。",
     referenceHint:
-      "参照画像の人物の顔立ち・体型を固定して生成します。i2i 元とは別に選べるので、参照だけを指定して text-to-image で立ち絵差分（別ポーズ・別衣装）を作れます。",
+      "参照画像の人物の顔立ち・体型を固定して生成します。i2i 元とは別に最大 {{max}} 枚まで選べ、画像ごとに種類と強度を決められます。参照だけを指定して text-to-image で立ち絵差分（別ポーズ・別衣装）も作れます。",
     referenceNoImage: "参照画像を選ぶと有効になります。",
     referenceNone: "参照画像なし",
-    referenceClear: "解除",
+    referenceClearAll: "すべて外す",
+    referenceRemove: "外す",
+    referenceCount: "{{count}} / {{max}} 枚",
+    referenceMaxReached: "精密参照は {{max}} 枚までです。",
+    referenceIndex: "参照 {{index}}:",
+    referenceName: "登場人物の名前（任意）",
+    referenceNamePlaceholder: "例: サクラ",
+    referenceAppearance: "外見タグ",
+    referenceAppearancePlaceholder:
+      "例: 1girl, long hair, pink hair, pink eyes, white beret",
+    referenceAppearanceHint:
+      "髪色・髪型・瞳の色・服（色つき）を書くと描き分けやすくなります。キャラクターから選ぶと自動で入ります。",
+    referenceMultiCharacterHint:
+      "キャラクターの参照が 2 枚以上あるときは、強度 {{strength}} 前後にすると人物が混ざりにくくなります。髪色が似ている人物どうしは混ざりやすいので、外見タグに髪色を書いてください。",
+    referenceAlignStrength: "キャラクターの参照を強度 {{strength}} にそろえる",
+    referenceMultiCharacterV45:
+      "V4.5 では複数のキャラクター参照は 1 人に混ざります（NovelAI 公式の説明）。描き分けるときは V5 を使ってください。",
+    referenceCastHint:
+      "名前を付けたキャラクターの参照は、プロンプト化とネーム下書きで登場人物として使われます。キャラ枠に髪色などが無いときだけ、外見タグから補います。",
+    referenceCastHintNoCharacterMode:
+      "名前を付けたキャラクターの参照は、ネーム下書きで話者名に使われます。プロンプト化で登場人物として使うには、キャラクタープロンプトを ON にしてください。",
     referenceCostHint:
       "参照 1 枚あたり +{{cost}} Anlas を追加消費します（無料枠サイズでも消費します）。",
+    referenceCostTotalHint:
+      "精密参照 {{count}} 枚で +{{cost}} Anlas を追加消費します。",
     referenceCostBadge: "+{{cost}} Anlas",
     referenceTypeLabel: "参照の種類",
     referenceType: {
@@ -253,7 +276,6 @@ export const promptExpander = {
     },
     referenceStrength: "参照強度",
     referenceFidelity: "忠実度",
-    referenceDisabledReason: "参照画像を選ぶと参照強度などを調整できます。",
     generate: "生成",
     expanding: "プロンプト化中…",
     expandingHint:
@@ -332,13 +354,16 @@ export const promptExpander = {
     mangaBadgeCount: "漫画 {{count}}コマ",
     inpaintBadge: "インペイント",
     referenceBadge: "精密参照",
+    referenceBadgeCount: "精密参照 {{count}}",
     transparentBadge: "透過",
     useAsReference: "参照にする",
+    removeFromReference: "参照から外す",
     downloadTransparent: "透過PNGを保存",
     transparentProcessing: "背景を切り抜いています…",
     referenceDetail: "精密参照",
     referenceDetailValue: "{{type}} · 強度 {{strength}} · 忠実度 {{fidelity}}",
     referenceDetailValueV5: "{{type}} · 強度 {{strength}}",
+    referenceDetailNamed: "{{name}}: {{value}}",
     restore: "欄へ復元",
     regenerate: "このプロンプトで再生成",
     regenerateTitle:
@@ -407,7 +432,7 @@ export const promptExpander = {
     useAsInpaintDesc: "この画像の一部を描き直します（続けてマスクを編集）",
     useAsReference: "精密参照にする",
     useAsReferenceDesc:
-      "人物の同一性を固定する参照画像にします（Anlas を追加消費）",
+      "人物の同一性を固定する参照画像に足します（1 枚ごとに Anlas を追加消費）",
   },
   suggest: {
     title: "メモリから好みのキャラを提案",
@@ -445,7 +470,10 @@ export const promptExpander = {
   },
   reference: {
     anlasBody:
-      "精密参照画像の使用により、参照 1 枚あたり {{cost}} Anlas を追加消費します。続行しますか？",
+      "精密参照画像 {{count}} 枚の使用により、{{total}} Anlas（1 枚あたり {{cost}} Anlas）を追加消費します。続行しますか？",
+    regenerateSkippedTitle: "一部の精密参照を外して再生成します",
+    regenerateSkippedBody:
+      "アップロードした画像や、元の画像が削除された参照 {{count}} 枚は再現できないため、使わずに生成します。",
   },
   errors: {
     emptyPrompt: "プロンプト／指示を入力してください。",

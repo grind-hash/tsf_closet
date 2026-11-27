@@ -285,6 +285,59 @@
   margin: 0.4rem 0 0.6rem;
 }
 
+/* 精密参照の一覧（1 枚ごとのカード） */
+.prompt-expander__reference-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.prompt-expander__reference-card {
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  background: var(--bg-color, #1a1a2e);
+}
+
+.prompt-expander__reference-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* 種類のバッジは文字幅に収める（列方向の flex で横いっぱいに伸ばさない） */
+.prompt-expander__reference-card-head .prompt-expander__badge {
+  align-self: flex-start;
+}
+
+/* 外すボタンはカードの右上に置く（欄に紐づく操作は欄の右上へ） */
+.prompt-expander__reference-remove {
+  margin-left: auto;
+  align-self: flex-start;
+}
+
+.prompt-expander__reference-cast {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.6rem;
+}
+
+.prompt-expander__reference-appearance {
+  min-height: 3.2rem;
+}
+
+.prompt-expander__reference-multi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin: 0.2rem 0 0.5rem;
+}
+
 /* 生成ボタン脇の追加 Anlas 表示（精密参照が有効なときだけ） */
 .prompt-expander__generate-cost {
   font-size: 0.8rem;

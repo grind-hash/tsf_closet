@@ -49,6 +49,7 @@ export default function PromptExpanderControlBar() {
     draftingScript,
     referenceActive,
     referenceAnlasCost,
+    sendableReferences,
     transparentActive,
     mangaActive,
     inpaintActive,
@@ -123,7 +124,8 @@ export default function PromptExpanderControlBar() {
         {referenceActive && (
           <span
             className="prompt-expander__generate-cost"
-            title={t("promptExpander.composer.referenceCostHint", {
+            title={t("promptExpander.composer.referenceCostTotalHint", {
+              count: sendableReferences.length,
               cost: referenceAnlasCost,
             })}
           >

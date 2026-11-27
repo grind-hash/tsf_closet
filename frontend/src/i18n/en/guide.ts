@@ -112,14 +112,17 @@ export const guide = {
       {
         heading: "Precise reference",
         items: [
-          'Pick a reference image under "Precise reference", separate from the i2i source, to keep the face or clothes consistent. Each reference costs 5 extra Anlas. Available with V4.5 and V5 (except economy mode).',
+          'Add up to 6 reference images under "Precise reference", separate from the i2i source, to keep faces or clothes consistent. The type and strength are set per image. Each reference costs 5 extra Anlas. Available with V4.5 and V5 (except economy mode).',
           'V5 offers the "Outfit" reference type and "Also reference outfit", with strength up to 5.0. With V5 it cannot be combined with inpainting.',
+          "Give a character reference a name and appearance tags to make it part of the cast. When converting with character prompts on, it is matched to a character prompt by name, and traits such as hair color are filled in from the appearance tags only when the prompt lacks them. In manga mode, storyboard drafts use the names as speakers.",
+          "Only V5 can keep several referenced characters apart (V4.5 blends them into one person). With two or more, a strength around 0.5 is recommended. Characters with similar hair colors blend easily.",
+          "References apply to the whole page, so in a manga even panels before a transformation lean toward the referenced look. A panel showing everyone may leave one character out.",
         ],
       },
       {
         heading: "Choosing images",
         items: [
-          'For the i2i source, the inpaint source and the precise reference image, press "Choose from list" to pick from Prompt Expander entries, sessions, favorites or character portraits. A character portrait is used as an uploaded image.',
+          'For the i2i source, the inpaint source and precise reference images, press "Choose from list" to pick from Prompt Expander entries, sessions, favorites or character portraits. A character portrait is used as an uploaded image for the i2i source, and as a character with its name and appearance tags for precise references.',
         ],
       },
       {

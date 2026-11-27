@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromptExpanderEntry } from "../../apis/promptExpander";
 import { V5_USAGE_WARN_SUPPRESSED_KEY } from "../../constants/novelaiImageModels";
 import { PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY } from "../../constants/promptExpander";
-import { NotificationProvider } from "../NotificationContext";
+import { NotificationProvider, useNotification } from "../NotificationContext";
 import {
   PromptExpanderProvider,
   usePromptExpander,
@@ -73,9 +73,6 @@ function settingsPayload() {
       manga_reading_direction: "rtl",
       manga_narration: false,
       use_precise_reference: false,
-      reference_type: "character",
-      reference_strength: 0.85,
-      reference_fidelity: 1,
       transparent_background: false,
     },
     text_model_options: [
@@ -149,12 +146,7 @@ const OLD_ENTRY: PromptExpanderEntry = {
   source_history_id: null,
   source_entry_id: null,
   transparent_background: false,
-  reference_kind: "none",
-  reference_history_id: null,
-  reference_entry_id: null,
-  reference_type: null,
-  reference_strength: null,
-  reference_fidelity: null,
+  references: [],
   inpaint: false,
   mask_url: null,
   image_url: "/prompt-expander/images/entry-old",
@@ -278,8 +270,17 @@ function lastBody(urlPart: string, method: string): Record<string, unknown> {
 
 function Probe() {
   const ctx = usePromptExpander();
+  const { notifications } = useNotification();
   return (
     <>
+      <div data-testid="notifications">
+        {notifications.map((n) => n.title).join("|")}
+      </div>
+      <div data-testid="reference-count">{ctx.references.length}</div>
+      <div data-testid="reference-cost">{ctx.referenceAnlasCost}</div>
+      <div data-testid="reference-cast">
+        {JSON.stringify(ctx.referenceCast)}
+      </div>
       <div data-testid="session">{ctx.activeSession?.id ?? "none"}</div>
       <div data-testid="settings-loaded">
         {ctx.settingsLoaded ? "yes" : "no"}
@@ -506,17 +507,81 @@ function Probe() {
       <button
         type="button"
         onClick={() =>
-          // 設定モックはステートレスなので、V5 切替と参照の設定を 1 回の PUT で送る
+          // 設定モックはステートレスなので、V5 切替と参照 ON を 1 回の PUT で送る
           void ctx.updateSettings({
             image_model: "nai-diffusion-5-full",
             use_precise_reference: true,
-            reference_type: "costume",
-            reference_include_outfit: true,
-            reference_strength: 3,
           })
         }
       >
         reference-on-v5
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const first = ctx.references[0];
+          if (first) {
+            ctx.updateReference(first.id, {
+              type: "costume",
+              includeOutfit: true,
+              strength: 3,
+            });
+          }
+        }}
+      >
+        reference-v5-options
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.addReference({
+            kind: "character",
+            characterPresetId: "preset-1",
+            thumbnailUrl: "/api/game/character-presets/preset-1/portrait.png",
+            label: "サクラ",
+            name: "サクラ",
+            appearanceTags: "1girl, pink hair",
+          })
+        }
+      >
+        add-character-reference
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.addReference({
+            kind: "upload",
+            uploadDataUrl: "data:image/png;base64,AAAA",
+            thumbnailUrl: "data:image/png;base64,AAAA",
+            label: "upload.png",
+            name: "ユイ",
+            appearanceTags: "1girl, black hair",
+          })
+        }
+      >
+        add-upload-reference
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const first = ctx.references[0];
+          if (first) ctx.updateReference(first.id, { type: "style" });
+        }}
+      >
+        first-reference-style
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          // 設定モックはステートレスなので、漫画モードと参照 ON を 1 回の PUT で送る
+          void ctx.updateSettings({
+            image_model: "nai-diffusion-5-full",
+            manga_mode: true,
+            use_precise_reference: true,
+          })
+        }
+      >
+        manga-reference-on-v5
       </button>
       <button
         type="button"
@@ -532,7 +597,7 @@ function Probe() {
       <button
         type="button"
         onClick={() =>
-          ctx.setReference({
+          ctx.addReference({
             kind: "entry",
             entryId: "entry-ref",
             thumbnailUrl: "/api/prompt-expander/images/entry-ref",
@@ -571,11 +636,19 @@ function Probe() {
           ctx.restoreEntry({
             ...OLD_ENTRY,
             transparent_background: true,
-            reference_kind: "entry",
-            reference_entry_id: "entry-ref",
-            reference_type: "style",
-            reference_strength: 0.5,
-            reference_fidelity: 0.75,
+            references: [
+              {
+                kind: "entry",
+                history_id: null,
+                entry_id: "entry-ref",
+                character_preset_id: null,
+                type: "style",
+                include_outfit: null,
+                strength: 0.5,
+                fidelity: 0.75,
+                name: null,
+              },
+            ],
           })
         }
       >
@@ -588,11 +661,19 @@ function Probe() {
             ...OLD_ENTRY,
             image_model: "nai-diffusion-4-5-full",
             transparent_background: true,
-            reference_kind: "entry",
-            reference_entry_id: "entry-ref",
-            reference_type: "style",
-            reference_strength: 0.5,
-            reference_fidelity: 0.75,
+            references: [
+              {
+                kind: "entry",
+                history_id: null,
+                entry_id: "entry-ref",
+                character_preset_id: null,
+                type: "style",
+                include_outfit: null,
+                strength: 0.5,
+                fidelity: 0.75,
+                name: null,
+              },
+            ],
           })
         }
       >
@@ -603,11 +684,31 @@ function Probe() {
         onClick={() =>
           void ctx.regenerateEntry({
             ...OLD_ENTRY,
-            image_model: "nai-diffusion-4-5-full",
-            reference_kind: "upload",
-            reference_type: "character",
-            reference_strength: 0.85,
-            reference_fidelity: 1,
+            image_model: "nai-diffusion-5-full",
+            references: [
+              {
+                kind: "upload",
+                history_id: null,
+                entry_id: null,
+                character_preset_id: null,
+                type: "character",
+                include_outfit: false,
+                strength: 0.85,
+                fidelity: null,
+                name: null,
+              },
+              {
+                kind: "character",
+                history_id: null,
+                entry_id: null,
+                character_preset_id: "preset-1",
+                type: "character",
+                include_outfit: true,
+                strength: 0.5,
+                fidelity: null,
+                name: "サクラ",
+              },
+            ],
           })
         }
       >
@@ -1287,7 +1388,10 @@ describe("PromptExpanderContext", () => {
       );
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
-    expect(lastBody("/generate", "POST").reference_kind).toBe("entry");
+    const references = lastBody("/generate", "POST").references as Array<
+      Record<string, unknown>
+    >;
+    expect(references[0].kind).toBe("entry");
   });
 
   it("precise reference is sent only with the toggle on, a supported model and a selected image, and waits for the Anlas confirm", async () => {
@@ -1300,7 +1404,7 @@ describe("PromptExpanderContext", () => {
       fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
-    expect(lastBody("/generate", "POST")).not.toHaveProperty("reference_kind");
+    expect(lastBody("/generate", "POST")).not.toHaveProperty("references");
     expect(lastBody("/generate", "POST").transparent_background).toBe(false);
 
     await act(async () => {
@@ -1324,11 +1428,16 @@ describe("PromptExpanderContext", () => {
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
     const body = lastBody("/generate", "POST");
-    expect(body.reference_kind).toBe("entry");
-    expect(body.reference_entry_id).toBe("entry-ref");
-    expect(body.reference_type).toBe("character");
-    expect(body.reference_strength).toBe(0.85);
-    expect(body.reference_fidelity).toBe(1);
+    expect(body.references).toEqual([
+      {
+        kind: "entry",
+        entry_id: "entry-ref",
+        type: "character",
+        include_outfit: false,
+        strength: 0.85,
+        fidelity: 1,
+      },
+    ]);
     // i2i 元とは独立
     expect(body.source_kind).toBe("none");
     expect(
@@ -1347,6 +1456,9 @@ describe("PromptExpanderContext", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "reference-on-v5" }));
     });
+    fireEvent.click(
+      screen.getByRole("button", { name: "reference-v5-options" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("reference-active").textContent).toBe("on"),
     );
@@ -1354,10 +1466,12 @@ describe("PromptExpanderContext", () => {
       fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(4));
-    const v5Body = lastBody("/generate", "POST");
-    expect(v5Body.reference_type).toBe("costume");
-    expect(v5Body.reference_include_outfit).toBe(true);
-    expect(v5Body.reference_strength).toBe(3);
+    const v5Ref = (
+      lastBody("/generate", "POST").references as Array<Record<string, unknown>>
+    )[0];
+    expect(v5Ref.type).toBe("costume");
+    expect(v5Ref.include_outfit).toBe(true);
+    expect(v5Ref.strength).toBe(3);
 
     // V5 Full の節約モードに切り替えると設定は残るが参照は載らない
     await act(async () => {
@@ -1372,7 +1486,79 @@ describe("PromptExpanderContext", () => {
       fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(5));
-    expect(lastBody("/generate", "POST")).not.toHaveProperty("reference_kind");
+    expect(lastBody("/generate", "POST")).not.toHaveProperty("references");
+  });
+
+  it("multiple references: cost per image, cast from named character references, and cast sent to /expand and /manga-script", async () => {
+    mockState.imageModel = "nai-diffusion-5-full";
+    sessionStorage.setItem(PROMPT_EXPANDER_ANLAS_WARN_SUPPRESSED_KEY, "true");
+    await openSessionAndWait();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "manga-reference-on-v5" }),
+      );
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("manga-active").textContent).toBe("on"),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "add-character-reference" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "add-upload-reference" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("reference-count").textContent).toBe("2"),
+    );
+    expect(screen.getByTestId("reference-cost").textContent).toBe("10");
+    expect(
+      JSON.parse(screen.getByTestId("reference-cast").textContent ?? ""),
+    ).toEqual([
+      { name: "サクラ", appearance_tags: "1girl, pink hair" },
+      { name: "ユイ", appearance_tags: "1girl, black hair" },
+    ]);
+
+    // 生成は 2 枚とも送り、キャラクターはプリセット ID、名前も付ける
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    const references = lastBody("/generate", "POST").references as Array<
+      Record<string, unknown>
+    >;
+    expect(references.map((r) => r.kind)).toEqual(["character", "upload"]);
+    expect(references[0]).toMatchObject({
+      character_preset_id: "preset-1",
+      name: "サクラ",
+    });
+    expect(references[1].image).toBe("data:image/png;base64,AAAA");
+
+    // キャラ枠 ON のプロンプト化とネーム下書きにキャストを渡す
+    fireEvent.click(screen.getByRole("button", { name: "character-on" }));
+    await clickAndWaitPending("expand-positive");
+    expect(lastBody("/prompt-expander/expand", "POST").cast).toHaveLength(2);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
+    });
+    await waitFor(() =>
+      expect(findCalls("/prompt-expander/manga-script", "POST")).toHaveLength(
+        1,
+      ),
+    );
+    expect(lastBody("/prompt-expander/manga-script", "POST").cast).toHaveLength(
+      2,
+    );
+
+    // 画風に変えた参照は登場人物にならない
+    fireEvent.click(
+      screen.getByRole("button", { name: "first-reference-style" }),
+    );
+    await waitFor(() =>
+      expect(
+        JSON.parse(screen.getByTestId("reference-cast").textContent ?? ""),
+      ).toHaveLength(1),
+    );
   });
 
   it("transparent_background is sent to /expand and /generate, but not while comic mode is active", async () => {
@@ -1431,9 +1617,6 @@ describe("PromptExpanderContext", () => {
       const body = JSON.parse(String(putCalls[putCalls.length - 1].init?.body));
       expect(body.transparent_background).toBe(true);
       expect(body.use_precise_reference).toBe(true);
-      expect(body.reference_type).toBe("style");
-      expect(body.reference_strength).toBe(0.5);
-      expect(body.reference_fidelity).toBe(0.75);
     });
     // 参照なしのエントリの復元では透過だけ戻し、参照トグルには触れない
     await act(async () => {
@@ -1451,15 +1634,21 @@ describe("PromptExpanderContext", () => {
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
     const body = lastBody("/generate", "POST");
-    expect(body.reference_kind).toBe("entry");
-    expect(body.reference_entry_id).toBe("entry-ref");
-    expect(body.reference_type).toBe("style");
-    expect(body.reference_strength).toBe(0.5);
-    expect(body.reference_fidelity).toBe(0.75);
+    expect(body.references).toEqual([
+      {
+        kind: "entry",
+        entry_id: "entry-ref",
+        type: "style",
+        include_outfit: false,
+        strength: 0.5,
+        fidelity: 0.75,
+      },
+    ]);
     expect(body.transparent_background).toBe(true);
     expect(body).not.toHaveProperty("seed");
+    expect(screen.getByTestId("notifications").textContent).toBe("");
 
-    // アップロード参照は保持していないので参照なしで再生成する
+    // アップロード参照は保持していないので外し（知らせる）、キャラクター参照は ID で送り直す
     await act(async () => {
       fireEvent.click(
         screen.getByRole("button", { name: "regenerate-ref-upload" }),
@@ -1467,7 +1656,18 @@ describe("PromptExpanderContext", () => {
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
     const uploadBody = lastBody("/generate", "POST");
-    expect(uploadBody).not.toHaveProperty("reference_kind");
+    expect(uploadBody.references).toEqual([
+      {
+        kind: "character",
+        character_preset_id: "preset-1",
+        type: "character",
+        include_outfit: true,
+        strength: 0.5,
+        fidelity: 1,
+        name: "サクラ",
+      },
+    ]);
     expect(uploadBody.transparent_background).toBe(false);
+    expect(screen.getByTestId("notifications").textContent).not.toBe("");
   });
 });

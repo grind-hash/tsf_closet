@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -39,6 +39,80 @@ class MangaOptions:
     reading_direction: MangaReadingDirection = "rtl"
     # 指示文に【】が無くても、場面転換・時間経過で LLM がナレーション枠を足してよいか
     narration: bool = False
+
+
+@dataclass(frozen=True)
+class CastMember:
+    """名前を付けた精密参照から作る登場人物。外見タグは空でもよい。"""
+
+    name: str
+    appearance_tags: str = ""
+
+
+def normalize_cast_name(name: str) -> str:
+    """キャスト名の照合キー（前後空白と大文字小文字を無視する）。"""
+    return " ".join(str(name or "").split()).casefold()
+
+
+def dedupe_cast(cast: Sequence[CastMember]) -> list[CastMember]:
+    """空の名前を除き、同じ名前は先頭だけ残す。"""
+    result: list[CastMember] = []
+    seen: set[str] = set()
+    for member in cast:
+        key = normalize_cast_name(member.name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(
+            CastMember(
+                name=" ".join(member.name.split()),
+                appearance_tags=" ".join(str(member.appearance_tags or "").split()),
+            )
+        )
+    return result
+
+
+# キャストがあるとき、キャラ枠の出力を名前付きの object に切り替える（Python 側で
+# 名前から登場人物を特定し、抜けた外見タグを補うため）
+CHARACTER_ITEMS_PLAIN_SHAPE = '"character_prompts":["..."]'
+CHARACTER_ITEMS_NAMED_SHAPE = '"character_prompts":[{"name":"...","prompt":"..."}]'
+
+CAST_CHARACTER_RULE = (
+    "\n- Cast: the user message lists named characters whose look is fixed by "
+    'reference images. Each character_prompts item is an object: "name" is the '
+    "cast name when that item shows the cast member looking as described in the "
+    'cast list, otherwise an empty string "" (for example another character, or '
+    "the cast member in a different form such as before a transformation); "
+    '"prompt" is the character prompt written by the rules above. For a cast '
+    "member, include their appearance from the cast list (hair color, hair length, "
+    "hairstyle, eye color, and clothing with colors) unless the instruction "
+    "explicitly changes it, then add expression, pose, and action."
+    "\n- The image model cannot read names. Identify every character by appearance "
+    '(for example "the pink-haired girl"), never by a cast name, in prompts and '
+    "panel descriptions. A cast name may appear only inside quoted dialogue that "
+    "itself mentions the name."
+)
+
+MANGA_SCRIPT_CAST_RULE = (
+    "\n- A cast list is given with the synopsis. Use those names for the "
+    "characters, including as the speaker name right before 「...」 or 『...』, "
+    "and keep each cast member's look as listed unless the synopsis changes it."
+)
+
+
+def build_cast_block(cast: Sequence[CastMember]) -> str:
+    """登場人物の一覧を user プロンプト用の文にする。空なら ""。"""
+    members = dedupe_cast(cast)
+    if not members:
+        return ""
+    lines = [
+        f"- {member.name}: {member.appearance_tags or 'appearance not specified'}"
+        for member in members
+    ]
+    return (
+        "Cast (named characters fixed by reference images; name: appearance):\n"
+        + "\n".join(lines)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -494,9 +568,14 @@ def build_manga_system_prompt(
         direction
     ]
 
+    # キャラ枠があるときも、コマ説明に話者の見た目と台詞を書かせると吹き出しが
+    # 正しいコマ・話者に入りやすい（V5 の実生成で確認）
     speech_target = (
         "the speaking character's character_prompts item, naming the panel when "
-        "the character speaks in more than one panel"
+        "the character speaks in more than one panel, and also repeat the same "
+        "line in panel_description inside the panel where it is spoken, naming "
+        "the speaker by appearance (for example: shows the pink-haired girl "
+        'waving and saying "...")'
         if character_mode
         else "panel_description, right after the panel where it is spoken"
     )
@@ -651,8 +730,12 @@ def build_manga_script_prompts(
     nsfw: bool,
     memory_text: str = "",
     language: str = "ja",
+    cast: Sequence[CastMember] = (),
 ) -> tuple[str, str]:
-    """ネーム下書きの (system, user) プロンプトを返す。"""
+    """ネーム下書きの (system, user) プロンプトを返す。
+
+    cast（名前を付けた精密参照の登場人物）があれば、その名前を話者名に使わせる。
+    """
     if options.panel_count <= PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO:
         panel_rule = "Write between 2 and 4 panels."
     else:
@@ -699,10 +782,15 @@ def build_manga_script_prompts(
         sfx_rule=sfx_rule,
         narration_rule=narration_rule,
     )
+    cast_block = build_cast_block(cast)
+    if cast_block:
+        system += MANGA_SCRIPT_CAST_RULE
     system += _content_rule(nsfw) + build_memory_priority_instruction(
         (memory_text or "").strip(), language
     )
     user = MANGA_SCRIPT_USER_PROMPT_TEMPLATE.format(synopsis=synopsis.strip())
+    if cast_block:
+        user = f"{cast_block}\n\n{user}"
     return system, user
 
 
@@ -804,12 +892,14 @@ def build_positive_system_prompt(
     manga: MangaOptions | None = None,
     manga_notation: MangaNotation | None = None,
     transparent_background: bool = False,
+    with_cast: bool = False,
 ) -> str:
     """正プロンプト拡張の system プロンプトを組み立てる。
 
     構成は移植元と同じく「本体 → 成人向けルール → メモリ節（最優先指示）」。
     manga を渡すと漫画モード（コマ割り・吹き出し）の本体に差し替える。
     transparent_background は本体直後に背景を書かせない規則を足す（漫画モードでは無視）。
+    with_cast はキャラ枠 ON でキャストがあるとき、キャラ枠を名前付き object で出させる。
     """
     if manga is not None:
         # 漫画モードは拡張モードに依存しない（引用符内以外は常に英語）
@@ -830,6 +920,11 @@ def build_positive_system_prompt(
             CHARACTER_SYSTEM_PROMPT_TAGS_TEMPLATE.format(max_characters=max_characters)
             if character_mode
             else BASE_SYSTEM_PROMPT_TAGS
+        )
+    if with_cast and character_mode:
+        base = (
+            base.replace(CHARACTER_ITEMS_PLAIN_SHAPE, CHARACTER_ITEMS_NAMED_SHAPE)
+            + CAST_CHARACTER_RULE
         )
     if manga is None and transparent_background:
         base += (
@@ -855,8 +950,12 @@ def build_positive_user_prompt(
     context_description: str | None = None,
     manga: bool = False,
     manga_notation: MangaNotation | None = None,
+    cast: Sequence[CastMember] = (),
 ) -> str:
-    """正プロンプト拡張の user プロンプトを組み立てる（移植元の形式を踏襲）。"""
+    """正プロンプト拡張の user プロンプトを組み立てる（移植元の形式を踏襲）。
+
+    キャラ枠 ON のときだけ cast（登場人物の一覧）を足す。
+    """
     parts = [
         "Current positive prompt:\n"
         + ((current_prompt or "").strip() or "None (new prompt)")
@@ -868,6 +967,10 @@ def build_positive_user_prompt(
         lines = [f"{index}. {item}" for index, item in enumerate(filled, start=1)]
         if lines:
             parts.append("Current character prompts:\n" + "\n".join(lines))
+    if character_mode:
+        cast_block = build_cast_block(cast)
+        if cast_block:
+            parts.append(cast_block)
     if context_description and context_description.strip():
         parts.append(
             "Current image description (reference only):\n"
@@ -1075,13 +1178,37 @@ def _load_json_object(raw: str) -> object:
     )
 
 
-def parse_character_json(
+def _parse_character_items(
+    characters_raw: list[object], sanitize: Callable[[str], str]
+) -> list[tuple[str, str]]:
+    """character_prompts の要素を (名前, プロンプト) の組にする。
+
+    要素は文字列（名前なし）か {"name","prompt"} の object。空のプロンプトは組ごと除き、
+    名前とプロンプトがずれないようにする。
+    """
+    items: list[tuple[str, str]] = []
+    for item in characters_raw:
+        if isinstance(item, str):
+            name, prompt_raw = "", item
+        elif isinstance(item, dict) and isinstance(item.get("prompt"), str):
+            name_raw = item.get("name")
+            name = " ".join(name_raw.split()) if isinstance(name_raw, str) else ""
+            prompt_raw = item["prompt"]
+        else:
+            continue
+        prompt = sanitize(prompt_raw)
+        if prompt:
+            items.append((name, prompt))
+    return items
+
+
+def parse_character_json_named(
     raw: str,
     *,
     max_characters: int,
     mode: ExpandMode,
-) -> tuple[str, list[str]]:
-    """{"base_prompt","character_prompts"} 形式の出力を解析し整形して返す。
+) -> tuple[str, list[tuple[str, str]]]:
+    """{"base_prompt","character_prompts"} 形式の出力を解析し、キャラ枠を名前付きで返す。
 
     上限を超えた分は切り詰め、0 件なら PromptExpanderOutputError を送出する。
     """
@@ -1095,17 +1222,26 @@ def parse_character_json(
             "base_promptまたはcharacter_promptsが不正です。"
         )
     base = sanitize_by_mode(base_raw, mode, ensure_quality=True)
-    characters = [
-        sanitize_by_mode(item, mode, ensure_quality=False)
-        for item in characters_raw
-        if isinstance(item, str)
-    ]
-    characters = [item for item in characters if item]
-    if not base or not characters:
+    items = _parse_character_items(
+        characters_raw,
+        lambda text: sanitize_by_mode(text, mode, ensure_quality=False),
+    )
+    if not base or not items:
         raise PromptExpanderOutputError("空のプロンプトが含まれています。")
-    if len(characters) > max_characters:
-        characters = characters[:max_characters]
-    return base, characters
+    return base, items[:max_characters]
+
+
+def parse_character_json(
+    raw: str,
+    *,
+    max_characters: int,
+    mode: ExpandMode,
+) -> tuple[str, list[str]]:
+    """{"base_prompt","character_prompts"} 形式の出力を解析し整形して返す（名前は捨てる）。"""
+    base, items = parse_character_json_named(
+        raw, max_characters=max_characters, mode=mode
+    )
+    return base, [prompt for _, prompt in items]
 
 
 def parse_manga_json(
@@ -1114,10 +1250,24 @@ def parse_manga_json(
     max_characters: int,
     character_mode: bool,
 ) -> tuple[str, list[str] | None]:
+    """漫画モードの出力を解析する（キャラ枠の名前は捨てる）。"""
+    base, items = parse_manga_json_named(
+        raw, max_characters=max_characters, character_mode=character_mode
+    )
+    return base, None if items is None else [prompt for _, prompt in items]
+
+
+def parse_manga_json_named(
+    raw: str,
+    *,
+    max_characters: int,
+    character_mode: bool,
+) -> tuple[str, list[tuple[str, str]] | None]:
     """{"base_tags","panel_description","character_prompts"} 形式の出力を解析する。
 
     base_tags（タグ）とpanel_description（英語の自然文）を結合して 1 つのベースプロンプト
     にする。品質タグはタグ見出し側に補完し、コマ説明文の後ろには付けない。
+    キャラ枠は (名前, プロンプト) の組で返す。
     キャラクターモード OFF のときは character_prompts を無視して None を返す。
     """
     data = _load_json_object(raw)
@@ -1137,17 +1287,13 @@ def parse_manga_json(
         return base, None
     if not isinstance(characters_raw, list):
         raise PromptExpanderOutputError("character_promptsが不正です。")
-    characters = [
-        sanitize_tag_prompt(item, ensure_quality=False)
-        for item in characters_raw
-        if isinstance(item, str)
-    ]
-    characters = [item for item in characters if item]
-    if not characters:
+    items = _parse_character_items(
+        characters_raw,
+        lambda text: sanitize_tag_prompt(text, ensure_quality=False),
+    )
+    if not items:
         raise PromptExpanderOutputError("キャラクタープロンプトが空です。")
-    if len(characters) > max_characters:
-        characters = characters[:max_characters]
-    return base, characters
+    return base, items[:max_characters]
 
 
 def parse_suggestions_json(
