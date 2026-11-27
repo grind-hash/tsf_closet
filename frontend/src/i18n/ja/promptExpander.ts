@@ -88,6 +88,8 @@ export const promptExpander = {
     mangaNotationHint:
       "記法: 「セリフ」『モノローグ』【ナレーション】《効果音》、行頭の①②③はコマ番号。空の括弧（「」など）は内容を LLM にお任せします。",
     draftScript: "あらすじからネームを下書き",
+    restoreDone: "エントリを欄へ復元しました。",
+    restoreUndo: "元に戻す",
     castChipsLabel: "登場人物:",
     castChipTitle:
       "{{name}}（名前を付けた精密参照）。押すと精密参照の欄へ移ります",
@@ -324,6 +326,11 @@ export const promptExpander = {
     chipInpaint: "インペイント",
     chipReference: "精密参照",
     chipJumpTitle: "「{{label}}」の設定欄を開きます",
+    outcomeSuccess: "生成しました",
+    outcomeError: "生成に失敗しました",
+    outcomeShowResult: "結果を見る",
+    outcomeShowError: "詳細を見る",
+    outcomeDismiss: "閉じる",
     generateTitle:
       "欄の内容で画像を生成します。Ctrl+Shift+Enter（Mac は ⌘+Shift+Enter）でも実行できます",
   },

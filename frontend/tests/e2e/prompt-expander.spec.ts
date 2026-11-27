@@ -2191,3 +2191,99 @@ test("dropping an image and choosing precise reference is off in economy mode an
   ).toBeChecked();
   await expect(section).toBeInViewport();
 });
+
+test("generation shortcuts stay blocked while the API key consent dialog is open", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  // 同意がまだの状態で開く（enableFeatures は同意済みにしているので、その後で消す）
+  await page.addInitScript(() => {
+    window.localStorage.removeItem("novelai_api_key_consent");
+  });
+  await page.goto(`/prompt-expander/${SESSION_ID}`);
+  const dialog = page.getByRole("dialog", { name: "APIキーの利用について" });
+  await expect(dialog).toBeVisible();
+  // 同意ボタンにフォーカスがあり、背後の入力欄へは移れない
+  await expect(
+    dialog.getByRole("button", { name: "同意して続行" }),
+  ).toBeFocused();
+  await expect(positiveField(page)).not.toBeFocused();
+  await positiveField(page)
+    .focus()
+    .catch(() => {});
+  await expect(positiveField(page)).not.toBeFocused();
+  // 生成のショートカットを押しても生成リクエストは飛ばない
+  await page.keyboard.press("Control+Shift+Enter");
+  await page.waitForTimeout(300);
+  expect(state.generateBodies).toHaveLength(0);
+});
+
+test("the generate bar shows the result, clears a hiding filter and moves to the new entry", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  // 新着が隠れる絞り込み（アップロード）にしておく
+  await page
+    .getByRole("group", { name: "履歴の絞り込み" })
+    .getByRole("button", { name: /アップロード/ })
+    .click();
+
+  await positiveField(page).fill("1girl, standing");
+  await generateButton(page).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+
+  const bar = page.getByRole("toolbar", { name: "生成操作" });
+  await expect(bar).toContainText("生成しました");
+  await bar.getByRole("button", { name: "結果を見る" }).click();
+  // 絞り込みが「すべて」に戻り、新着のカードへ移ってフォーカスが入る
+  const newest = page.locator('[data-entry-id="pe-entry-new-1"]');
+  await expect(newest).toBeVisible();
+  await expect(
+    newest.locator(".prompt-expander__entry-image-btn"),
+  ).toBeFocused();
+  // 閉じると消える
+  await bar.getByRole("button", { name: "閉じる" }).click();
+  await expect(bar).not.toContainText("生成しました");
+});
+
+test("chips move keyboard focus to the section heading", async ({ page }) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await openSession(page);
+  const bar = page.getByRole("toolbar", { name: "生成操作" });
+  await bar
+    .getByRole("button", { name: "NAI Diffusion V4.5 Full", exact: true })
+    .press("Enter");
+  await expect(
+    page
+      .locator(".prompt-expander__composer")
+      .getByRole("button", { name: "生成パラメータ", exact: true }),
+  ).toBeFocused();
+});
+
+test("the workspace becomes one column when the settings panel narrows it", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await page.setViewportSize({ width: 1101, height: 900 });
+  await openSession(page);
+  const columns = () =>
+    page
+      .locator(".prompt-expander__workspace")
+      .evaluate(
+        (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
+      );
+  // 設定パネルを閉じていれば 2 列
+  expect(await columns()).toBe(2);
+  // 設定パネルを開くと作業域が狭くなるので 1 列
+  await page
+    .locator(".prompt-expander__header")
+    .getByRole("button", { name: "設定" })
+    .click();
+  await expect.poll(columns).toBe(1);
+});

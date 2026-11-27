@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { isV5ImageModel } from "../../constants/novelaiImageModels";
 import { getPromptExpanderImageModelLabel } from "../../constants/promptExpander";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
@@ -17,6 +18,7 @@ import {
   setAllPromptExpanderSections,
   usePromptExpanderSectionsAllOpen,
 } from "../../hooks/usePersistedSectionState";
+import { hasApiKeyConsent } from "../apiKeyConsentStorage";
 import { NovelaiUsageBar } from "../NovelaiUsageBar";
 import PromptExpanderProgress from "./PromptExpanderProgress";
 import "./PromptExpanderShared.css";
@@ -58,7 +60,29 @@ export default function PromptExpanderControlBar() {
     mangaActive,
     inpaintActive,
     anlas,
+    activeSession,
+    lastGenerateOutcome,
+    dismissGenerateOutcome,
+    requestEntryReveal,
   } = usePromptExpander();
+  const navigate = useNavigate();
+
+  // 「結果を見る」: 開始元のセッションへ移ってから、生成履歴で新着のエントリを見せる
+  const showGeneratedEntry = () => {
+    if (lastGenerateOutcome?.status !== "success") return;
+    if (activeSession?.id !== lastGenerateOutcome.sessionId) {
+      navigate(`/prompt-expander/${lastGenerateOutcome.sessionId}`);
+    }
+    requestEntryReveal(lastGenerateOutcome.entryId);
+  };
+  // 「詳細を見る」: 画面上部のエラー行へ移る
+  const showGenerateError = () => {
+    const row = document.querySelector<HTMLElement>(
+      ".prompt-expander__error-row",
+    );
+    row?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+    row?.focus({ preventScroll: true });
+  };
   const usage =
     isV5ImageModel(settings.image_model) && anlas?.usage ? anlas.usage : null;
   const sectionsAllOpen = usePromptExpanderSectionsAllOpen();
@@ -78,6 +102,8 @@ export default function PromptExpanderControlBar() {
       ) {
         return;
       }
+      // API キーの利用同意前は生成しない（同意画面は背後のキー操作を止めないため、ここでも見る）
+      if (!hasApiKeyConsent()) return;
       if (document.querySelector('[role="dialog"]')) return;
       event.preventDefault();
       if (canGenerate) void runGenerate();
@@ -173,6 +199,46 @@ export default function PromptExpanderControlBar() {
             label={t("promptExpander.composer.generatingHint")}
             className="prompt-expander__control-bar-progress"
           />
+        )}
+        {/* 直近の生成の成否。入力位置を保ったまま、結果やエラーへ移れるようにする */}
+        {!generating && lastGenerateOutcome && (
+          <span
+            className={`prompt-expander__control-bar-outcome prompt-expander__hint${lastGenerateOutcome.status === "error" ? " prompt-expander__hint--warning" : ""}`}
+            role="status"
+          >
+            <span>
+              {lastGenerateOutcome.status === "success"
+                ? t("promptExpander.controlBar.outcomeSuccess")
+                : t("promptExpander.controlBar.outcomeError")}
+            </span>
+            <button
+              type="button"
+              className="prompt-expander__btn prompt-expander__btn--sm"
+              onClick={
+                lastGenerateOutcome.status === "success"
+                  ? showGeneratedEntry
+                  : showGenerateError
+              }
+              title={
+                lastGenerateOutcome.status === "error"
+                  ? lastGenerateOutcome.message
+                  : undefined
+              }
+            >
+              {lastGenerateOutcome.status === "success"
+                ? t("promptExpander.controlBar.outcomeShowResult")
+                : t("promptExpander.controlBar.outcomeShowError")}
+            </button>
+            <button
+              type="button"
+              className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__control-bar-outcome-close"
+              onClick={dismissGenerateOutcome}
+              aria-label={t("promptExpander.controlBar.outcomeDismiss")}
+              title={t("promptExpander.controlBar.outcomeDismiss")}
+            >
+              ×
+            </button>
+          </span>
         )}
         {disabledReasonText && !busy && (
           <span className="prompt-expander__hint prompt-expander__hint--warning">

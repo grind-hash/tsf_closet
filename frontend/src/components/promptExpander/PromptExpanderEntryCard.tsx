@@ -30,6 +30,7 @@ import {
 import { useNotification } from "../../contexts/NotificationContext";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
 import { useSettings } from "../../contexts/SettingsContext";
+import { revealPromptExpanderSection } from "../../hooks/usePersistedSectionState";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import { ROUTES } from "../../routes";
 import { EMPTY_CHARACTER_PROFILE } from "../characters/characterMaker";
@@ -368,7 +369,16 @@ export default function PromptExpanderEntryCard({
           <button
             type="button"
             className="prompt-expander__btn prompt-expander__btn--sm"
-            onClick={() => restoreEntry(entry)}
+            onClick={() => {
+              restoreEntry(entry);
+              // 復元した欄へ移り、そのまま書き直せるようプロンプト欄へフォーカスする
+              revealPromptExpanderSection("prompt", { focus: false });
+              window.requestAnimationFrame(() =>
+                document
+                  .getElementById("prompt-expander-positive")
+                  ?.focus({ preventScroll: true }),
+              );
+            }}
             disabled={isUploaded && !entry.final_prompt}
           >
             {t("promptExpander.entry.restore")}

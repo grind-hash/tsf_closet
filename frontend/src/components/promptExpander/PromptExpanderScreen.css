@@ -7,6 +7,9 @@
   height: 100%;
   overflow: hidden;
   box-sizing: border-box;
+  /* 2 列 / 1 列は画面幅ではなく作業域の幅で決める（右の設定パネルを開くと狭くなるため） */
+  container-type: inline-size;
+  container-name: prompt-expander;
 }
 
 .prompt-expander__scroll {
@@ -118,10 +121,10 @@
   flex: 1 1 auto;
 }
 
-/* コンポーザ + エントリ一覧の 2 カラム */
+/* コンポーザ + エントリ一覧。作業域が狭いときは 1 列、広いときだけ 2 列 */
 .prompt-expander__workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -131,15 +134,14 @@
   min-width: 0;
 }
 
-@media (max-width: 1100px) {
+/* 作業域が広いときは 2 列にし、入力欄と生成履歴をそれぞれ独立してスクロールさせる
+   （入力欄を下まで見ても新しい生成結果が画面外へ行かないように）。1 列のときは画面全体で 1 つ。
+   境目の 900px は、右パネルを閉じた 1101px 幅の画面での作業域にあたる */
+@container prompt-expander (min-width: 900px) {
   .prompt-expander__workspace {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
-}
 
-/* 幅が広いときは、入力欄と生成履歴をそれぞれ独立してスクロールさせる
-   （入力欄を下まで見ても新しい生成結果が画面外へ行かないように）。1 列のときは画面全体で 1 つ */
-@media (min-width: 1101px) {
   .prompt-expander__scroll--workspace {
     overflow: hidden;
   }

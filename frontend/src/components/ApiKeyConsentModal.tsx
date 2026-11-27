@@ -3,7 +3,7 @@
  * NovelAI APIキーの利用用途を説明し、同意を取得する
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "./ApiKeyConsentModal.css";
 import { saveApiKeyConsent } from "./apiKeyConsentStorage";
@@ -19,11 +19,18 @@ export default function ApiKeyConsentModal({
 }: ApiKeyConsentModalProps) {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
+  const titleId = useId();
+  const consentButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     // アニメーション用に少し遅延
     const timer = setTimeout(() => setIsVisible(true), 50);
     return () => clearTimeout(timer);
+  }, []);
+
+  // 開いたら同意ボタンへフォーカスし、キーボード操作が背後の画面へ行かないようにする
+  useEffect(() => {
+    consentButtonRef.current?.focus();
   }, []);
 
   const handleConsent = () => {
@@ -39,10 +46,17 @@ export default function ApiKeyConsentModal({
 
   return (
     <div className={`consent-modal-overlay ${isVisible ? "is-visible" : ""}`}>
-      <div className="consent-modal">
+      <div
+        className="consent-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
         <div className="consent-modal__header">
           <span className="consent-modal__icon">🔑</span>
-          <h2 className="consent-modal__title">{t("apiKeyConsent.title")}</h2>
+          <h2 id={titleId} className="consent-modal__title">
+            {t("apiKeyConsent.title")}
+          </h2>
         </div>
 
         <div className="consent-modal__content">
@@ -98,6 +112,7 @@ export default function ApiKeyConsentModal({
             {t("apiKeyConsent.decline")}
           </button>
           <button
+            ref={consentButtonRef}
             type="button"
             className="consent-modal__btn consent-modal__btn--consent"
             onClick={handleConsent}

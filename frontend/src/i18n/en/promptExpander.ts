@@ -90,6 +90,8 @@ export const promptExpander = {
     castChipTitle:
       "{{name}} (a named precise reference). Click to jump to the precise reference section",
     draftScript: "Draft a storyboard from the synopsis",
+    restoreDone: "Restored the entry into the fields.",
+    restoreUndo: "Undo",
     draftScriptTitle:
       "Rewrites the synopsis in this field into a notated storyboard (panel numbers, lines, narration) with the LLM. Edit it, then convert to prompt. You can revert to the original text",
     draftingHint:
@@ -325,6 +327,11 @@ export const promptExpander = {
     chipInpaint: "Inpaint",
     chipReference: "Precise ref",
     chipJumpTitle: 'Open the settings for "{{label}}"',
+    outcomeSuccess: "Generated",
+    outcomeError: "Generation failed",
+    outcomeShowResult: "Show result",
+    outcomeShowError: "Show details",
+    outcomeDismiss: "Dismiss",
     generateTitle:
       "Generate an image from the fields. You can also press Ctrl+Shift+Enter (⌘+Shift+Enter on Mac)",
   },

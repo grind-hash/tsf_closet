@@ -301,6 +301,8 @@ export default function PromptExpanderComposer() {
     scriptDraftBackup,
     draftScript,
     undoScriptDraft,
+    restoreUndo,
+    undoRestore,
     uploadImage,
     uploading,
   } = usePromptExpander();
@@ -1060,6 +1062,19 @@ export default function PromptExpanderComposer() {
                   : t("promptExpander.composer.expandingHint")
               }
             />
+          )}
+          {/* 「欄へ復元」で書きかけの内容を置き換えたときは、すぐ元に戻せるようにする */}
+          {restoreUndo && positiveText === restoreUndo.restoredPositive && (
+            <p className="prompt-expander__hint prompt-expander__draft-done">
+              <span>{t("promptExpander.composer.restoreDone")}</span>
+              <button
+                type="button"
+                className="prompt-expander__btn prompt-expander__btn--sm"
+                onClick={undoRestore}
+              >
+                {t("promptExpander.composer.restoreUndo")}
+              </button>
+            </p>
           )}
           {scriptDraftBackup && positiveText === scriptDraftBackup.script && (
             <p className="prompt-expander__hint prompt-expander__draft-done">

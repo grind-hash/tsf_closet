@@ -29,6 +29,10 @@ interface MockState {
   expandErrorCode: string | null;
   /** 設定 GET が返す restore_seed */
   restoreSeed: boolean;
+  /** 生成の応答をこの Promise が解けるまで待たせる（null なら待たない） */
+  generateGate: Promise<void> | null;
+  /** 生成をこのエラーコードで失敗させる（null なら成功） */
+  generateErrorCode: string | null;
 }
 
 const mockState: MockState = {
@@ -36,6 +40,8 @@ const mockState: MockState = {
   anlasUsagePercent: null,
   expandErrorCode: null,
   restoreSeed: false,
+  generateGate: null,
+  generateErrorCode: null,
 };
 
 const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -206,6 +212,12 @@ const fetchMock = vi.fn(
     if (url === "/api/prompt-expander/sessions/sess-1" && method === "GET") {
       return jsonResponse({ session: SESSION, entries: [OLD_ENTRY] });
     }
+    if (url === "/api/prompt-expander/sessions/sess-2" && method === "GET") {
+      return jsonResponse({
+        session: { ...SESSION, id: "sess-2", title: "Other", entry_count: 0 },
+        entries: [],
+      });
+    }
     if (url === "/api/prompt-expander/expand" && method === "POST") {
       if (mockState.expandErrorCode) {
         return jsonResponse(
@@ -254,6 +266,18 @@ const fetchMock = vi.fn(
       method === "POST"
     ) {
       const body = JSON.parse(String(init?.body));
+      if (mockState.generateGate) await mockState.generateGate;
+      if (mockState.generateErrorCode) {
+        return jsonResponse(
+          {
+            detail: {
+              code: mockState.generateErrorCode,
+              message: `failed: ${mockState.generateErrorCode}`,
+            },
+          },
+          502,
+        );
+      }
       return jsonResponse({
         entry: makeGeneratedEntry(body),
         anlas: anlasPayload(),
@@ -353,6 +377,26 @@ function Probe() {
       </div>
       <button type="button" onClick={() => void ctx.openSession("sess-1")}>
         open
+      </button>
+      <button type="button" onClick={() => void ctx.openSession("sess-2")}>
+        open-2
+      </button>
+      <div data-testid="generating-session">
+        {ctx.generatingSessionId ?? "none"}
+      </div>
+      <div data-testid="outcome">
+        {ctx.lastGenerateOutcome
+          ? JSON.stringify(ctx.lastGenerateOutcome)
+          : "none"}
+      </div>
+      <div data-testid="session-counts">
+        {ctx.sessions.map((s) => `${s.id}:${s.entry_count}`).join(",")}
+      </div>
+      <div data-testid="restore-undo">
+        {ctx.restoreUndo ? ctx.restoreUndo.restoredPositive : "none"}
+      </div>
+      <button type="button" onClick={ctx.undoRestore}>
+        undo-restore
       </button>
       <button type="button" onClick={() => ctx.setPositiveText("a cat girl")}>
         set-positive
@@ -828,6 +872,8 @@ beforeEach(() => {
   mockState.anlasUsagePercent = null;
   mockState.expandErrorCode = null;
   mockState.restoreSeed = false;
+  mockState.generateGate = null;
+  mockState.generateErrorCode = null;
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -1768,5 +1814,99 @@ describe("PromptExpanderContext", () => {
     expect(screen.getByTestId("notifications").textContent).not.toBe(
       notificationsAfterRestore,
     );
+  });
+  it("generation finished after switching sessions stays with the session it started in", async () => {
+    let release: () => void = () => {};
+    mockState.generateGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("generating-session").textContent).toBe(
+        "sess-1",
+      ),
+    );
+    // 応答を待つ間に別のセッションを開く
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open-2" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("session").textContent).toBe("sess-2"),
+    );
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("outcome").textContent).not.toBe("none"),
+    );
+    // いま開いている sess-2 の履歴には入らず、開始元の sess-1 の件数だけ増える
+    expect(screen.getByTestId("entries").textContent).toBe("");
+    expect(screen.getByTestId("session-counts").textContent).toContain(
+      "sess-1:2",
+    );
+    expect(JSON.parse(screen.getByTestId("outcome").textContent ?? "")).toEqual(
+      { status: "success", sessionId: "sess-1", entryId: "entry-new" },
+    );
+    expect(screen.getByTestId("generating-session").textContent).toBe("none");
+  });
+
+  it("records a failed generation as an error outcome", async () => {
+    mockState.generateErrorCode = "image_failed";
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("outcome").textContent).not.toBe("none"),
+    );
+    const outcome = JSON.parse(screen.getByTestId("outcome").textContent ?? "");
+    expect(outcome.status).toBe("error");
+    expect(outcome.sessionId).toBe("sess-1");
+    expect(outcome.message).toContain("image_failed");
+  });
+
+  it("restoreEntry over a draft can be undone, including the settings it changed", async () => {
+    await openSessionAndWait();
+    // 欄が空なら控えない
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore" }));
+    });
+    expect(screen.getByTestId("restore-undo").textContent).toBe("none");
+
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    const putsBefore = findCalls("/prompt-expander/settings", "PUT").length;
+    const modelBefore = screen.getByTestId("image-model").textContent;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("restore-undo").textContent).not.toBe("none"),
+    );
+    expect(screen.getByTestId("positive").textContent).not.toBe("a cat girl");
+    await waitFor(() =>
+      expect(
+        findCalls("/prompt-expander/settings", "PUT").length,
+      ).toBeGreaterThan(putsBefore),
+    );
+    const restorePatch = lastBody("/prompt-expander/settings", "PUT");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "undo-restore" }));
+    });
+    expect(screen.getByTestId("positive").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("restore-undo").textContent).toBe("none");
+    // 復元で変えた設定と同じキーを、復元前の値で送り直す
+    await waitFor(() => {
+      const undoPatch = lastBody("/prompt-expander/settings", "PUT");
+      expect(Object.keys(undoPatch).sort()).toEqual(
+        Object.keys(restorePatch).sort(),
+      );
+      expect(undoPatch.image_model).toBe(modelBefore);
+    });
   });
 });

@@ -170,6 +170,32 @@ export interface PromptExpanderMask {
   label: string;
 }
 
+/** 直近の生成の結果。成功は開始元のセッションとエントリ、失敗はエラー文を持つ */
+export type PromptExpanderGenerateOutcome =
+  | { status: "success"; sessionId: string; entryId: string }
+  | { status: "error"; sessionId: string; message: string };
+
+/** 「欄へ復元」の前に控える内容 */
+interface RestoreSnapshot {
+  positiveText: string;
+  negativeText: string;
+  characterMode: boolean;
+  characterSlots: string[];
+  positiveOrigin: PromptExpanderPositiveOrigin | null;
+  negativeOrigin: PromptExpanderNegativeOrigin | null;
+  pendingExpansion: PromptExpanderPendingExpansion | null;
+  settings: PromptExpanderSettingsPatch;
+  references: PromptExpanderReference[];
+  inpaintMask: PromptExpanderMask | null;
+  restoredPositive: string;
+}
+
+/** 生成履歴で見せたいエントリ。同じエントリを続けて見せられるよう連番を付ける */
+export interface PromptExpanderEntryRevealRequest {
+  entryId: string;
+  seq: number;
+}
+
 /** LLM 拡張の結果（欄の直下のインラインカードで編集可能） */
 export interface PromptExpanderPendingExpansion {
   target: PromptExpanderExpansionTarget;
@@ -239,6 +265,14 @@ interface PromptExpanderContextValue {
   /** 直近のネーム下書き（元の文と結果。欄が結果のままなら「元の文に戻す」が使える） */
   scriptDraftBackup: { source: string; script: string } | null;
   generating: boolean;
+  /** 生成中のセッション ID（生成中でなければ null）。履歴の「生成しています」はこれが開いているセッションのときだけ出す */
+  generatingSessionId: string | null;
+  /** 直近の生成の結果（生成バーに出す）。次の生成を始めるか、閉じると消える */
+  lastGenerateOutcome: PromptExpanderGenerateOutcome | null;
+  dismissGenerateOutcome: () => void;
+  /** 生成履歴で見せたいエントリ（「結果を見る」で設定し、EntryList が絞り込みを解いてそこへ移る） */
+  entryRevealRequest: PromptExpanderEntryRevealRequest | null;
+  requestEntryReveal: (entryId: string) => void;
   uploading: boolean;
   suggesting: boolean;
   error: string | null;
@@ -346,6 +380,10 @@ interface PromptExpanderContextValue {
   cancelReferenceWarn: () => void;
   /** 拡張ありのエントリは原文を欄へ戻し、変換結果を確認カードとして再現する */
   restoreEntry: (entry: PromptExpanderEntry) => void;
+  /** 「欄へ復元」で置き換えた内容を控えている間の、復元後の正プロンプト（欄が変わったら案内を消す） */
+  restoreUndo: { restoredPositive: string } | null;
+  /** 「欄へ復元」の前の内容（欄・設定・精密参照・マスク）に戻す */
+  undoRestore: () => void;
   /** エントリのプロンプト・設定のまま、seed だけ新規（ランダム）で生成し直す */
   regenerateEntry: (entry: PromptExpanderEntry) => Promise<void>;
   selectEntryAsSource: (entry: PromptExpanderEntry) => void;
@@ -573,6 +611,15 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const [expandingTarget, setExpandingTarget] =
     useState<PromptExpanderExpansionTarget | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [generatingSessionId, setGeneratingSessionId] = useState<string | null>(
+    null,
+  );
+  const [lastGenerateOutcome, setLastGenerateOutcome] =
+    useState<PromptExpanderGenerateOutcome | null>(null);
+  const [entryRevealRequest, setEntryRevealRequest] =
+    useState<PromptExpanderEntryRevealRequest | null>(null);
+  const [restoreSnapshot, setRestoreSnapshot] =
+    useState<RestoreSnapshot | null>(null);
   const [uploading, setUploading] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [draftingScript, setDraftingScript] = useState(false);
@@ -614,6 +661,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const [anlas, setAnlas] = useState<AnlasBalance | null>(globalAnlas);
 
   const expanding = expandingTarget !== null;
+  // 生成の完了時に「いま開いているセッション」を見るため、最新の ID を ref に写しておく
+  const activeSessionIdRef = useRef<string | null>(null);
+  activeSessionIdRef.current = activeSession?.id ?? null;
 
   const clearError = useCallback(() => setError(null), []);
   const clearExpansionError = useCallback(() => setExpansionError(null), []);
@@ -1140,24 +1190,51 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const postGenerate = useCallback(
     async (payload: PromptExpanderGenerateRequest) => {
       if (!activeSession) return;
+      // 生成中に別のセッションを開くことがあるので、開始元のセッションを覚えておく
+      const sessionId = activeSession.id;
       setGenerating(true);
+      setGeneratingSessionId(sessionId);
+      setLastGenerateOutcome(null);
+      // 生成したら復元の取り消しは終わり（生成に使った内容が基準になる）
+      setRestoreSnapshot(null);
       setError(null);
       try {
-        const resp = await generatePromptExpanderImage(
-          activeSession.id,
-          payload,
-        );
-        setEntries((prev) => [resp.entry, ...prev]);
-        bumpSessionEntryCount(activeSession.id, 1, resp.entry.image_url);
+        const resp = await generatePromptExpanderImage(sessionId, payload);
+        // 結果は開始元のセッションのもの。いま開いている履歴が別のセッションなら足さない
+        if (activeSessionIdRef.current === resp.entry.session_id) {
+          setEntries((prev) => [resp.entry, ...prev]);
+        }
+        bumpSessionEntryCount(sessionId, 1, resp.entry.image_url);
         applyAnlas(resp.anlas);
+        setLastGenerateOutcome({
+          status: "success",
+          sessionId,
+          entryId: resp.entry.id,
+        });
       } catch (err) {
         reportError("Prompt Expander", err);
+        setLastGenerateOutcome({
+          status: "error",
+          sessionId,
+          message: toErrorMessage(err),
+        });
       } finally {
         setGenerating(false);
+        setGeneratingSessionId(null);
       }
     },
     [activeSession, applyAnlas, bumpSessionEntryCount, reportError],
   );
+
+  const dismissGenerateOutcome = useCallback(
+    () => setLastGenerateOutcome(null),
+    [],
+  );
+  const entryRevealSeq = useRef(0);
+  const requestEntryReveal = useCallback((entryId: string) => {
+    entryRevealSeq.current += 1;
+    setEntryRevealRequest({ entryId, seq: entryRevealSeq.current });
+  }, []);
 
   const generate = useCallback(
     async (payload: PromptExpanderGenerateRequest) => {
@@ -1657,6 +1734,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
 
   const restoreEntry = useCallback(
     (entry: PromptExpanderEntry) => {
+      // 欄に書きかけの内容があれば、復元で置き換わるものを控えて「元に戻す」を出す
+      const hasDraft =
+        positiveText.trim().length > 0 ||
+        negativeText.trim().length > 0 ||
+        characterSlots.some((slot) => slot.trim().length > 0) ||
+        pendingExpansion !== null;
       const expandMode = entry.positive_expand_mode;
       const instruction = (entry.instruction ?? "").trim();
       const finalPrompt = entry.final_prompt ?? "";
@@ -1667,7 +1750,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         expandMode !== "off" &&
         instruction.length > 0 &&
         instruction !== finalPrompt.trim();
-      setPositiveText(expanded ? instruction : finalPrompt);
+      const restoredPositive = expanded ? instruction : finalPrompt;
+      setPositiveText(restoredPositive);
       setNegativeText(entry.final_negative_prompt ?? "");
       const slots = entry.character_prompts ?? [];
       setCharacterMode(slots.length > 0);
@@ -1726,16 +1810,78 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           label: entry.instruction || entry.id,
         });
       }
+      if (hasDraft) {
+        // 戻すのは、この復元で変える設定の今の値だけ
+        const previousSettings: Record<string, unknown> = {};
+        for (const key of Object.keys(patch) as Array<
+          keyof PromptExpanderSettings
+        >) {
+          previousSettings[key] = settings[key];
+        }
+        setRestoreSnapshot({
+          positiveText,
+          negativeText,
+          characterMode,
+          characterSlots,
+          positiveOrigin,
+          negativeOrigin,
+          pendingExpansion,
+          settings: previousSettings as PromptExpanderSettingsPatch,
+          references,
+          inpaintMask,
+          restoredPositive,
+        });
+      } else {
+        setRestoreSnapshot(null);
+      }
       if (Object.keys(patch).length > 0) {
         void updateSettings(patch);
       }
     },
     [
+      characterMode,
+      characterSlots,
+      inpaintMask,
+      negativeOrigin,
+      negativeText,
+      pendingExpansion,
+      positiveOrigin,
+      positiveText,
+      references,
       restoreReferences,
       setCharacterMode,
-      settings.restore_seed,
+      settings,
       updateSettings,
     ],
+  );
+
+  const undoRestore = useCallback(() => {
+    const snapshot = restoreSnapshot;
+    if (!snapshot) return;
+    // 復元で始めた精密参照の読み直しが後から終わっても、戻した参照を上書きしないようにする
+    referenceRestoreSeq.current += 1;
+    setPositiveText(snapshot.positiveText);
+    setNegativeText(snapshot.negativeText);
+    setCharacterMode(snapshot.characterMode);
+    setCharacterSlots(snapshot.characterSlots);
+    setPositiveOrigin(snapshot.positiveOrigin);
+    setNegativeOrigin(snapshot.negativeOrigin);
+    setPendingExpansion(snapshot.pendingExpansion);
+    setExpansionError(null);
+    setReferences(snapshot.references);
+    setInpaintMaskState(snapshot.inpaintMask);
+    if (Object.keys(snapshot.settings).length > 0) {
+      void updateSettings(snapshot.settings);
+    }
+    setRestoreSnapshot(null);
+  }, [restoreSnapshot, setCharacterMode, updateSettings]);
+
+  const restoreUndo = useMemo(
+    () =>
+      restoreSnapshot
+        ? { restoredPositive: restoreSnapshot.restoredPositive }
+        : null,
+    [restoreSnapshot],
   );
 
   const regenerateEntry = useCallback(
@@ -1922,6 +2068,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       draftingScript,
       scriptDraftBackup,
       generating,
+      generatingSessionId,
+      lastGenerateOutcome,
+      dismissGenerateOutcome,
+      entryRevealRequest,
+      requestEntryReveal,
       uploading,
       suggesting,
       error,
@@ -1996,6 +2147,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       confirmReferenceWarn,
       cancelReferenceWarn,
       restoreEntry,
+      restoreUndo,
+      undoRestore,
       regenerateEntry,
       selectEntryAsSource,
       selectEntryAsReference,
@@ -2017,6 +2170,11 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       draftingScript,
       scriptDraftBackup,
       generating,
+      generatingSessionId,
+      lastGenerateOutcome,
+      dismissGenerateOutcome,
+      entryRevealRequest,
+      requestEntryReveal,
       uploading,
       suggesting,
       error,
@@ -2086,6 +2244,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       confirmReferenceWarn,
       cancelReferenceWarn,
       restoreEntry,
+      restoreUndo,
+      undoRestore,
       regenerateEntry,
       selectEntryAsSource,
       selectEntryAsReference,

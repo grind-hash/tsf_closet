@@ -17,6 +17,7 @@ import {
 } from "../../apis/promptExpander";
 import { PROMPT_EXPANDER_ALPHA_OPTIONS } from "../../constants/promptExpander";
 import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import { revealPromptExpanderSection } from "../../hooks/usePersistedSectionState";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import ImagePreviewModal from "../ImagePreviewModal";
@@ -25,8 +26,15 @@ import PromptExpanderProgress from "./PromptExpanderProgress";
 import PromptExpanderSection from "./PromptExpanderSection";
 import "./PromptExpanderShared.css";
 
-/** 入力欄と生成履歴が別々にスクロールする幅（PromptExpanderScreen.css と合わせる） */
-const TWO_COLUMN_QUERY = "(min-width: 1101px)";
+/** 生成履歴の列が独立してスクロールしているか（2 列表示。幅は CSS のコンテナクエリで決まる） */
+function scrollsOnItsOwn(element: HTMLElement | null): boolean {
+  const column = element?.closest<HTMLElement>(
+    ".prompt-expander__workspace-entries",
+  );
+  if (!column) return false;
+  const overflowY = window.getComputedStyle(column).overflowY;
+  return overflowY === "auto" || overflowY === "scroll";
+}
 
 import "./PromptExpanderEntryList.css";
 
@@ -59,8 +67,16 @@ function escapeSelector(value: string): string {
 
 export default function PromptExpanderEntryList() {
   const { t } = useTranslation();
-  const { entries, activeSession, loadingSession, generating } =
-    usePromptExpander();
+  const {
+    entries,
+    activeSession,
+    loadingSession,
+    generatingSessionId,
+    entryRevealRequest,
+  } = usePromptExpander();
+  // 生成中の表示は、生成を始めたセッションを開いているときだけ出す
+  const generating =
+    generatingSessionId !== null && generatingSessionId === activeSession?.id;
   const [filter, setFilterState] = usePersistedState<PromptExpanderEntryFilter>(
     PROMPT_EXPANDER_ENTRY_FILTER_KEY,
     "all",
@@ -147,9 +163,46 @@ export default function PromptExpanderEntryList() {
   const generatingRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!generating) return;
-    if (!window.matchMedia?.(TWO_COLUMN_QUERY).matches) return;
+    if (!scrollsOnItsOwn(generatingRef.current)) return;
     generatingRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [generating]);
+
+  // 生成バーの「結果を見る」: 生成履歴を開き、絞り込みで隠れていれば「すべて」に戻して
+  // そのカードへ移る。セッションを移った直後はまだ一覧が届いていないので、届くまで待つ
+  const handledRevealSeq = useRef(0);
+  const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!entryRevealRequest) return;
+    if (entryRevealRequest.seq === handledRevealSeq.current) return;
+    const target = entries.find(
+      (entry) => entry.id === entryRevealRequest.entryId,
+    );
+    if (!target) return;
+    handledRevealSeq.current = entryRevealRequest.seq;
+    if (filter !== "all" && classifyEntry(target) !== filter) {
+      setFilter("all");
+    }
+    revealPromptExpanderSection("history", { focus: false });
+    setFocusEntryId(target.id);
+  }, [entries, entryRevealRequest, filter, setFilter]);
+  // 絞り込みを戻した描画の後でカードが現れるので、現れてからスクロールとフォーカスをする
+  useEffect(() => {
+    if (!focusEntryId) return;
+    if (!filteredEntries.some((entry) => entry.id === focusEntryId)) return;
+    const frame = window.requestAnimationFrame(() => {
+      const card = document.querySelector<HTMLElement>(
+        `[data-entry-id="${escapeSelector(focusEntryId)}"]`,
+      );
+      if (!card) return;
+      card.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+      // カードの画像（プレビューを開くボタン）へフォーカスし、続けて Enter で拡大できるようにする
+      card
+        .querySelector<HTMLElement>(".prompt-expander__entry-image-btn")
+        ?.focus({ preventScroll: true });
+      setFocusEntryId(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [filteredEntries, focusEntryId]);
 
   // プレビューで移動した先のカードを一覧上でも見つけられるようスクロールする
   useEffect(() => {

@@ -47,6 +47,19 @@
   color: var(--text-color, #eee);
 }
 
+/* 直近の生成の成否と、結果・エラーへ移るボタン */
+.prompt-expander__control-bar-outcome {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.prompt-expander__control-bar-outcome-close {
+  padding-inline: 0.45rem;
+}
+
 .prompt-expander__control-bar-progress {
   min-width: 180px;
 }

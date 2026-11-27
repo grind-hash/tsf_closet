@@ -125,7 +125,11 @@ export default function PromptExpanderScreen() {
       showRightPanel={showSettings}
       onToggleRightPanel={toggleSettings}
     >
-      <div className="prompt-expander">
+      {/* 同意画面（と同意拒否の案内）を出している間は、背後の欄・ボタンへ Tab で入れないようにする */}
+      <div
+        className="prompt-expander"
+        inert={showApiKeyConsent || apiKeyConsentDeclined}
+      >
         {/* セッション作業中は入力欄と生成履歴を別々にスクロールさせる（幅が広いときだけ。CSS 側） */}
         <div
           className={`prompt-expander__scroll${sessionId ? " prompt-expander__scroll--workspace" : ""}`}
@@ -216,7 +220,12 @@ export default function PromptExpanderScreen() {
           )}
 
           {errorText && (
-            <div className="prompt-expander__error-row" role="alert">
+            // 生成バーの「詳細を見る」からフォーカスを移せるよう tabIndex を持たせる
+            <div
+              className="prompt-expander__error-row"
+              role="alert"
+              tabIndex={-1}
+            >
               <p className="prompt-expander__error">{errorText}</p>
               <button
                 type="button"
