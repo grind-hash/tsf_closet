@@ -63,6 +63,7 @@ export default function PromptExpanderControlBar() {
     activeSession,
     lastGenerateOutcome,
     dismissGenerateOutcome,
+    source,
     requestEntryReveal,
   } = usePromptExpander();
   const navigate = useNavigate();
@@ -158,6 +159,12 @@ export default function PromptExpanderControlBar() {
         section: "manga",
       });
     }
+    if (source && !inpaintActive) {
+      chips.push({
+        label: t("promptExpander.controlBar.chipSource"),
+        section: "i2i",
+      });
+    }
     if (inpaintActive) {
       chips.push({
         label: t("promptExpander.controlBar.chipInpaint"),
@@ -177,6 +184,7 @@ export default function PromptExpanderControlBar() {
     referenceActive,
     settings.image_model,
     settings.image_size,
+    source,
     t,
     transparentActive,
   ]);
@@ -262,7 +270,9 @@ export default function PromptExpanderControlBar() {
             </button>
           </span>
         )}
-        {disabledReasonText && !busy && (
+        {/* 生成直後は結果（生成しました・結果を見る）を優先し、生成できない理由は出さない
+            （理由は生成ボタンの説明にも出る） */}
+        {disabledReasonText && !busy && !lastGenerateOutcome && (
           <span className="prompt-expander__hint prompt-expander__hint--warning">
             {disabledReasonText}
           </span>

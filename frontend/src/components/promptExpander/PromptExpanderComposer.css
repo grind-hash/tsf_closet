@@ -201,6 +201,24 @@
   letter-spacing: 0.05em;
 }
 
+/* ネーム下書き前のあらすじ（手直ししたあとに見比べる用。読むだけ） */
+.prompt-expander__synopsis {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.prompt-expander__synopsis-text {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-left: 3px solid var(--border-color, #333);
+  font-size: 0.85rem;
+  color: var(--text-muted, #888);
+  white-space: pre-wrap;
+}
+
 /* 登場人物（名前を付けた精密参照）のチップ行。押すと精密参照の欄へ移る */
 .prompt-expander__cast-chips {
   display: flex;

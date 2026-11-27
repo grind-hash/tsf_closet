@@ -99,6 +99,8 @@ export const promptExpander = {
     draftDone:
       "Drafted a storyboard from the synopsis. Edit it, then convert to prompt.",
     draftUndo: "Revert to original text",
+    synopsisShow: "Show the original synopsis",
+    synopsisHide: "Hide the original synopsis",
     notation: {
       toolbar: "Insert comic notation",
       speech: "Speech",
@@ -292,8 +294,7 @@ export const promptExpander = {
     disabledNoSession: "Open a session first",
     disabledTooMany: "Too many character prompts",
     disabledEmptyPrompt: "Enter a prompt / instruction",
-    disabledPendingExpansion:
-      "Apply or discard the conversion result before generating",
+    disabledPendingExpansion: "Check the conversion result (apply or discard)",
     generatingHint: "Generating the image…",
   },
   inpaint: {
@@ -326,6 +327,7 @@ export const promptExpander = {
     chipManga: "Comic",
     chipInpaint: "Inpaint",
     chipReference: "Precise ref",
+    chipSource: "i2i source",
     chipJumpTitle: 'Open the settings for "{{label}}"',
     outcomeSuccess: "Generated",
     outcomeError: "Generation failed",
@@ -343,6 +345,9 @@ export const promptExpander = {
     characterPrompt: "Character {{index}}",
     negativePrompt: "Negative prompt",
     confirm: "Generate with this",
+    instructionChanged:
+      "You changed the source text after converting. This result was made from the earlier text.",
+    reExpand: "Convert the current text again",
     discard: "Discard",
   },
   entry: {
@@ -384,6 +389,7 @@ export const promptExpander = {
     regenerateTitle:
       "Generate again with this entry's prompt and settings, using a new random seed",
     useAsSource: "Use as i2i source",
+    clearSource: "Remove i2i source",
     makeCharacter: "Make a character",
     makingCharacter: "Making the character...",
     makeCharacterFailed: "Could not make the character",

@@ -72,6 +72,7 @@ export default function PromptExpanderEntryCard({
     restoreEntry,
     regenerateEntry,
     selectEntryAsSource,
+    clearSource,
     selectEntryAsReference,
     deleteEntry,
     source,
@@ -396,9 +397,13 @@ export default function PromptExpanderEntryCard({
           <button
             type="button"
             className={`prompt-expander__btn prompt-expander__btn--sm ${isCurrentSource ? "prompt-expander__btn--primary" : ""}`}
-            onClick={() => selectEntryAsSource(entry)}
+            onClick={() =>
+              isCurrentSource ? clearSource() : selectEntryAsSource(entry)
+            }
           >
-            {t("promptExpander.entry.useAsSource")}
+            {isCurrentSource
+              ? t("promptExpander.entry.clearSource")
+              : t("promptExpander.entry.useAsSource")}
           </button>
           <button
             type="button"

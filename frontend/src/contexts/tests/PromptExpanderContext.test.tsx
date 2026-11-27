@@ -336,6 +336,11 @@ function Probe() {
       </div>
       <div data-testid="image-model">{ctx.settings.image_model}</div>
       <div data-testid="entries">{ctx.entries.map((e) => e.id).join(",")}</div>
+      <div data-testid="pending-targets">
+        {(["positive", "negative"] as const)
+          .filter((target) => ctx.pendingExpansions[target] !== null)
+          .join(",") || "none"}
+      </div>
       <div data-testid="pending-expansion">
         {ctx.pendingExpansion ? JSON.stringify(ctx.pendingExpansion) : "none"}
       </div>
@@ -1908,5 +1913,69 @@ describe("PromptExpanderContext", () => {
       );
       expect(undoPatch.image_model).toBe(modelBefore);
     });
+  });
+  it("keeps the positive card when the negative field is converted, and keeps a card when re-conversion fails", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-negative" }));
+    await clickAndWaitPending("expand-positive");
+    expect(screen.getByTestId("pending-targets").textContent).toBe("positive");
+
+    // ネガティブ欄をプロンプト化しても、正プロンプトのカードは残る
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "expand-negative" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("pending-targets").textContent).toBe(
+        "positive,negative",
+      ),
+    );
+
+    // 再変換が失敗しても、今のカードは消えない
+    mockState.expandErrorCode = "llm_failed";
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "expand-positive" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("expanding").textContent).toBe("none"),
+    );
+    expect(screen.getByTestId("pending-targets").textContent).toBe(
+      "positive,negative",
+    );
+  });
+
+  it("keeps a separate draft for each session and restores it after a reload", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-negative" }));
+
+    // 別のセッションを開くと、そのセッションの書きかけ（ここでは空）に入れ替わる
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open-2" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("session").textContent).toBe("sess-2"),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("positive").textContent).toBe(""),
+    );
+    expect(screen.getByTestId("negative").textContent).toBe("");
+
+    // 元のセッションへ戻ると続きが戻る
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("positive").textContent).toBe("a cat girl"),
+    );
+    expect(screen.getByTestId("negative").textContent).toBe("blurry");
+
+    // 再読み込み（作り直し）しても、同じタブなら残る
+    cleanup();
+    await openSessionAndWait();
+    await waitFor(() =>
+      expect(screen.getByTestId("positive").textContent).toBe("a cat girl"),
+    );
+    expect(screen.getByTestId("negative").textContent).toBe("blurry");
   });
 });

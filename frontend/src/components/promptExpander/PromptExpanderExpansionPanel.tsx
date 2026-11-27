@@ -3,7 +3,8 @@
  *
  * 拡張した欄（正プロンプト / ネガティブ）の直下に表示し、結果を編集してから
  * 「欄へ反映」「この内容で生成」「破棄」のいずれかを選ぶ。
- * target が一致する pendingExpansion があるときだけ描画する。
+ * その欄の変換カード（pendingExpansions[target]）があるときだけ描画する。
+ * 正プロンプトのカードは、変換したときの原文と今の欄の内容が違えば、そのことと再変換の操作を出す。
  */
 
 import { useEffect, useState } from "react";
@@ -24,11 +25,14 @@ export default function PromptExpanderExpansionPanel({
 }: PromptExpanderExpansionPanelProps) {
   const { t } = useTranslation();
   const {
-    pendingExpansion,
+    pendingExpansions,
     applyExpansion,
     generateFromExpansion,
     discardExpansion,
+    expandPositive,
     generating,
+    expanding,
+    draftingScript,
     positiveText,
   } = usePromptExpander();
 
@@ -36,7 +40,7 @@ export default function PromptExpanderExpansionPanel({
   const [characters, setCharacters] = useState<string[] | null>(null);
   const [negative, setNegative] = useState("");
 
-  const active = pendingExpansion?.target === target ? pendingExpansion : null;
+  const active = pendingExpansions[target];
 
   // 拡張結果が届くたびに編集欄を初期化する
   useEffect(() => {
@@ -62,6 +66,12 @@ export default function PromptExpanderExpansionPanel({
   const title = isPositive
     ? t("promptExpander.expansion.titlePositive")
     : t("promptExpander.expansion.titleNegative");
+  // 変換したあとで原文を直したか（この候補は直す前の原文から作られている）
+  const instructionChanged =
+    isPositive &&
+    active.instruction !== null &&
+    positiveText.trim().length > 0 &&
+    positiveText.trim() !== active.instruction.trim();
 
   return (
     <section className="prompt-expander__expansion" aria-label={title}>
@@ -76,6 +86,22 @@ export default function PromptExpanderExpansionPanel({
       <p className="prompt-expander__hint">
         {t("promptExpander.expansion.hint")}
       </p>
+      {instructionChanged && (
+        <p
+          className="prompt-expander__hint prompt-expander__hint--warning prompt-expander__draft-done"
+          role="status"
+        >
+          <span>{t("promptExpander.expansion.instructionChanged")}</span>
+          <button
+            type="button"
+            className="prompt-expander__btn prompt-expander__btn--sm"
+            onClick={() => void expandPositive()}
+            disabled={generating || expanding || draftingScript}
+          >
+            {t("promptExpander.expansion.reExpand")}
+          </button>
+        </p>
+      )}
       {isPositive ? (
         <>
           <div className="prompt-expander__field">
@@ -144,7 +170,7 @@ export default function PromptExpanderExpansionPanel({
         <button
           type="button"
           className="prompt-expander__btn"
-          onClick={discardExpansion}
+          onClick={() => discardExpansion(target)}
           disabled={generating}
         >
           {t("promptExpander.expansion.discard")}

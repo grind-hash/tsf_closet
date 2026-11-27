@@ -2354,3 +2354,79 @@ test("notifications sit above the generate bar instead of over the header button
     .getByRole("button", { name: "設定" })
     .click();
 });
+
+test("an entry can be set and cleared as the i2i source, and the generate bar shows it", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await openSession(page);
+  const entry = page.locator(".prompt-expander__entry-list > li").first();
+  const bar = page.getByRole("toolbar", { name: "生成操作" });
+  await expect(bar.getByRole("button", { name: "i2i元あり" })).toHaveCount(0);
+  await entry.getByRole("button", { name: "i2i元にする" }).click();
+  // 選ぶと「解除」に変わり、生成バーにも出る
+  await expect(
+    entry.getByRole("button", { name: "i2i元を解除" }),
+  ).toBeVisible();
+  await expect(bar.getByRole("button", { name: "i2i元あり" })).toBeVisible();
+  await entry.getByRole("button", { name: "i2i元を解除" }).click();
+  await expect(
+    entry.getByRole("button", { name: "i2i元にする" }),
+  ).toBeVisible();
+  await expect(bar.getByRole("button", { name: "i2i元あり" })).toHaveCount(0);
+});
+
+test("the conversion card warns when the source text changed after converting", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+  await positiveField(page).fill("赤いドレスの女の子");
+  await positiveToolbar(page)
+    .getByRole("button", { name: "LLMでプロンプト化" })
+    .click();
+  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
+  await expect(card).toBeVisible();
+  await expect(card).not.toContainText("原文を変更しました");
+  // 原文だけ直すと、カードに案内と再変換が出る
+  await positiveField(page).fill("青いドレスの女の子");
+  await expect(card).toContainText("変換したあとで原文を変更しました");
+  await card.getByRole("button", { name: "いまの原文で再変換" }).click();
+  await expect.poll(() => state.expandBodies.length).toBe(2);
+  expect(state.expandBodies[1]).toMatchObject({
+    instruction: "青いドレスの女の子",
+  });
+  await expect(card).not.toContainText("原文を変更しました");
+});
+
+test("after editing a drafted storyboard, the original synopsis can still be viewed", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  await mockPromptExpanderApis(page);
+  await openSession(page);
+  await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
+  await page
+    .locator(".prompt-expander__switch", { hasText: "漫画モード" })
+    .click();
+  const synopsis = "放課後、彼女が制服姿に変わってしまい戸惑う";
+  await positiveField(page).fill(synopsis);
+  await page
+    .getByRole("button", { name: "あらすじからネームを下書き" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "元の文に戻す" }),
+  ).toBeVisible();
+  // 1 文字足すと「元の文に戻す」は消えるが、元のあらすじは見られる
+  await positiveField(page).press("End");
+  await positiveField(page).type("！");
+  await expect(page.getByRole("button", { name: "元の文に戻す" })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "元のあらすじを見る" }).click();
+  await expect(page.locator(".prompt-expander__synopsis-text")).toHaveText(
+    synopsis,
+  );
+});

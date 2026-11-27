@@ -132,6 +132,7 @@ export const guide = {
           'In the prompt field, Ctrl+Enter (⌘+Enter on Mac) runs "Convert to prompt", and Ctrl+Shift+Enter generates.',
           "Click a chip in the generate bar at the bottom (model, comic, precise reference and so on) to open that setting's section and jump to it. Anlas and the V5 limit are always shown in this bar.",
           'When generation finishes, the generate bar shows "Show result" (or "Show details" on failure) to jump to the new image or the error. If "Restore to fields" replaced what you were writing, use "Undo" below the prompt field.',
+          'What you are writing in the fields is kept per session, so it comes back when you switch sessions or reload the page (closing the tab clears it). If you edit the source text after converting, the review panel says so, and "Convert the current text again" rebuilds it.',
         ],
       },
       {

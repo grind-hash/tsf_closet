@@ -385,6 +385,8 @@ export default function PromptExpanderComposer() {
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [revealSectionId]);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  // ネームを手直ししたあとに、元のあらすじを開いて見比べているか
+  const [showSynopsis, setShowSynopsis] = useState(false);
   const [seedDraft, setSeedDraft] = useState<string | null>(null);
   const positiveRef = useRef<HTMLTextAreaElement>(null);
   const negativeRef = useRef<HTMLTextAreaElement>(null);
@@ -1087,6 +1089,26 @@ export default function PromptExpanderComposer() {
                 {t("promptExpander.composer.draftUndo")}
               </button>
             </p>
+          )}
+          {/* ネームを手直ししたあとも、書き直した台詞を保ったまま元のあらすじと見比べられるようにする */}
+          {scriptDraftBackup && positiveText !== scriptDraftBackup.script && (
+            <div className="prompt-expander__synopsis">
+              <button
+                type="button"
+                className="prompt-expander__btn prompt-expander__btn--sm"
+                onClick={() => setShowSynopsis((open) => !open)}
+                aria-expanded={showSynopsis}
+              >
+                {showSynopsis
+                  ? t("promptExpander.composer.synopsisHide")
+                  : t("promptExpander.composer.synopsisShow")}
+              </button>
+              {showSynopsis && (
+                <p className="prompt-expander__synopsis-text">
+                  {scriptDraftBackup.source}
+                </p>
+              )}
+            </div>
           )}
           {mangaActive && (
             <>

@@ -100,6 +100,8 @@ export const promptExpander = {
     draftDone:
       "あらすじからネームを下書きしました。手直ししてから「LLMでプロンプト化」してください。",
     draftUndo: "元の文に戻す",
+    synopsisShow: "元のあらすじを見る",
+    synopsisHide: "元のあらすじを閉じる",
     notation: {
       toolbar: "漫画の記法を挿入",
       speech: "セリフ",
@@ -291,8 +293,7 @@ export const promptExpander = {
     disabledNoSession: "セッションを開いてください",
     disabledTooMany: "キャラクタープロンプトが上限を超えています",
     disabledEmptyPrompt: "プロンプト／指示を入力してください",
-    disabledPendingExpansion:
-      "変換結果を「欄へ反映」するか「破棄」してから生成してください",
+    disabledPendingExpansion: "変換結果を確認してください（欄へ反映か破棄）",
     generatingHint: "画像を生成しています…",
   },
   inpaint: {
@@ -325,6 +326,7 @@ export const promptExpander = {
     chipManga: "漫画",
     chipInpaint: "インペイント",
     chipReference: "精密参照",
+    chipSource: "i2i元あり",
     chipJumpTitle: "「{{label}}」の設定欄を開きます",
     outcomeSuccess: "生成しました",
     outcomeError: "生成に失敗しました",
@@ -342,6 +344,9 @@ export const promptExpander = {
     characterPrompt: "キャラクター {{index}}",
     negativePrompt: "ネガティブプロンプト",
     confirm: "この内容で生成",
+    instructionChanged:
+      "変換したあとで原文を変更しました。この変換結果は変更前の原文から作られています。",
+    reExpand: "いまの原文で再変換",
     discard: "破棄",
   },
   entry: {
@@ -382,6 +387,7 @@ export const promptExpander = {
     regenerateTitle:
       "このエントリのプロンプト・設定のまま、新しいシードで生成し直します",
     useAsSource: "i2i元にする",
+    clearSource: "i2i元を解除",
     makeCharacter: "キャラクターにする",
     makingCharacter: "キャラクターを作っています...",
     makeCharacterFailed: "キャラクターを作れませんでした",
