@@ -79,19 +79,46 @@ CHARACTER_ITEMS_NAMED_SHAPE = '"character_prompts":[{"name":"...","prompt":"..."
 
 CAST_CHARACTER_RULE = (
     "\n- Cast: the user message lists named characters whose look is fixed by "
-    'reference images. Each character_prompts item is an object: "name" is the '
-    "cast name when that item shows the cast member looking as described in the "
-    'cast list, otherwise an empty string "" (for example another character, or '
-    "the cast member in a different form such as before a transformation); "
-    '"prompt" is the character prompt written by the rules above. For a cast '
-    "member, include their appearance from the cast list (hair color, hair length, "
-    "hairstyle, eye color, and clothing with colors) unless the instruction "
-    "explicitly changes it, then add expression, pose, and action."
-    "\n- The image model cannot read names. Identify every character by appearance "
-    '(for example "the pink-haired girl"), never by a cast name, in prompts and '
-    "panel descriptions. A cast name may appear only inside quoted dialogue that "
-    "itself mentions the name."
+    "reference images, each with a token such as [[1]]. Each character_prompts "
+    'item is an object: "name" is the cast name when that item shows the cast '
+    "member looking as described in the cast list, otherwise an empty string "
+    '"" (for example another character, or the cast member in a different form '
+    'such as before a transformation); "prompt" is the character prompt written '
+    "by the rules above. For a cast member, include their appearance from the "
+    "cast list (hair color, hair length, hairstyle, eye color, and clothing with "
+    "colors) unless the instruction explicitly changes it."
+    "\n- The image model cannot read names. Never write a cast name anywhere "
+    "except inside quoted dialogue that itself mentions the name. Wherever "
+    "base_prompt or panel_description refers to a cast member, write their token "
+    "exactly as given (for example: [[1]] waves at [[2]]); the server replaces "
+    "each token with a short visual description. Describe characters outside the "
+    "cast by appearance."
 )
+
+# キャストの目印。LLM にはこの形でコマ説明に書かせ、サーバーが見た目の言い回しに置き換える
+_CAST_TOKEN_PATTERN = re.compile(r"\[\[\s*(\d{1,2})\s*\]\]")
+
+
+def cast_token(index: int) -> str:
+    """キャストの 1 始まりの番号から目印（[[1]] など）を作る。"""
+    return f"[[{index}]]"
+
+
+def replace_cast_tokens(text: str, descriptions: Sequence[str]) -> str:
+    """目印 [[n]] を n 番目のキャストの見た目の言い回しに置き換える。
+
+    範囲外の番号は消す（画像モデルに目印の文字列を渡さないため）。
+    """
+    if not text or "[[" not in text:
+        return text
+
+    def _sub(match: re.Match[str]) -> str:
+        index = int(match.group(1)) - 1
+        return descriptions[index] if 0 <= index < len(descriptions) else ""
+
+    replaced = _CAST_TOKEN_PATTERN.sub(_sub, text)
+    return re.sub(r"[ \t]{2,}", " ", replaced)
+
 
 MANGA_SCRIPT_CAST_RULE = (
     "\n- A cast list is given with the synopsis. Use those names for the "
@@ -100,18 +127,68 @@ MANGA_SCRIPT_CAST_RULE = (
 )
 
 
-def build_cast_block(cast: Sequence[CastMember]) -> str:
-    """登場人物の一覧を user プロンプト用の文にする。空なら ""。"""
+_QUOTE_OPEN_CLOSE = {'"': '"', "“": "”", "「": "」", "『": "』"}
+
+
+def strip_quoted_segments(prompt: str) -> str:
+    """カンマ区切りのプロンプトから、引用符を含む要素（台詞の吹き出し）を除く。
+
+    引用符の中のカンマでは区切らない。キャストのいる漫画でキャラ枠に台詞が
+    残ると、そのキャラが出る全コマに同じ吹き出しが描かれるための安全策。
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    closing: str | None = None
+    for char in prompt or "":
+        if closing is not None:
+            current.append(char)
+            if char == closing:
+                closing = None
+            continue
+        if char in _QUOTE_OPEN_CLOSE:
+            closing = _QUOTE_OPEN_CLOSE[char]
+            current.append(char)
+            continue
+        if char == ",":
+            tokens.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    tokens.append("".join(current))
+    kept = [
+        token.strip()
+        for token in tokens
+        if token.strip() and not any(q in token for q in '"“”「」『』')
+    ]
+    return ", ".join(kept)
+
+
+def build_cast_block(
+    cast: Sequence[CastMember], *, descriptions: Sequence[str] | None = None
+) -> str:
+    """登場人物の一覧を user プロンプト用の文にする。空なら ""。
+
+    descriptions（見た目の言い回し）を渡すと、プロンプト化用に目印 [[n]] と
+    置き換え後の言い回しも並べる。ネーム下書きでは名前だけで足りるので渡さない。
+    """
     members = dedupe_cast(cast)
     if not members:
         return ""
+    appearance = [m.appearance_tags or "appearance not specified" for m in members]
+    if descriptions is None:
+        lines = [f"- {m.name}: {a}" for m, a in zip(members, appearance, strict=True)]
+        return (
+            "Cast (named characters fixed by reference images; name: appearance):\n"
+            + "\n".join(lines)
+        )
     lines = [
-        f"- {member.name}: {member.appearance_tags or 'appearance not specified'}"
-        for member in members
+        f"- {cast_token(index)} {m.name} (drawn as: "
+        f"{descriptions[index - 1] if index <= len(descriptions) else 'a character'}): {a}"
+        for index, (m, a) in enumerate(zip(members, appearance, strict=True), start=1)
     ]
     return (
-        "Cast (named characters fixed by reference images; name: appearance):\n"
-        + "\n".join(lines)
+        "Cast (named characters fixed by reference images; token name (drawn as: "
+        "visual description): appearance):\n" + "\n".join(lines)
     )
 
 
@@ -525,57 +602,200 @@ def _manga_text_tags(
     return ", ".join(tags)
 
 
+def _manga_panel_count_rule(
+    options: MangaOptions, notation: MangaNotation | None
+) -> str:
+    notation_max = notation.max_panel if notation is not None else None
+    if options.panel_count <= PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO:
+        if notation_max:
+            count = min(notation_max, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)
+            plural = "s" if count != 1 else ""
+            return (
+                f"Describe exactly {count} comic panel{plural}, following the panel "
+                "numbers written in the instruction."
+            )
+        return (
+            "Decide how many comic panels (between 2 and 4) best fit the user's "
+            "instruction, then describe each panel."
+        )
+    count = min(options.panel_count, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)
+    plural = "s" if count != 1 else ""
+    return f"Describe exactly {count} comic panel{plural}."
+
+
+def _manga_direction(options: MangaOptions) -> MangaReadingDirection:
+    return (
+        options.reading_direction
+        if options.reading_direction in ("rtl", "ltr")
+        else "rtl"
+    )
+
+
+# キャストのいる漫画は、コマ説明を LLM に文で書かせず、コマごとの中身を JSON で受けて
+# サーバーが組み立てる。画像モデルはコマの中で先に書かれた人物を描き、後の人物を落とし
+# やすく、台詞は描かれた人物に付くため、話す人物を先に・台詞を同じ文に・人数を明記する
+# 形に揃える（V5 の実生成で、この形なら話者の取り違えが無くなることを確認）。
+# キャラ枠はそのキャラが出る全コマに効くので、外見と服だけを入れさせる。
+MANGA_CAST_SYSTEM_PROMPT_TEMPLATE = """You are a NovelAI Diffusion V5 image generation prompt expert for TSF and outfit-change scenarios, specialized in multi-panel comic (manga) pages with speech bubbles.
+Convert the user's Japanese or English instruction into the content of one comic page. The server writes the final panel description from your JSON, so fill in each field exactly as asked.
+
+Requirements:
+- Output JSON only with this exact shape: {{"base_tags":"...","panels":[{{"position":"...","people":[{{"who":"[[1]]","action":"...","says":["..."],"thinks":["..."]}}],"scene":"...","narration":"","sfx":""}}],"character_prompts":[{{"name":"...","prompt":"..."}}]}}. Do not output Markdown, explanations, labels, or prose outside the JSON.
+- base_tags: concise comma-separated English Danbooru-style tags for the whole page only: the total number of distinct characters on the page as count tokens (for example "2girls" or "1boy, 1girl"), style and quality tags, and {text_tags}. Do not describe individual panels or characters here.
+- panels: {panel_count_rule} One object per panel, in reading order. {reading_rule} "position" is where the panel sits on the page (top right, top left, bottom right, bottom left, rightmost, leftmost, full-width bottom, ...).{layout_rule}
+- people: every character visible in that panel. "who" is the cast token exactly as listed (for example [[1]]) for a cast member, or a short English visual description (for example "a waiter in a black apron") for anyone else; never a name. "action" is that person's own action, pose, and expression in this panel as a short English phrase without a subject (for example "standing happily and holding a large cardboard box"). "says" lists that person's spoken lines in this panel and "thinks" lists their unspoken thoughts; leave them empty when the person does not speak.
+- scene: the background, props, and camera of that panel as a short English phrase, without people (for example "a bedroom, a cardboard box on the floor, medium shot").
+- Inside "action" and "scene", refer to a cast member only by their token (for example "looking up at [[2]]" or "the bedroom of [[1]]"), never by name.
+- {notation_rule}
+- {dialogue_rule}
+- {sfx_rule}
+- {narration_rule}
+- character_prompts: Return between 1 and {max_characters} items, exactly one per distinct character on the page (not one per panel). Each item is an object: "name" is the cast name when the item shows the cast member looking as described in the cast list, otherwise an empty string "" (for example another character, or the cast member in a different form such as before a transformation); "prompt" contains only the look that stays the same in every panel: identity, face, hair, eyes, body, and clothing as concise comma-separated English Danbooru-style tags. For a cast member, include their appearance from the cast list (hair color, hair length, hairstyle, eye color, and clothing with colors) unless the instruction explicitly changes it. A character prompt applies to every panel the character appears in, so never put actions, poses, expressions, held items, or speech in it.
+- Everything except the text inside "says", "thinks", "narration", and "sfx" must be written in English. Never write names: the image model cannot read them.
+- The only written words that may appear in the image are the dialogue, thoughts, narration boxes, and sound effects in those fields. Do not describe titles, signs, labels, or any other on-screen text.
+- The same character must keep identical identity, hair, eyes, body, and clothing across all panels unless the story explicitly changes them. If a character's appearance changes between panels (for example a TSF transformation), describe each stage in that person's "action" and make the character_prompts item describe the final stage.
+- Apply every explicit change requested by the user, including TSF/body transformation, clothing, appearance, pose, expression, camera, lighting, and scene changes.
+- Prefer specific visual wording over abstract or emotional wording."""
+
+
+MANGA_CAST_READING_RULES: dict[str, str] = {
+    "rtl": (
+        "Reading order is Japanese manga style: right to left, then top to bottom; "
+        "the first panel is at the top right."
+    ),
+    "ltr": (
+        "Reading order is Western style: left to right, then top to bottom; the "
+        'first panel is at the top left. Include the tag "left-to-right manga" in '
+        "base_tags."
+    ),
+}
+MANGA_CAST_LAYOUT_HINTS: dict[str, str] = {
+    "auto": "",
+    "vertical": (
+        " The panels are stacked vertically, so use positions such as top, middle, "
+        "and bottom."
+    ),
+    "horizontal": (
+        " The panels sit side by side in a single row, so use positions such as "
+        "rightmost, middle, and leftmost."
+    ),
+    "grid": (
+        " The panels form a grid of two columns, so use positions such as top "
+        "right, top left, bottom right, and bottom left."
+    ),
+}
+# 組み立てたコマ説明の冒頭に置くコマ割りの説明
+MANGA_CAST_LAYOUT_STATEMENTS: dict[str, dict[str, str]] = {
+    "auto": {"rtl": "", "ltr": ""},
+    "vertical": {
+        "rtl": "The panels are stacked vertically from top to bottom.",
+        "ltr": "The panels are stacked vertically from top to bottom.",
+    },
+    "horizontal": {
+        "rtl": "The panels are arranged side by side in a single row.",
+        "ltr": "The panels are arranged side by side in a single row.",
+    },
+    "grid": {
+        "rtl": "The panels are arranged in a grid of two columns.",
+        "ltr": "The panels are arranged in a grid of two columns.",
+    },
+}
+
+
+def build_manga_cast_system_prompt(
+    *,
+    options: MangaOptions,
+    max_characters: int,
+    notation: MangaNotation | None = None,
+) -> str:
+    """キャストのいる漫画の system プロンプト本体（コマごとの中身を JSON で返させる）。"""
+    direction = _manga_direction(options)
+    text_language = _manga_text_language_phrase(options.text_language)
+    corner = "top right" if direction == "rtl" else "top left"
+    notation_rule = (
+        "Notation in the user instruction: 「...」 is a spoken line, 『...』 is an "
+        "unspoken thought, 【...】 is a narration box (usually in the "
+        f"{corner} corner of the panel), 《...》 is a sound effect, and a line "
+        'starting with ①②③ or "1:" belongs to that panel number. A name written '
+        "right before 「...」 or 『...』 is the speaker: put the line in that "
+        'person\'s "says" or "thinks" in the panel it belongs to, and make '
+        "sure that person is listed in that panel's people. Copy every marked "
+        "text verbatim (do not translate, paraphrase, shorten, or drop it). Empty "
+        "brackets such as 「」 or 【】 mean: place that kind of text there and "
+        f"write suitable content yourself in {text_language}."
+    )
+    if options.dialogue:
+        dialogue_rule = (
+            "Lines in says and thinks are rendered as written: they must be in "
+            f"{text_language}, short (at most 12 words or 20 Japanese characters "
+            "per bubble). Give most panels a short line that carries the story."
+        )
+    else:
+        dialogue_rule = (
+            "Leave says and thinks empty except for the lines marked with 「...」 "
+            "or 『...』 in the instruction."
+        )
+    if options.sound_effects:
+        sfx_rule = (
+            "sfx: at most one short onomatopoeia per panel when it fits the action "
+            f"(in {text_language}), otherwise an empty string."
+        )
+    else:
+        sfx_rule = (
+            "sfx: only sound effects marked with 《...》 in the instruction, "
+            "otherwise an empty string."
+        )
+    if options.narration:
+        narration_rule = (
+            "narration: besides the ones marked with 【...】, at most one short "
+            "narration box per panel where a scene change, time skip, or story "
+            f"voice helps (in {text_language}, at most 20 Japanese characters or "
+            "12 words), otherwise an empty string."
+        )
+    else:
+        narration_rule = (
+            "narration: only text marked with 【...】 in the instruction, otherwise "
+            "an empty string. Do not invent narration boxes or captions."
+        )
+    return MANGA_CAST_SYSTEM_PROMPT_TEMPLATE.format(
+        text_tags=_manga_text_tags(options, notation),
+        panel_count_rule=_manga_panel_count_rule(options, notation),
+        reading_rule=MANGA_CAST_READING_RULES[direction],
+        layout_rule=MANGA_CAST_LAYOUT_HINTS.get(options.layout, ""),
+        max_characters=max_characters,
+        notation_rule=notation_rule,
+        dialogue_rule=dialogue_rule,
+        sfx_rule=sfx_rule,
+        narration_rule=narration_rule,
+    )
+
+
 def build_manga_system_prompt(
     *,
     options: MangaOptions,
     character_mode: bool,
     max_characters: int,
     notation: MangaNotation | None = None,
+    with_cast: bool = False,
 ) -> str:
     """漫画モードの system プロンプト本体（成人向けルール・メモリ節は呼び出し側で付与）。
 
     拡張モード（日本語／タグ）には依存しない。引用符内のセリフ・効果音以外は常に英語。
     notation（指示文の記法）があれば、コマ数のおまかせは記法のコマ番号に合わせる。
     """
-    notation_max = notation.max_panel if notation is not None else None
-    if options.panel_count <= PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO:
-        if notation_max:
-            count = min(notation_max, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)
-            plural = "s" if count != 1 else ""
-            panel_count_rule = (
-                f"Describe exactly {count} comic panel{plural}, following the panel "
-                "numbers written in the instruction."
-            )
-        else:
-            panel_count_rule = (
-                "Decide how many comic panels (between 2 and 4) best fit the user's "
-                "instruction, then describe each panel."
-            )
-    else:
-        count = min(options.panel_count, PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX)
-        plural = "s" if count != 1 else ""
-        panel_count_rule = f"Describe exactly {count} comic panel{plural}."
-    direction = (
-        options.reading_direction
-        if options.reading_direction
-        in (
-            "rtl",
-            "ltr",
+    if character_mode and with_cast:
+        return build_manga_cast_system_prompt(
+            options=options, max_characters=max_characters, notation=notation
         )
-        else "rtl"
-    )
+    panel_count_rule = _manga_panel_count_rule(options, notation)
+    direction = _manga_direction(options)
     layout_rule = MANGA_LAYOUT_RULES.get(options.layout, MANGA_LAYOUT_RULES["auto"])[
         direction
     ]
 
-    # キャラ枠があるときも、コマ説明に話者の見た目と台詞を書かせると吹き出しが
-    # 正しいコマ・話者に入りやすい（V5 の実生成で確認）
     speech_target = (
         "the speaking character's character_prompts item, naming the panel when "
-        "the character speaks in more than one panel, and also repeat the same "
-        "line in panel_description inside the panel where it is spoken, naming "
-        "the speaker by appearance (for example: shows the pink-haired girl "
-        'waving and saying "...")'
+        "the character speaks in more than one panel"
         if character_mode
         else "panel_description, right after the panel where it is spoken"
     )
@@ -908,6 +1128,7 @@ def build_positive_system_prompt(
             character_mode=character_mode,
             max_characters=max_characters,
             notation=manga_notation,
+            with_cast=with_cast,
         )
     elif mode == "japanese":
         base = (
@@ -921,7 +1142,8 @@ def build_positive_system_prompt(
             if character_mode
             else BASE_SYSTEM_PROMPT_TAGS
         )
-    if with_cast and character_mode:
+    # キャストのいる漫画は専用の本体（コマごとの JSON）にキャストの規則が入っている
+    if with_cast and character_mode and manga is None:
         base = (
             base.replace(CHARACTER_ITEMS_PLAIN_SHAPE, CHARACTER_ITEMS_NAMED_SHAPE)
             + CAST_CHARACTER_RULE
@@ -951,10 +1173,11 @@ def build_positive_user_prompt(
     manga: bool = False,
     manga_notation: MangaNotation | None = None,
     cast: Sequence[CastMember] = (),
+    cast_descriptions: Sequence[str] = (),
 ) -> str:
     """正プロンプト拡張の user プロンプトを組み立てる（移植元の形式を踏襲）。
 
-    キャラ枠 ON のときだけ cast（登場人物の一覧）を足す。
+    キャラ枠 ON のときだけ cast（登場人物の一覧。目印 [[n]] と見た目の言い回し付き）を足す。
     """
     parts = [
         "Current positive prompt:\n"
@@ -968,7 +1191,7 @@ def build_positive_user_prompt(
         if lines:
             parts.append("Current character prompts:\n" + "\n".join(lines))
     if character_mode:
-        cast_block = build_cast_block(cast)
+        cast_block = build_cast_block(cast, descriptions=cast_descriptions)
         if cast_block:
             parts.append(cast_block)
     if context_description and context_description.strip():
@@ -1255,6 +1478,243 @@ def parse_manga_json(
         raw, max_characters=max_characters, character_mode=character_mode
     )
     return base, None if items is None else [prompt for _, prompt in items]
+
+
+@dataclass(frozen=True)
+class CastLook:
+    """キャストをコマ説明で指す言い回しと、人数・代名詞を決める名詞（girl など）。"""
+
+    description: str
+    noun: str = "character"
+
+
+_NOUN_PLURALS = {
+    "girl": "girls",
+    "boy": "boys",
+    "woman": "women",
+    "man": "men",
+    "person": "people",
+    "character": "characters",
+}
+_NOUN_PRONOUNS = {"girl": "her", "woman": "her", "boy": "him", "man": "him"}
+_ORDINALS = (
+    "first",
+    "second",
+    "third",
+    "fourth",
+    "fifth",
+    "sixth",
+    "seventh",
+    "eighth",
+    "ninth",
+    "tenth",
+    "eleventh",
+    "twelfth",
+)
+_NUMBER_WORDS = (
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+)
+_MAX_COMPOSED_PANELS = len(_ORDINALS)
+
+
+def _clean_phrase(value: object) -> str:
+    text = " ".join(str(value or "").split())
+    return text.replace('"', "").strip().rstrip(".").strip()
+
+
+def _clean_lines(value: object) -> list[str]:
+    items = value if isinstance(value, list) else [value] if value else []
+    lines = []
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        line = " ".join(item.split()).replace('"', "").strip()
+        if line:
+            lines.append(line)
+    return lines
+
+
+def _number_word(count: int) -> str:
+    return _NUMBER_WORDS[count] if 0 <= count < len(_NUMBER_WORDS) else str(count)
+
+
+@dataclass(frozen=True)
+class _PanelPerson:
+    description: str
+    noun: str
+    action: str
+    says: tuple[str, ...]
+    thinks: tuple[str, ...]
+
+    @property
+    def speaks(self) -> bool:
+        return bool(self.says or self.thinks)
+
+    def phrase(self) -> str:
+        pronoun = _NOUN_PRONOUNS.get(self.noun, "them")
+        text = f"{self.description} {self.action}".strip()
+        for line in self.says:
+            text += f', with a speech bubble next to {pronoun} that says "{line}"'
+        for line in self.thinks:
+            text += f', with a thought cloud above {pronoun} that says "{line}"'
+        return text
+
+
+def _resolve_panel_person(
+    raw: dict, looks: Sequence[CastLook], cast_keys: Sequence[str]
+) -> _PanelPerson | None:
+    who = str(raw.get("who") or "").strip()
+    token = _CAST_TOKEN_PATTERN.search(who)
+    index: int | None = None
+    if token:
+        index = int(token.group(1)) - 1
+    elif normalize_cast_name(who) in cast_keys:
+        index = cast_keys.index(normalize_cast_name(who))
+    if index is not None and 0 <= index < len(looks):
+        description, noun = looks[index].description, looks[index].noun
+    else:
+        description = _clean_phrase(_CAST_TOKEN_PATTERN.sub("", who))
+        if not description:
+            return None
+        noun = "person"
+    return _PanelPerson(
+        description=description,
+        noun=noun,
+        action=_clean_phrase(raw.get("action")),
+        says=tuple(_clean_lines(raw.get("says"))),
+        thinks=tuple(_clean_lines(raw.get("thinks"))),
+    )
+
+
+def compose_cast_panel_description(
+    panels: Sequence[object],
+    *,
+    looks: Sequence[CastLook],
+    cast_names: Sequence[str],
+    reading_direction: str = "rtl",
+    layout: str = "auto",
+) -> str:
+    """コマごとの中身（JSON）からコマ説明の英文を組み立てる。
+
+    画像モデルはコマの中で先に書かれた人物を描き、後の人物を落としやすく、台詞は描かれた
+    人物に付く。そこで話す人物を先に置き、台詞を同じ文に入れ、人数を明記する。
+    """
+    direction = "ltr" if reading_direction == "ltr" else "rtl"
+    cast_keys = [normalize_cast_name(name) for name in cast_names]
+    usable = [panel for panel in panels if isinstance(panel, dict)]
+    usable = usable[:_MAX_COMPOSED_PANELS]
+    if not usable:
+        return ""
+    count = len(usable)
+    reading = (
+        "read from right to left" if direction == "rtl" else "read from left to right"
+    )
+    parts = [
+        f"There {'is' if count == 1 else 'are'} {_number_word(count)} comic "
+        f"panel{'' if count == 1 else 's'}, {reading}."
+    ]
+    statement = MANGA_CAST_LAYOUT_STATEMENTS.get(layout, {}).get(direction, "")
+    if statement:
+        parts.append(statement)
+    for ordinal, panel in zip(_ORDINALS, usable, strict=False):
+        people_raw = panel.get("people")
+        people = [
+            person
+            for person in (
+                _resolve_panel_person(item, looks, cast_keys)
+                for item in (people_raw if isinstance(people_raw, list) else [])
+                if isinstance(item, dict)
+            )
+            if person is not None
+        ]
+        # 話す人物を先に（同じ条件の中では元の順を保つ）
+        people.sort(key=lambda person: not person.speaks)
+        position = _clean_phrase(panel.get("position"))
+        head = f"The {ordinal} panel" + (f", at the {position}," if position else "")
+        scene = _clean_phrase(panel.get("scene"))
+        if not people:
+            sentence = f"{head} shows {scene or 'the scene'}."
+        elif len(people) == 1:
+            sentence = f"{head} shows {people[0].phrase()}."
+        else:
+            nouns = {person.noun for person in people}
+            plural = (
+                _NOUN_PLURALS.get(next(iter(nouns)), "people")
+                if len(nouns) == 1
+                else "people"
+            )
+            phrases = [person.phrase() for person in people]
+            joined = ", ".join(phrases[:-1]) + f", and {phrases[-1]}"
+            sentence = f"{head} shows {_number_word(len(people))} {plural}: {joined}."
+        if people and scene:
+            sentence += f" Background: {scene}."
+        narration = _clean_lines(panel.get("narration"))
+        for text in narration:
+            sentence += f' There\'s a narration box at the top of the panel that reads "{text}".'
+        for text in _clean_lines(panel.get("sfx")):
+            sentence += f' There\'s also a "{text}" sound effect.'
+        parts.append(sentence)
+    return " ".join(parts)
+
+
+def parse_manga_cast_json(
+    raw: str,
+    *,
+    max_characters: int,
+    looks: Sequence[CastLook],
+    cast_names: Sequence[str],
+    reading_direction: str = "rtl",
+    layout: str = "auto",
+) -> tuple[str, list[tuple[str, str]]]:
+    """キャストのいる漫画の出力（base_tags・panels・character_prompts）を解析する。
+
+    panels からコマ説明を組み立ててタグ見出しと結合する。panels が無く従来の
+    panel_description が返ったときはそれを使う（目印の置き換えは呼び出し側）。
+    """
+    data = _load_json_object(raw)
+    if not isinstance(data, dict):
+        raise PromptExpanderOutputError("漫画プロンプトのJSON形式が不正です。")
+    tags_raw = data.get("base_tags")
+    if not isinstance(tags_raw, str):
+        raise PromptExpanderOutputError("base_tagsが不正です。")
+    tags = sanitize_tag_prompt(tags_raw, ensure_quality=True)
+    panels = data.get("panels")
+    description = ""
+    if isinstance(panels, list):
+        description = compose_cast_panel_description(
+            panels,
+            looks=looks,
+            cast_names=cast_names,
+            reading_direction=reading_direction,
+            layout=layout,
+        )
+    if not description and isinstance(data.get("panel_description"), str):
+        description = sanitize_prose_prompt(data["panel_description"])
+    if not description:
+        raise PromptExpanderOutputError("コマの内容が空です。")
+    base = f"{tags}, {description}" if tags else description
+    characters_raw = data.get("character_prompts")
+    if not isinstance(characters_raw, list):
+        raise PromptExpanderOutputError("character_promptsが不正です。")
+    items = _parse_character_items(
+        characters_raw,
+        lambda text: sanitize_tag_prompt(text, ensure_quality=False),
+    )
+    if not items:
+        raise PromptExpanderOutputError("キャラクタープロンプトが空です。")
+    return base, items[:max_characters]
 
 
 def parse_manga_json_named(

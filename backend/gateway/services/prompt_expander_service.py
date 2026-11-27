@@ -80,6 +80,7 @@ from .clothing_layers import normalize_tag_for_match
 from .image_generation import ImageGenerationResult, image_service
 from .llm_service import llm_service
 from .prompt_expander_prompts import (
+    CastLook,
     CastMember,
     ExpandMode,
     MangaOptions,
@@ -95,11 +96,14 @@ from .prompt_expander_prompts import (
     extract_manga_notation,
     normalize_cast_name,
     parse_character_json_named,
+    parse_manga_cast_json,
     parse_manga_json_named,
     parse_suggestions_json,
+    replace_cast_tokens,
     replace_false_friend_tokens,
     sanitize_by_mode,
     sanitize_manga_script,
+    strip_quoted_segments,
 )
 from .session import DEFAULT_USER_ID, session_store
 from .settings_service import settings_service
@@ -480,6 +484,7 @@ def _load_entry_references(entry: PromptExpanderEntry) -> list[dict[str, Any]]:
                     "strength": strength,
                     "fidelity": _optional_float(item.get("fidelity")),
                     "name": _optional_str(item.get("name")),
+                    "appearance_tags": _optional_str(item.get("appearance_tags")),
                 }
             )
         return items
@@ -500,6 +505,7 @@ def _load_entry_references(entry: PromptExpanderEntry) -> list[dict[str, Any]]:
             ),
             "fidelity": entry.reference_fidelity,
             "name": None,
+            "appearance_tags": None,
         }
     ]
 
@@ -1035,6 +1041,20 @@ async def _call_llm(system_prompt: str, user_prompt: str, text_model: str) -> st
     return content
 
 
+def _cast_looks(cast: Sequence[CastMember]) -> list[CastLook]:
+    """キャストごとに、コマ説明で指す見た目の言い回しと名詞（girl など）を作る。"""
+    # identity_signature → source_snapshot → この module の順に import されるため遅延 import する
+    from .identity_signature import describe_identity, identity_noun
+
+    return [
+        CastLook(
+            description=describe_identity(member.appearance_tags),
+            noun=identity_noun(member.appearance_tags),
+        )
+        for member in cast
+    ]
+
+
 def _fill_cast_appearance(
     prompts: list[str], names: Sequence[str], cast: Sequence[CastMember]
 ) -> list[str]:
@@ -1100,6 +1120,8 @@ async def expand_prompts(
     )
     context_description = source.context_description if inherit else None
     cast = dedupe_cast(params.cast) if params.character_mode else []
+    cast_looks = _cast_looks(cast)
+    cast_descriptions = [look.description for look in cast_looks]
 
     result = ExpandResult(text_model=params.text_model)
 
@@ -1135,18 +1157,42 @@ async def expand_prompts(
             manga=params.manga is not None,
             manga_notation=notation,
             cast=cast,
+            cast_descriptions=cast_descriptions,
         )
         raw = await _call_llm(system_prompt, user_prompt, params.text_model)
         character_names: list[str] = []
         try:
-            if params.manga is not None:
+            if params.manga is not None and cast:
+                # キャストのいる漫画はコマごとの JSON からコマ説明を組み立てる
+                base, cast_items = parse_manga_cast_json(
+                    raw,
+                    max_characters=max_characters,
+                    looks=cast_looks,
+                    cast_names=[member.name for member in cast],
+                    reading_direction=params.manga.reading_direction,
+                    layout=params.manga.layout,
+                )
+                items: list[tuple[str, str]] | None = cast_items
+            elif params.manga is not None:
                 base, items = parse_manga_json_named(
                     raw,
                     max_characters=max_characters,
                     character_mode=params.character_mode,
                 )
+            if params.manga is not None:
+                if items is not None and cast:
+                    # キャラ枠は全コマに効くので、台詞が残っていたら除く（台詞はコマ説明へ）
+                    items = [(n, strip_quoted_segments(p)) for n, p in items]
+                    items = [(n, p) for n, p in items if p]
                 characters = None if items is None else [p for _, p in items]
                 character_names = [] if items is None else [n for n, _ in items]
+                if cast:
+                    base = replace_cast_tokens(base, cast_descriptions)
+                    if characters is not None:
+                        characters = [
+                            replace_cast_tokens(c, cast_descriptions)
+                            for c in characters
+                        ]
                 if notation is not None:
                     base = ensure_manga_notation_texts(base, characters, notation)
                 result.positive_prompt = base
@@ -1155,6 +1201,11 @@ async def expand_prompts(
                 base, items = parse_character_json_named(
                     raw, max_characters=max_characters, mode=params.positive_mode
                 )
+                if cast:
+                    base = replace_cast_tokens(base, cast_descriptions)
+                    items = [
+                        (n, replace_cast_tokens(p, cast_descriptions)) for n, p in items
+                    ]
                 result.positive_prompt = base
                 result.character_prompts = [p for _, p in items]
                 character_names = [n for n, _ in items]
@@ -1337,8 +1388,9 @@ class ReferenceParams:
     include_outfit: bool = False
     strength: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH
     fidelity: float = DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY
-    # 登場人物としての名前（エントリの表示用。生成には影響しない）
+    # 登場人物としての名前と外見タグ（エントリの表示・「欄へ復元」用。生成には影響しない）
     name: str | None = None
+    appearance_tags: str | None = None
 
 
 @dataclass
@@ -1507,6 +1559,7 @@ def _reference_record(
         "strength": reference.strength,
         "fidelity": None if reference_is_v5 else reference.fidelity,
         "name": (reference.name or "").strip() or None,
+        "appearance_tags": (reference.appearance_tags or "").strip() or None,
     }
 
 

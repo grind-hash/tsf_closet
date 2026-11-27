@@ -188,6 +188,18 @@ const fetchMock = vi.fn(
       }
       return jsonResponse(payload);
     }
+    if (url === "/api/game/character-presets/preset-1") {
+      return jsonResponse({
+        id: "preset-1",
+        name: "サクラ",
+        appearance_tags: "1girl, pink hair (preset)",
+        portrait_url: "/game/character-presets/preset-1/images/portrait.png",
+        thumbnail_url: null,
+      });
+    }
+    if (url === "/api/game/character-presets/preset-gone") {
+      return jsonResponse({ detail: { code: "preset_not_found" } }, 404);
+    }
     if (url === "/api/game/anlas") {
       return jsonResponse(anlasPayload());
     }
@@ -280,6 +292,19 @@ function Probe() {
       <div data-testid="reference-cost">{ctx.referenceAnlasCost}</div>
       <div data-testid="reference-cast">
         {JSON.stringify(ctx.referenceCast)}
+      </div>
+      <div data-testid="reference-detail">
+        {JSON.stringify(
+          ctx.references.map((r) => ({
+            kind: r.kind,
+            type: r.type,
+            strength: r.strength,
+            includeOutfit: r.includeOutfit,
+            name: r.name,
+            appearanceTags: r.appearanceTags,
+            thumbnailUrl: r.thumbnailUrl,
+          })),
+        )}
       </div>
       <div data-testid="session">{ctx.activeSession?.id ?? "none"}</div>
       <div data-testid="settings-loaded">
@@ -646,6 +671,40 @@ function Probe() {
                 include_outfit: null,
                 strength: 0.5,
                 fidelity: 0.75,
+                name: null,
+              },
+              {
+                kind: "character",
+                history_id: null,
+                entry_id: null,
+                character_preset_id: "preset-1",
+                type: "character",
+                include_outfit: true,
+                strength: 0.5,
+                fidelity: null,
+                name: "サクラ",
+                appearance_tags: "1girl, pink hair",
+              },
+              {
+                kind: "character",
+                history_id: null,
+                entry_id: null,
+                character_preset_id: "preset-gone",
+                type: "character",
+                include_outfit: false,
+                strength: 0.5,
+                fidelity: null,
+                name: "ユイ",
+              },
+              {
+                kind: "upload",
+                history_id: null,
+                entry_id: null,
+                character_preset_id: null,
+                type: "character",
+                include_outfit: false,
+                strength: 0.85,
+                fidelity: null,
                 name: null,
               },
             ],
@@ -1531,6 +1590,7 @@ describe("PromptExpanderContext", () => {
     expect(references[0]).toMatchObject({
       character_preset_id: "preset-1",
       name: "サクラ",
+      appearance_tags: "1girl, pink hair",
     });
     expect(references[1].image).toBe("data:image/png;base64,AAAA");
 
@@ -1618,6 +1678,40 @@ describe("PromptExpanderContext", () => {
       expect(body.transparent_background).toBe(true);
       expect(body.use_precise_reference).toBe(true);
     });
+    // 精密参照も画像ごとの設定・名前・外見タグごと戻す（アップロードと削除済みのキャラクターは外す）
+    await waitFor(() =>
+      expect(screen.getByTestId("reference-count").textContent).toBe("2"),
+    );
+    expect(
+      JSON.parse(screen.getByTestId("reference-detail").textContent ?? ""),
+    ).toEqual([
+      {
+        kind: "entry",
+        type: "style",
+        strength: 0.5,
+        includeOutfit: false,
+        name: "",
+        appearanceTags: "",
+        thumbnailUrl: "/api/prompt-expander/images/entry-ref",
+      },
+      {
+        kind: "character",
+        type: "character",
+        strength: 0.5,
+        includeOutfit: true,
+        name: "サクラ",
+        // 生成時に使った外見タグを戻す（プリセットの今の値ではなく）
+        appearanceTags: "1girl, pink hair",
+        thumbnailUrl:
+          "/api/game/character-presets/preset-1/images/portrait.png",
+      },
+    ]);
+    // 外した 2 枚（削除済みのキャラクター・アップロード）は通知で知らせる
+    await waitFor(() =>
+      expect(screen.getByTestId("notifications").textContent).not.toBe(""),
+    );
+    const notificationsAfterRestore =
+      screen.getByTestId("notifications").textContent ?? "";
     // 参照なしのエントリの復元では透過だけ戻し、参照トグルには触れない
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "restore" }));
@@ -1646,7 +1740,10 @@ describe("PromptExpanderContext", () => {
     ]);
     expect(body.transparent_background).toBe(true);
     expect(body).not.toHaveProperty("seed");
-    expect(screen.getByTestId("notifications").textContent).toBe("");
+    // 再現できる参照だけなので、再生成では新しい通知を出さない
+    expect(screen.getByTestId("notifications").textContent).toBe(
+      notificationsAfterRestore,
+    );
 
     // アップロード参照は保持していないので外し（知らせる）、キャラクター参照は ID で送り直す
     await act(async () => {
@@ -1668,6 +1765,8 @@ describe("PromptExpanderContext", () => {
       },
     ]);
     expect(uploadBody.transparent_background).toBe(false);
-    expect(screen.getByTestId("notifications").textContent).not.toBe("");
+    expect(screen.getByTestId("notifications").textContent).not.toBe(
+      notificationsAfterRestore,
+    );
   });
 });

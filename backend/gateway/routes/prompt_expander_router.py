@@ -303,6 +303,7 @@ async def generate_image(session_id: str, body: PromptExpanderGenerateRequest):
                 strength=item.strength,
                 fidelity=item.fidelity,
                 name=item.name,
+                appearance_tags=item.appearance_tags,
             )
             for item in body.references
         ],

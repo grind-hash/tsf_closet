@@ -235,6 +235,8 @@ class PromptExpanderEntryReference(BaseModel):
     # 忠実度（V4.5 の参照のときだけ値を持つ）
     fidelity: float | None = None
     name: str | None = None
+    # 登場人物の外見タグ（「欄へ復元」で参照カードへ戻すため）
+    appearance_tags: str | None = None
 
 
 class PromptExpanderEntryResponse(BaseModel):
@@ -319,6 +321,9 @@ class PromptExpanderReferenceItem(BaseModel):
     )
     fidelity: float = Field(DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY, ge=0.0, le=1.0)
     name: str | None = Field(None, max_length=PROMPT_EXPANDER_CAST_NAME_MAX_LEN)
+    appearance_tags: str | None = Field(
+        None, max_length=PROMPT_EXPANDER_CAST_TAGS_MAX_LEN
+    )
 
     @model_validator(mode="after")
     def _check(self) -> PromptExpanderReferenceItem:

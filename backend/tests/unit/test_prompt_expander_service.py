@@ -606,19 +606,44 @@ async def test_expand_invalid_llm_output_and_suggest(factory, monkeypatch):
 
 
 async def test_expand_prompts_fills_cast_appearance(factory, monkeypatch):
-    """キャストに一致した枠だけ、抜けた外見カテゴリを補う（LLM の髪色は上書きしない）。"""
+    """キャストのいる漫画: コマごとの JSON からコマ説明を組み立て、キャラ枠は外見だけにする。
+
+    キャストに一致した枠だけ抜けた外見カテゴリを補う（LLM の髪色は上書きしない）。
+    """
     calls: list[tuple[str, str]] = []
 
     async def _fake_generate_text(system_prompt, user_prompt, **kwargs):
         calls.append((system_prompt, user_prompt))
         return SimpleNamespace(
-            content=(
-                '{"base_tags":"2girls, japanese text, text, speech bubble, border",'
-                '"panel_description":"There are two comic panels.",'
-                '"character_prompts":['
-                '{"name":"サクラ","prompt":"girl, smile, saying \\"お待たせ！\\" in the first panel"},'
-                '{"name":" ユイ ","prompt":"girl, blonde hair, reading a book"},'
-                '{"name":"","prompt":"boy, waiter"}]}'
+            content=json.dumps(
+                {
+                    "base_tags": "2girls, japanese text, text, speech bubble, border",
+                    # キャラ枠 OFF（従来の形）の確認用。キャストがいるときは panels を使う
+                    "panel_description": "There are two comic panels.",
+                    "panels": [
+                        {
+                            "position": "top right",
+                            "people": [
+                                {"who": "[[2]]", "action": "reading a book"},
+                                {
+                                    "who": "[[1]]",
+                                    "action": "waving at the door",
+                                    "says": ["お待たせ！"],
+                                },
+                            ],
+                            "scene": "a cafe",
+                        }
+                    ],
+                    "character_prompts": [
+                        {
+                            "name": "サクラ",
+                            "prompt": 'girl, smile, saying "お待たせ！" in the first panel',
+                        },
+                        {"name": " ユイ ", "prompt": "girl, blonde hair"},
+                        {"name": "", "prompt": "boy, waiter"},
+                    ],
+                },
+                ensure_ascii=False,
             ),
             cost_usd=None,
         )
@@ -643,15 +668,27 @@ async def test_expand_prompts_fills_cast_appearance(factory, monkeypatch):
         )
     )
     assert result.character_prompts == [
-        'pink hair, long hair, pink eyes, girl, smile, saying "お待たせ！" in the first panel',
+        # 漫画のキャラ枠は全コマに効くので台詞は除く（台詞はコマ説明にある）
+        "pink hair, long hair, pink eyes, girl, smile",
         # LLM が書いた金髪は残し、抜けた瞳色だけ補う
-        "grey eyes, girl, blonde hair, reading a book",
+        "grey eyes, girl, blonde hair",
         "boy, waiter",
     ]
+    # 話す人物を先に、台詞を同じ文に、人数を明記してコマ説明を組み立てる
+    assert (
+        "The first panel, at the top right, shows two girls: the girl with pink "
+        "hair waving at the door, with a speech bubble next to her that says "
+        '"お待たせ！", and the girl with black hair reading a book. Background: a '
+        "cafe." in result.positive_prompt
+    )
+    assert "[[" not in result.positive_prompt
     system, user = calls[-1]
+    assert '"panels":[{"position":"..."' in system
     assert '"character_prompts":[{"name":"...","prompt":"..."}]' in system
-    assert "never by a cast name" in system
-    assert "- サクラ: 1girl, long hair, pink hair, pink eyes" in user
+    assert (
+        "- [[1]] サクラ (drawn as: the girl with pink hair): "
+        "1girl, long hair, pink hair, pink eyes" in user
+    )
 
     # キャラ枠 OFF ならキャストは渡さない
     await pe.expand_prompts(
@@ -1403,6 +1440,7 @@ async def test_generate_entry_passes_character_reference_on_v45(factory, monkeyp
             "strength": 0.6,
             "fidelity": 0.9,
             "name": None,
+            "appearance_tags": None,
         }
     ]
     assert outcome.entry["transparent_background"] is False
@@ -1457,7 +1495,13 @@ async def test_generate_entry_passes_v5_reference_with_outfit(factory, monkeypat
             prompt="1girl, standing",
             image_model="nai-diffusion-5-full",
             references=[
-                _ref(type="character", include_outfit=True, strength=3.0, name="サクラ")
+                _ref(
+                    type="character",
+                    include_outfit=True,
+                    strength=3.0,
+                    name="サクラ",
+                    appearance_tags="1girl, pink hair",
+                )
             ],
         ),
     )
@@ -1470,6 +1514,8 @@ async def test_generate_entry_passes_v5_reference_with_outfit(factory, monkeypat
     assert recorded["include_outfit"] is True
     assert recorded["strength"] == 3.0
     assert recorded["name"] == "サクラ"
+    # 「欄へ復元」で参照カードへ戻せるよう外見タグも残す
+    assert recorded["appearance_tags"] == "1girl, pink hair"
     # V5 では忠実度は廃止されたため残さない
     assert recorded["fidelity"] is None
 
@@ -1670,6 +1716,7 @@ def test_entry_references_fall_back_to_legacy_columns() -> None:
             "strength": 0.7,
             "fidelity": 0.8,
             "name": None,
+            "appearance_tags": None,
         }
     ]
     assert pe._load_entry_references(PromptExpanderEntry(reference_kind="none")) == []

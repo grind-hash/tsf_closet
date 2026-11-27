@@ -474,6 +474,9 @@ export const promptExpander = {
     anlasBody:
       "Using {{count}} precise reference image(s) costs an extra {{total}} Anlas ({{cost}} Anlas per reference). Continue?",
     regenerateSkippedTitle: "Regenerating without some precise references",
+    restoreSkippedTitle: "Some precise references could not be restored",
+    restoreSkippedBody:
+      "{{count}} reference(s) cannot be reproduced (uploaded images are not stored, or the image or character was deleted), so they were not restored.",
     regenerateSkippedBody:
       "{{count}} reference(s) cannot be reproduced (uploaded images are not stored, or the original image was deleted), so they are left out.",
   },

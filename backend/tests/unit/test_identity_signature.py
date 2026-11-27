@@ -9,6 +9,7 @@ from gateway.services.identity_signature import (
     complete_age_signature,
     compose_signature,
     cross_identity_negative,
+    describe_identity,
     fill_missing_identity_tags,
     has_explicit_adult_age,
     signature_from_tags,
@@ -303,3 +304,26 @@ def test_fill_missing_identity_tags_only_adds_missing_categories() -> None:
         "girl, pink hair, pink eyes"
     )
     assert fill_missing_identity_tags("", cast) == ""
+
+
+def test_describe_identity_uses_hair_color_and_a_distinct_feature() -> None:
+    assert (
+        describe_identity(
+            "1girl, adult woman, turquoise hair, very long hair, bangs, "
+            "turquoise cat ears, pink eyes"
+        )
+        == "the girl with turquoise hair and turquoise cat ears"
+    )
+    # 前髪・アホ毛のようにどのキャラにもある髪型は手がかりにしない
+    assert describe_identity("1girl, silver hair, bangs, ahoge, bob cut") == (
+        "the girl with silver hair and bob cut"
+    )
+    assert describe_identity("1boy, short hair") == "the boy with short hair"
+    assert describe_identity("") == "the character"
+
+
+def test_turquoise_is_a_hair_color() -> None:
+    assert classify_identity_tag("turquoise hair") == "hair_color"
+    assert cross_identity_negative("silver hair", ["turquoise hair"]) == (
+        "turquoise hair"
+    )

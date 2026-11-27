@@ -20,6 +20,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { fetchAnlasBalance } from "../apis/anlas";
+import { getCharacterPreset } from "../apis/characters";
 import { getMemoryText } from "../apis/memory";
 import {
   createPromptExpanderSession,
@@ -33,6 +34,7 @@ import {
   generatePromptExpanderImage,
   type PromptExpanderCastMember,
   type PromptExpanderEntry,
+  type PromptExpanderEntryReference,
   type PromptExpanderGenerateRequest,
   type PromptExpanderMangaOptions,
   type PromptExpanderReferenceRequest,
@@ -78,6 +80,7 @@ import {
 } from "../constants/promptExpander";
 import { usePersistedState } from "../hooks/usePersistedState";
 import type { AnlasBalance } from "../types";
+import { mediaUrl } from "../utils/adventureFormat";
 import { ApiError } from "../utils/http";
 import {
   clampReferenceStrength,
@@ -472,15 +475,21 @@ let referenceIdSeq = 0;
 /** 足した参照に既定の種別・強度などを付ける（衣装も参照するの初期値は OFF） */
 function createReference(
   input: PromptExpanderReferenceInput,
+  settings: Partial<
+    Pick<
+      PromptExpanderReference,
+      "type" | "includeOutfit" | "strength" | "fidelity"
+    >
+  > = {},
 ): PromptExpanderReference {
   referenceIdSeq += 1;
   return {
     ...input,
     id: `ref-${Date.now()}-${referenceIdSeq}`,
-    type: DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
-    includeOutfit: false,
-    strength: DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
-    fidelity: DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
+    type: settings.type ?? DEFAULT_PROMPT_EXPANDER_REFERENCE_TYPE,
+    includeOutfit: settings.includeOutfit ?? false,
+    strength: settings.strength ?? DEFAULT_PROMPT_EXPANDER_REFERENCE_STRENGTH,
+    fidelity: settings.fidelity ?? DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
     name: (input.name ?? "").slice(0, PROMPT_EXPANDER_CAST_NAME_MAX_LENGTH),
     appearanceTags: (input.appearanceTags ?? "").slice(
       0,
@@ -525,6 +534,10 @@ function toReferenceRequest(
   else request.image = ref.uploadDataUrl;
   const name = ref.name.trim();
   if (name && isCharacterReferenceType(ref.type)) request.name = name;
+  const appearanceTags = ref.appearanceTags.trim();
+  if (appearanceTags && isCharacterReferenceType(ref.type)) {
+    request.appearance_tags = appearanceTags;
+  }
   return request;
 }
 
@@ -1548,6 +1561,100 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // 「欄へ復元」で精密参照も戻す。キャラクターは立ち絵の URL を取り直すので非同期になり、
+  // 続けて別のエントリを復元したときは古い結果を捨てる
+  const referenceRestoreSeq = useRef(0);
+  const restoreReferences = useCallback(
+    async (entryRefs: PromptExpanderEntryReference[]) => {
+      referenceRestoreSeq.current += 1;
+      const seq = referenceRestoreSeq.current;
+      const restored = await Promise.all(
+        entryRefs.map(async (ref): Promise<PromptExpanderReference | null> => {
+          const settings = {
+            type: ref.type,
+            includeOutfit: ref.include_outfit ?? false,
+            strength: ref.strength,
+            fidelity:
+              ref.fidelity ?? DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
+          };
+          const cast = {
+            name: ref.name ?? "",
+            appearanceTags: ref.appearance_tags ?? "",
+          };
+          if (ref.kind === "entry" && ref.entry_id) {
+            const source = entries.find((e) => e.id === ref.entry_id);
+            return createReference(
+              {
+                kind: "entry",
+                entryId: ref.entry_id,
+                thumbnailUrl: promptExpanderImageUrl(
+                  `/prompt-expander/images/${ref.entry_id}`,
+                ),
+                label:
+                  source?.instruction ||
+                  source?.final_prompt ||
+                  ref.name ||
+                  ref.entry_id,
+                ...cast,
+              },
+              settings,
+            );
+          }
+          if (ref.kind === "history" && ref.history_id) {
+            return createReference(
+              {
+                kind: "history",
+                historyId: ref.history_id,
+                thumbnailUrl: mediaUrl(`/history/images/${ref.history_id}`),
+                label: ref.name || t("promptExpander.picker.playLabelFallback"),
+                ...cast,
+              },
+              settings,
+            );
+          }
+          if (ref.kind === "character" && ref.character_preset_id) {
+            try {
+              const preset = await getCharacterPreset(ref.character_preset_id);
+              const url = preset.portrait_url ?? preset.thumbnail_url;
+              if (!url) return null;
+              return createReference(
+                {
+                  kind: "character",
+                  characterPresetId: preset.id,
+                  thumbnailUrl: mediaUrl(url),
+                  label: preset.name,
+                  name: ref.name ?? preset.name,
+                  appearanceTags:
+                    ref.appearance_tags ?? preset.appearance_tags ?? "",
+                },
+                settings,
+              );
+            } catch {
+              // 削除されたキャラクターは戻せないので外す（件数は下で知らせる）
+              return null;
+            }
+          }
+          // アップロードした参照は画像を保存していないので戻せない
+          return null;
+        }),
+      );
+      if (seq !== referenceRestoreSeq.current) return;
+      const kept = restored
+        .filter((ref): ref is PromptExpanderReference => ref !== null)
+        .slice(0, PROMPT_EXPANDER_REFERENCE_MAX_COUNT);
+      setReferences(kept);
+      const skipped = entryRefs.length - kept.length;
+      if (skipped > 0) {
+        showNotification(
+          "warning",
+          t("promptExpander.reference.restoreSkippedTitle"),
+          t("promptExpander.reference.restoreSkippedBody", { count: skipped }),
+        );
+      }
+    },
+    [entries, showNotification, t],
+  );
+
   const restoreEntry = useCallback(
     (entry: PromptExpanderEntry) => {
       const expandMode = entry.positive_expand_mode;
@@ -1607,6 +1714,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       patch.transparent_background = Boolean(entry.transparent_background);
       if ((entry.references?.length ?? 0) > 0) {
         patch.use_precise_reference = true;
+        void restoreReferences(entry.references);
       }
       // インペイントのマスクは保存済みなので、同じ領域で差分を作り続けられるよう戻す
       // （ベース画像は i2i 元と同じく復元しない。インペイントでないエントリでは触らない）
@@ -1622,7 +1730,12 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         void updateSettings(patch);
       }
     },
-    [setCharacterMode, settings.restore_seed, updateSettings],
+    [
+      restoreReferences,
+      setCharacterMode,
+      settings.restore_seed,
+      updateSettings,
+    ],
   );
 
   const regenerateEntry = useCallback(
@@ -1675,6 +1788,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           strength: ref.strength,
           fidelity: ref.fidelity ?? DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY,
           ...(ref.name ? { name: ref.name } : {}),
+          ...(ref.appearance_tags
+            ? { appearance_tags: ref.appearance_tags }
+            : {}),
         }));
       }
       const skipped = entryReferences.length - reproducible.length;

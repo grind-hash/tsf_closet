@@ -181,6 +181,8 @@ _COLOR = re.compile(
     r"white|silver|grey|gray|aqua|teal|cyan|lavender|platinum|auburn|ginger|"
     r"golden|gold|crimson|navy|ash|chestnut|honey|copper|dark|light|"
     r"multicolored|two-tone|gradient|streaked|rainbow|amber|hazel|yellow|"
+    r"turquoise|magenta|beige|mint|emerald|indigo|scarlet|peach|coral|maroon|"
+    r"burgundy|azure|cerulean|lilac|mauve|cream|ivory|sapphire|ruby|jade|"
     r"colored inner)\b"
 )
 _HAIR_LENGTH = re.compile(
@@ -493,6 +495,74 @@ def cross_identity_negative(own_tags: str, other_tags: Iterable[str]) -> str:
                 seen.add(norm)
                 result.append(tag)
     return ", ".join(result)
+
+
+# 見分けの手がかりとして弱い髪型(どのキャラにもありうるため言い回しに使わない)
+_WEAK_HAIRSTYLES = frozenset(
+    {"bangs", "sidelocks", "ahoge", "fringe", "hair between eyes", "blunt bangs"}
+)
+_SEX_NOUNS = {
+    "1girl": "girl",
+    "girl": "girl",
+    "woman": "woman",
+    "female": "woman",
+    "1boy": "boy",
+    "boy": "boy",
+    "man": "man",
+    "male": "man",
+    "1other": "person",
+}
+
+
+def identity_noun(tags: str) -> str:
+    """外見タグの性別から人物を指す名詞（girl / boy / woman / man / person）を返す。
+
+    性別が無ければ character。
+    """
+    for tag in _bucketize(tags or "").get("sex", []):
+        noun = _SEX_NOUNS.get(normalize_tag_for_match(tag))
+        if noun:
+            return noun
+    return "character"
+
+
+def describe_identity(tags: str) -> str:
+    """外見タグから、コマ説明で人物を指す短い英語の言い回しを作る。
+
+    名前は画像モデルに通じないため、髪色と目立つ特徴(獣耳・特徴的な髪型)で
+    「the girl with turquoise hair and cat ears」のように指す。髪色が無ければ
+    最初の同一性タグで代える。
+    """
+    buckets = _bucketize(tags or "")
+    sex = identity_noun(tags)
+    hair = next(
+        (normalize_tag_for_match(tag) for tag in buckets.get("hair_color", [])),
+        "",
+    )
+    feature = next(
+        (normalize_tag_for_match(tag) for tag in buckets.get("marks", [])),
+        "",
+    ) or next(
+        (
+            normalize_tag_for_match(tag)
+            for tag in buckets.get("hairstyle", [])
+            if normalize_tag_for_match(tag) not in _WEAK_HAIRSTYLES
+        ),
+        "",
+    )
+    if not hair:
+        hair = next(
+            (
+                normalize_tag_for_match(tag)
+                for tag in split_tag_tokens(signature_from_tags(tags or ""))
+                if classify_identity_tag(tag) not in {"sex", "age"}
+            ),
+            "",
+        )
+    traits = list(dict.fromkeys(trait for trait in (hair, feature) if trait))
+    if not traits:
+        return f"the {sex}"
+    return f"the {sex} with {' and '.join(traits)}"
 
 
 # タグらしい要素の上限語数(これより長い要素は台詞や説明文として扱う)

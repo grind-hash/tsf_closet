@@ -121,6 +121,8 @@ export interface PromptExpanderEntryReference {
   fidelity: number | null;
   /** 登場人物としての名前 */
   name: string | null;
+  /** 登場人物の外見タグ（「欄へ復元」で参照カードへ戻す） */
+  appearance_tags?: string | null;
 }
 
 /** 生成リクエストの精密参照 1 枚分。kind ごとに ID / 画像が必要 */
@@ -136,6 +138,8 @@ export interface PromptExpanderReferenceRequest {
   strength: number;
   fidelity: number;
   name?: string;
+  /** 登場人物の外見タグ（エントリに残し「欄へ復元」で戻す。生成には影響しない） */
+  appearance_tags?: string;
 }
 
 /** 名前を付けた精密参照から作る登場人物（LLM に渡す） */

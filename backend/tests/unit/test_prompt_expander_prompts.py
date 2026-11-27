@@ -12,6 +12,7 @@ from gateway.services.prompt_expander_prompts import (
     SUGGEST_INPUT_BIAS_RULE,
     SUGGEST_NO_MEMORY_RULE,
     SUGGEST_USER_PROMPT,
+    CastLook,
     CastMember,
     MangaOptions,
     PromptExpanderOutputError,
@@ -23,13 +24,17 @@ from gateway.services.prompt_expander_prompts import (
     build_positive_user_prompt,
     build_suggest_characters_prompts,
     build_suggest_user_prompt,
+    compose_cast_panel_description,
     parse_character_json,
     parse_character_json_named,
+    parse_manga_cast_json,
     parse_manga_json_named,
     parse_suggestions_json,
+    replace_cast_tokens,
     replace_false_friend_tokens,
     sanitize_prose_prompt,
     sanitize_tag_prompt,
+    strip_quoted_segments,
 )
 
 
@@ -814,10 +819,7 @@ def test_build_cast_block_dedupes_and_marks_missing_appearance() -> None:
     assert build_cast_block([]) == ""
 
 
-@pytest.mark.parametrize(
-    ("mode", "manga"),
-    [("tags", None), ("japanese", None), ("tags", MangaOptions())],
-)
+@pytest.mark.parametrize(("mode", "manga"), [("tags", None), ("japanese", None)])
 def test_cast_switches_character_items_to_named_objects(mode, manga) -> None:
     plain = build_positive_system_prompt(
         mode=mode, character_mode=True, max_characters=6, nsfw=False, manga=manga
@@ -833,9 +835,10 @@ def test_cast_switches_character_items_to_named_objects(mode, manga) -> None:
     assert '"character_prompts":["..."]' in plain
     assert '"character_prompts":[{"name":"...","prompt":"..."}]' in named
     assert '"character_prompts":["..."]' not in named
-    assert "never by a cast name" in named
+    assert "Never write a cast name" in named
+    assert "[[1]] waves at [[2]]" in named
     # キャラ枠 OFF なら名前付きにしない
-    assert "never by a cast name" not in build_positive_system_prompt(
+    assert "Never write a cast name" not in build_positive_system_prompt(
         mode=mode, character_mode=False, max_characters=6, nsfw=False, with_cast=True
     )
 
@@ -844,29 +847,153 @@ def test_positive_user_prompt_lists_cast_only_in_character_mode() -> None:
     with_characters = build_positive_user_prompt(
         instruction="x", character_mode=True, cast=CAST
     )
-    assert "- サクラ: 1girl, pink hair" in with_characters
+    assert "- [[1]] サクラ (drawn as: a character): 1girl, pink hair" in with_characters
+    described = build_positive_user_prompt(
+        instruction="x",
+        character_mode=True,
+        cast=CAST,
+        cast_descriptions=["the girl with pink hair", "the character"],
+    )
+    assert "- [[1]] サクラ (drawn as: the girl with pink hair): 1girl, pink hair" in (
+        described
+    )
+    assert "- [[2]] ユイ (drawn as: the character): appearance not specified" in (
+        described
+    )
     assert "Cast" not in build_positive_user_prompt(
         instruction="x", character_mode=False, cast=CAST
     )
 
 
-def test_manga_speech_is_repeated_in_panel_description_with_characters() -> None:
-    with_characters = build_positive_system_prompt(
+def test_manga_cast_layout_asks_for_panels_json() -> None:
+    with_cast = build_positive_system_prompt(
+        mode="tags",
+        character_mode=True,
+        max_characters=6,
+        nsfw=False,
+        manga=MangaOptions(reading_direction="ltr", layout="grid"),
+        with_cast=True,
+    )
+    # コマごとの中身を JSON で受け、キャラ枠は外見だけにする
+    assert '"panels":[{"position":"..."' in with_cast
+    assert '"character_prompts":[{"name":"...","prompt":"..."}]' in with_cast
+    assert "never put actions, poses, expressions, held items, or speech" in with_cast
+    assert "Never write names" in with_cast
+    assert "left-to-right manga" in with_cast
+    assert "grid of two columns" in with_cast
+    # 汎用のキャスト規則（コマ説明に目印を書かせる文）は重ねない
+    assert "[[1]] waves at [[2]]" not in with_cast
+    # キャストが無ければ従来どおりキャラ枠に台詞を書かせる
+    without_cast = build_positive_system_prompt(
         mode="tags",
         character_mode=True,
         max_characters=6,
         nsfw=False,
         manga=MangaOptions(),
     )
-    assert "also repeat the same line in panel_description" in with_characters
-    without_characters = build_positive_system_prompt(
-        mode="tags",
-        character_mode=False,
-        max_characters=6,
-        nsfw=False,
-        manga=MangaOptions(),
+    assert '"panels"' not in without_cast
+    assert "the speaking character's character_prompts item" in without_cast
+
+
+LOOKS = [
+    CastLook("the girl with silver hair and bob cut", "girl"),
+    CastLook("the girl with turquoise hair and cat ears", "girl"),
+]
+
+
+def test_compose_cast_panel_description_puts_speakers_first_with_count() -> None:
+    panels = [
+        {
+            "position": "top right",
+            "people": [
+                {"who": "[[1]]", "action": "sitting on a sofa reading a book"},
+                {
+                    "who": "[[2]]",
+                    "action": "holding a box",
+                    "says": ["ねえ！"],
+                },
+            ],
+            "scene": "her room.",
+        },
+        {
+            "position": "",
+            # 目印ではなく名前で返ってもキャストに当てる
+            "people": [{"who": "ココ", "action": "smiling", "thinks": ["もう…"]}],
+            "narration": "三日後。",
+            "sfx": "ドサッ",
+        },
+        {
+            "position": "bottom",
+            "people": [{"who": "a man in a suit", "action": "bowing"}],
+        },
+        "not a panel",
+    ]
+    text = compose_cast_panel_description(
+        panels, looks=LOOKS, cast_names=["ココ", "ミント"], layout="vertical"
     )
-    assert "also repeat the same line" not in without_characters
+    assert text == (
+        "There are three comic panels, read from right to left. The panels are "
+        "stacked vertically from top to bottom. The first panel, at the top right, "
+        "shows two girls: the girl with turquoise hair and cat ears holding a box, "
+        'with a speech bubble next to her that says "ねえ！", and the girl with '
+        "silver hair and bob cut sitting on a sofa reading a book. Background: her "
+        "room. The second panel shows the girl with silver hair and bob cut "
+        'smiling, with a thought cloud above her that says "もう…". There\'s a '
+        'narration box at the top of the panel that reads "三日後。". There\'s also '
+        'a "ドサッ" sound effect. The third panel, at the bottom, shows a man in a '
+        "suit bowing."
+    )
+
+
+def test_parse_manga_cast_json_composes_and_falls_back() -> None:
+    raw = (
+        '{"base_tags":"2girls, speech bubble","panels":[{"position":"top right",'
+        '"people":[{"who":"[[2]]","action":"waving","says":["やあ"]}],"scene":""}],'
+        '"character_prompts":[{"name":"ミント","prompt":"girl, turquoise hair"}]}'
+    )
+    base, items = parse_manga_cast_json(
+        raw, max_characters=6, looks=LOOKS, cast_names=["ココ", "ミント"]
+    )
+    assert base.startswith("2girls, speech bubble, ")
+    assert base.endswith(
+        "There is one comic panel, read from right to left. The first panel, at the "
+        "top right, shows the girl with turquoise hair and cat ears waving, with a "
+        'speech bubble next to her that says "やあ".'
+    )
+    assert items == [("ミント", "girl, turquoise hair")]
+    # panels が無ければ従来の panel_description を使う
+    legacy = (
+        '{"base_tags":"2girls","panel_description":"Two panels with [[1]].",'
+        '"character_prompts":["girl"]}'
+    )
+    base, items = parse_manga_cast_json(
+        legacy, max_characters=6, looks=LOOKS, cast_names=["ココ", "ミント"]
+    )
+    assert base.endswith("Two panels with [[1]].")
+    with pytest.raises(PromptExpanderOutputError):
+        parse_manga_cast_json(
+            '{"base_tags":"2girls","panels":[],"character_prompts":["girl"]}',
+            max_characters=6,
+            looks=LOOKS,
+            cast_names=[],
+        )
+
+
+def test_strip_quoted_segments_and_replace_cast_tokens() -> None:
+    prompt = (
+        '1girl, silver hair, speech bubble that says "ミント、ここ、私の部屋だよ？", '
+        'wry smile, thought bubble that says "Ha, no, way"'
+    )
+    assert strip_quoted_segments(prompt) == "1girl, silver hair, wry smile"
+    assert strip_quoted_segments("1girl, smile") == "1girl, smile"
+    text = "The first panel shows [[2]] waving at [[1]]. [[ 3 ]] leaves."
+    assert replace_cast_tokens(
+        text, ["the girl with silver hair", "the girl with turquoise hair"]
+    ) == (
+        "The first panel shows the girl with turquoise hair waving at the girl "
+        "with silver hair. leaves."
+    )
+    assert replace_cast_tokens("no tokens", []) == "no tokens"
 
 
 def test_manga_script_uses_cast_names_as_speakers() -> None:

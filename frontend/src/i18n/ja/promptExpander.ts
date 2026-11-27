@@ -472,6 +472,9 @@ export const promptExpander = {
     anlasBody:
       "精密参照画像 {{count}} 枚の使用により、{{total}} Anlas（1 枚あたり {{cost}} Anlas）を追加消費します。続行しますか？",
     regenerateSkippedTitle: "一部の精密参照を外して再生成します",
+    restoreSkippedTitle: "一部の精密参照は欄へ戻せませんでした",
+    restoreSkippedBody:
+      "アップロードした画像や、削除された画像・キャラクターの参照 {{count}} 枚は再現できないため、戻していません。",
     regenerateSkippedBody:
       "アップロードした画像や、元の画像が削除された参照 {{count}} 枚は再現できないため、使わずに生成します。",
   },
