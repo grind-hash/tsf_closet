@@ -53,6 +53,30 @@
   white-space: nowrap;
 }
 
+/* 作業中の見出しは 1 行（戻る・題名・セッション名）に詰めて入力欄を広く使う */
+.prompt-expander__header--compact {
+  align-items: center;
+}
+
+.prompt-expander__header--compact .prompt-expander__breadcrumb {
+  flex-wrap: nowrap;
+  margin-bottom: 0;
+}
+
+.prompt-expander__header--compact .prompt-expander__title {
+  flex: 0 0 auto;
+  font-size: 1.1rem;
+}
+
+.prompt-expander__header--compact .prompt-expander__breadcrumb-title {
+  min-width: 0;
+  font-size: 0.95rem;
+}
+
+.prompt-expander__header--compact .prompt-expander__breadcrumb-title::before {
+  content: "/ ";
+}
+
 .prompt-expander__title {
   display: flex;
   align-items: center;
@@ -113,8 +137,40 @@
   }
 }
 
+/* 幅が広いときは、入力欄と生成履歴をそれぞれ独立してスクロールさせる
+   （入力欄を下まで見ても新しい生成結果が画面外へ行かないように）。1 列のときは画面全体で 1 つ */
+@media (min-width: 1101px) {
+  .prompt-expander__scroll--workspace {
+    overflow: hidden;
+  }
+
+  .prompt-expander__scroll--workspace .prompt-expander__workspace {
+    flex: 1 1 auto;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+    min-height: 0;
+  }
+
+  .prompt-expander__scroll--workspace .prompt-expander__workspace-composer,
+  .prompt-expander__scroll--workspace .prompt-expander__workspace-entries {
+    min-height: 0;
+    overflow-y: auto;
+    /* スクロールバーが中身に重ならないよう少し空ける */
+    padding-right: 0.35rem;
+  }
+}
+
 @media (max-width: 640px) {
   .prompt-expander__scroll {
     padding: 0.9rem;
+  }
+
+  /* 狭い画面では 1 行に収まらないので折り返す（題名で横にはみ出さないように） */
+  .prompt-expander__header--compact .prompt-expander__breadcrumb {
+    flex-wrap: wrap;
+  }
+
+  .prompt-expander__header--compact .prompt-expander__title {
+    font-size: 1rem;
   }
 }

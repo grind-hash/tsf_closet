@@ -8,9 +8,12 @@
  */
 
 import {
+  type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -52,7 +55,10 @@ import {
   usePromptExpander,
 } from "../../contexts/PromptExpanderContext";
 import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
-import { openPromptExpanderSection } from "../../hooks/usePersistedSectionState";
+import {
+  openPromptExpanderSection,
+  revealPromptExpanderSection,
+} from "../../hooks/usePersistedSectionState";
 import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
 import {
   FavoritePromptInsertButton,
@@ -221,6 +227,38 @@ const NOTATION_CHIPS = [
 const CIRCLED_ONE = 0x2460;
 const CIRCLED_MAX = 20;
 
+/**
+ * 欄の高さを中身に合わせて伸ばす（上限は CSS の max-height。超えた分は欄の中でスクロール）。
+ * ネームのように複数行を書く欄で、欄の中をスクロールしないと読めない状態を避ける。
+ * rows で決まる高さより低くはしない。
+ */
+function useAutoGrowTextarea(
+  ref: RefObject<HTMLTextAreaElement | null>,
+  value: string,
+) {
+  useLayoutEffect(() => {
+    const field = ref.current;
+    if (!field) return;
+    // value の変更をトリガーに高さを再計算する
+    void value;
+    field.style.height = "auto";
+    // 隠している間（セクションを閉じているなど）は測れないため、rows の高さのままにする
+    if (field.scrollHeight === 0) return;
+    // box-sizing: border-box なので、内容の高さに上下の枠線を足す
+    field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
+  }, [ref, value]);
+}
+
+/** Ctrl+Enter（Mac は ⌘+Enter）か。変換中の Enter と Shift 付きは除く */
+function isExpandShortcut(event: KeyboardEvent<HTMLTextAreaElement>) {
+  return (
+    event.key === "Enter" &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.shiftKey &&
+    !event.nativeEvent.isComposing
+  );
+}
+
 export default function PromptExpanderComposer() {
   const { t } = useTranslation();
   const {
@@ -230,6 +268,7 @@ export default function PromptExpanderComposer() {
     source,
     clearSource,
     referenceSupported,
+    referenceCast,
     transparentActive,
     inpaintMask,
     inpaintActive,
@@ -331,6 +370,8 @@ export default function PromptExpanderComposer() {
     openPromptExpanderSection(destination);
     setRevealSectionId(destination);
   };
+  // 登場人物のチップから、精密参照の欄を開いてそこへ移る
+  const revealReferenceSection = () => revealPromptExpanderSection("reference");
   // 入れ先セクションが開いた描画後にそこへスクロールする
   useEffect(() => {
     if (!revealSectionId) return;
@@ -345,6 +386,8 @@ export default function PromptExpanderComposer() {
   const [seedDraft, setSeedDraft] = useState<string | null>(null);
   const positiveRef = useRef<HTMLTextAreaElement>(null);
   const negativeRef = useRef<HTMLTextAreaElement>(null);
+  useAutoGrowTextarea(positiveRef, positiveText);
+  useAutoGrowTextarea(negativeRef, negativeText);
   const insertFavoriteIntoPositive = useInsertAtCaret(
     positiveRef,
     positiveText,
@@ -496,6 +539,8 @@ export default function PromptExpanderComposer() {
   const renderFieldToolbar = (
     target: PromptExpanderExpansionTarget,
     extra?: ReactNode,
+    // プロンプト化ボタンの前に置く操作（漫画モードのネーム下書き）。作業の順に左から並べる
+    leading?: ReactNode,
   ) => {
     const isPositive = target === "positive";
     const reason = isPositive ? positiveExpandReason : negativeExpandReason;
@@ -520,6 +565,7 @@ export default function PromptExpanderComposer() {
               : null
           }
         />
+        {leading}
         <button
           type="button"
           className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--primary"
@@ -922,8 +968,45 @@ export default function PromptExpanderComposer() {
                   positiveBusy,
                 )}
               </>,
+              mangaActive ? (
+                // 主ボタン（赤塗り）が 2 つ並ぶと重いので、下書きは枠線のボタンにする
+                <button
+                  type="button"
+                  className="prompt-expander__btn prompt-expander__btn--sm"
+                  onClick={() => void draftScript()}
+                  disabled={busy || !positiveText.trim()}
+                  title={t("promptExpander.composer.draftScriptTitle")}
+                >
+                  {t("promptExpander.composer.draftScript")}
+                </button>
+              ) : null,
             )}
           </div>
+          {/* 名前を付けた精密参照（登場人物）。ネームを書くときに名前を確かめられるよう欄の上に出す */}
+          {referenceCast.length > 0 && (
+            <div
+              className="prompt-expander__cast-chips"
+              role="group"
+              aria-label={t("promptExpander.composer.castChipsLabel")}
+            >
+              <span className="prompt-expander__cast-chips-label">
+                {t("promptExpander.composer.castChipsLabel")}
+              </span>
+              {referenceCast.map((member) => (
+                <button
+                  key={member.name}
+                  type="button"
+                  className="prompt-expander__btn prompt-expander__btn--sm"
+                  onClick={revealReferenceSection}
+                  title={t("promptExpander.composer.castChipTitle", {
+                    name: member.name,
+                  })}
+                >
+                  {member.name}
+                </button>
+              ))}
+            </div>
+          )}
           {mangaActive && (
             <div
               className="prompt-expander__notation-chips"
@@ -947,24 +1030,20 @@ export default function PromptExpanderComposer() {
                   {chip.label}
                 </button>
               ))}
-              <button
-                type="button"
-                className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--primary prompt-expander__notation-draft"
-                onClick={() => void draftScript()}
-                disabled={busy || !positiveText.trim()}
-                title={t("promptExpander.composer.draftScriptTitle")}
-              >
-                {t("promptExpander.composer.draftScript")}
-              </button>
             </div>
           )}
           <textarea
             id="prompt-expander-positive"
             ref={positiveRef}
-            className={`prompt-expander__textarea${positiveBusy ? " prompt-expander__textarea--busy" : ""}`}
+            className={`prompt-expander__textarea prompt-expander__textarea--autogrow${positiveBusy ? " prompt-expander__textarea--busy" : ""}`}
             rows={5}
             value={positiveText}
             onChange={(e) => setPositiveText(e.target.value)}
+            onKeyDown={(e) => {
+              if (!isExpandShortcut(e)) return;
+              e.preventDefault();
+              if (!busy && positiveExpandReason === null) void expandPositive();
+            }}
             readOnly={positiveBusy}
             aria-busy={positiveBusy}
             placeholder={
@@ -1040,10 +1119,15 @@ export default function PromptExpanderComposer() {
           <textarea
             ref={negativeRef}
             id="prompt-expander-negative"
-            className={`prompt-expander__textarea${negativeBusy ? " prompt-expander__textarea--busy" : ""}`}
+            className={`prompt-expander__textarea prompt-expander__textarea--autogrow${negativeBusy ? " prompt-expander__textarea--busy" : ""}`}
             rows={3}
             value={negativeText}
             onChange={(e) => setNegativeText(e.target.value)}
+            onKeyDown={(e) => {
+              if (!isExpandShortcut(e)) return;
+              e.preventDefault();
+              if (!busy && negativeExpandReason === null) void expandNegative();
+            }}
             readOnly={negativeBusy}
             aria-busy={negativeBusy}
             placeholder={t("promptExpander.composer.negativePlaceholder")}
@@ -1096,7 +1180,15 @@ export default function PromptExpanderComposer() {
         )}
       </PromptExpanderSection>
 
-      {/* ⑤ i2i 設定 */}
+      {/* ⑤ 精密参照（V5 節約モード以外）。i2i 元とは別の参照画像（複数枚）で人物を固定し、
+          名前を付けた参照は登場人物としてプロンプト化・ネーム下書きに渡す。
+          登場人物はキャラクタープロンプトと同じ人物の話なので、その直後に置く */}
+      <PromptExpanderReferenceList
+        onPick={() => openPicker("reference")}
+        onUpload={() => openUpload("reference")}
+      />
+
+      {/* ⑥ i2i 設定（ここから下は画像を加工する欄） */}
       <PromptExpanderSection
         id="i2i"
         title={t("promptExpander.composer.sectionI2i")}
@@ -1232,7 +1324,7 @@ export default function PromptExpanderComposer() {
         </div>
       </PromptExpanderSection>
 
-      {/* ⑥ インペイント（部分修正）。i2i 元をベース画像に使い、マスクの領域だけ描き直す */}
+      {/* ⑦ インペイント（部分修正）。i2i 元をベース画像に使い、マスクの領域だけ描き直す */}
       <PromptExpanderSection
         id="inpaint"
         title={t("promptExpander.composer.sectionInpaint")}
@@ -1362,13 +1454,6 @@ export default function PromptExpanderComposer() {
           {t("promptExpander.composer.inpaintStrengthHint")}
         </span>
       </PromptExpanderSection>
-
-      {/* ⑦ 精密参照（V5 節約モード以外）。i2i 元とは別の参照画像（複数枚）で人物を固定し、
-          名前を付けた参照は登場人物としてプロンプト化・ネーム下書きに渡す */}
-      <PromptExpanderReferenceList
-        onPick={() => openPicker("reference")}
-        onUpload={() => openUpload("reference")}
-      />
 
       {/* 生成ボタンは画面下端の PromptExpanderControlBar に置く（常に見える位置に保つため） */}
 

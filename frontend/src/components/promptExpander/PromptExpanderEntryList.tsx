@@ -9,7 +9,7 @@
  * 背景透過エントリのプレビューはカードと同じく切り抜き後の画像を出す。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type PromptExpanderEntry,
@@ -24,6 +24,10 @@ import PromptExpanderEntryCard from "./PromptExpanderEntryCard";
 import PromptExpanderProgress from "./PromptExpanderProgress";
 import PromptExpanderSection from "./PromptExpanderSection";
 import "./PromptExpanderShared.css";
+
+/** 入力欄と生成履歴が別々にスクロールする幅（PromptExpanderScreen.css と合わせる） */
+const TWO_COLUMN_QUERY = "(min-width: 1101px)";
+
 import "./PromptExpanderEntryList.css";
 
 export const PROMPT_EXPANDER_ENTRY_FILTER_KEY = "prompt_expander_entry_filter";
@@ -137,6 +141,16 @@ export default function PromptExpanderEntryList() {
     [filteredEntries, previewIndex],
   );
 
+  // 2 列表示（生成履歴の列が独立してスクロールする幅）では、生成を始めたら
+  // 「画像を生成しています…」が見える位置まで列を寄せる。1 列のときは画面ごと動いて
+  // 入力の邪魔になるので寄せない（生成バーにも進捗が出る）
+  const generatingRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!generating) return;
+    if (!window.matchMedia?.(TWO_COLUMN_QUERY).matches) return;
+    generatingRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [generating]);
+
   // プレビューで移動した先のカードを一覧上でも見つけられるようスクロールする
   useEffect(() => {
     if (!previewId) return;
@@ -162,10 +176,12 @@ export default function PromptExpanderEntryList() {
         }
       >
         {generating && (
-          <PromptExpanderProgress
-            className="prompt-expander__progress--block"
-            label={t("promptExpander.entry.generatingNotice")}
-          />
+          <div ref={generatingRef}>
+            <PromptExpanderProgress
+              className="prompt-expander__progress--block"
+              label={t("promptExpander.entry.generatingNotice")}
+            />
+          </div>
         )}
 
         {entries.length > 0 && (

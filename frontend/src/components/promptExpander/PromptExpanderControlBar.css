@@ -34,8 +34,32 @@
   min-width: 0;
 }
 
+/* 要約チップは押すとその設定の欄へ移る（見た目はバッジのまま、押せることだけ示す） */
+.prompt-expander__summary-chip {
+  font-family: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.prompt-expander__summary-chip:hover,
+.prompt-expander__summary-chip:focus-visible {
+  border-color: var(--accent-color, #e94560);
+  color: var(--text-color, #eee);
+}
+
 .prompt-expander__control-bar-progress {
   min-width: 180px;
+}
+
+/* V5 上限と Anlas（生成の直前に見られるよう常に出す） */
+.prompt-expander__control-bar-usage {
+  min-width: 140px;
+}
+
+.prompt-expander__control-bar-anlas {
+  font-size: 0.85rem;
+  color: var(--text-muted, #888);
+  white-space: nowrap;
 }
 
 @media (max-width: 640px) {
@@ -46,5 +70,9 @@
   /* 狭い画面では生成操作を優先し、現在値サマリは畳む */
   .prompt-expander__control-bar-summary {
     display: none;
+  }
+
+  .prompt-expander__control-bar-usage {
+    min-width: 96px;
   }
 }

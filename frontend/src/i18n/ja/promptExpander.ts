@@ -88,6 +88,9 @@ export const promptExpander = {
     mangaNotationHint:
       "記法: 「セリフ」『モノローグ』【ナレーション】《効果音》、行頭の①②③はコマ番号。空の括弧（「」など）は内容を LLM にお任せします。",
     draftScript: "あらすじからネームを下書き",
+    castChipsLabel: "登場人物:",
+    castChipTitle:
+      "{{name}}（名前を付けた精密参照）。押すと精密参照の欄へ移ります",
     draftScriptTitle:
       "欄のあらすじを、記法付きのネーム（コマ番号・セリフ・ナレーション）に LLM で書き換えます。手直ししてから「LLMでプロンプト化」してください。元の文には戻せます",
     draftingHint:
@@ -146,9 +149,9 @@ export const promptExpander = {
     expandTags: "タグ",
     expandButton: "LLMでプロンプト化",
     expandPositiveTitle:
-      "この欄の内容を指示として、LLM で NovelAI 用のプロンプトに変換します（選んだ出力形式で）",
+      "この欄の内容を指示として、LLM で NovelAI 用のプロンプトに変換します（選んだ出力形式で）。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
     expandNegativeTitle:
-      "この欄の内容を指示として、LLM でネガティブプロンプトに変換します（選んだ出力形式で）",
+      "この欄の内容を指示として、LLM でネガティブプロンプトに変換します（選んだ出力形式で）。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
     expandDisabledEmpty: "プロンプト化する内容を入力してください",
     expandEmptyPositive:
       "プロンプト／指示を入力してからプロンプト化してください。",
@@ -320,6 +323,9 @@ export const promptExpander = {
     chipManga: "漫画",
     chipInpaint: "インペイント",
     chipReference: "精密参照",
+    chipJumpTitle: "「{{label}}」の設定欄を開きます",
+    generateTitle:
+      "欄の内容で画像を生成します。Ctrl+Shift+Enter（Mac は ⌘+Shift+Enter）でも実行できます",
   },
   expansion: {
     titlePositive: "変換結果（プロンプト）",

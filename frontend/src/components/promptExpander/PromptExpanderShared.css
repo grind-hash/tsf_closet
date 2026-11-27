@@ -204,6 +204,13 @@
   min-height: 4.5rem;
 }
 
+/* 中身に合わせて伸びる欄（ネームなど）。伸ばしすぎて他の欄が見えなくならないよう上限を設け、
+   超えた分は欄の中でスクロールする */
+.prompt-expander__textarea--autogrow {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
 .prompt-expander__textarea:focus,
 .prompt-expander__input:focus,
 .prompt-expander__select:focus {

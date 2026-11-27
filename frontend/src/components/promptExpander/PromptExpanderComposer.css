@@ -201,11 +201,18 @@
   letter-spacing: 0.05em;
 }
 
-/* 「あらすじからネームを下書き」は記法チップの行末（右寄せ） */
-.prompt-expander__notation-chips .prompt-expander__notation-draft {
-  margin-left: auto;
-  letter-spacing: normal;
-  font-size: 0.82rem;
+/* 登場人物（名前を付けた精密参照）のチップ行。押すと精密参照の欄へ移る */
+.prompt-expander__cast-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.35rem;
+}
+
+.prompt-expander__cast-chips-label {
+  font-size: 0.8rem;
+  color: var(--text-muted, #888);
 }
 
 .prompt-expander__draft-done {

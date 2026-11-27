@@ -86,6 +86,9 @@ export const promptExpander = {
     mangaSummaryNarration: "auto narration",
     mangaNotationHint:
       "Notation: 「speech」『thought』【narration】《sound effect》; ①②③ at the start of a line is the panel number. Empty brackets (e.g. 「」) let the LLM write the text.",
+    castChipsLabel: "Cast:",
+    castChipTitle:
+      "{{name}} (a named precise reference). Click to jump to the precise reference section",
     draftScript: "Draft a storyboard from the synopsis",
     draftScriptTitle:
       "Rewrites the synopsis in this field into a notated storyboard (panel numbers, lines, narration) with the LLM. Edit it, then convert to prompt. You can revert to the original text",
@@ -146,9 +149,9 @@ export const promptExpander = {
     expandTags: "Tags",
     expandButton: "Convert to prompt",
     expandPositiveTitle:
-      "Use this field as the instruction and convert it into a NovelAI prompt with the LLM (in the selected output format)",
+      "Use this field as the instruction and convert it into a NovelAI prompt with the LLM (in the selected output format). You can also press Ctrl+Enter (⌘+Enter on Mac) in the field",
     expandNegativeTitle:
-      "Use this field as the instruction and convert it into a negative prompt with the LLM (in the selected output format)",
+      "Use this field as the instruction and convert it into a negative prompt with the LLM (in the selected output format). You can also press Ctrl+Enter (⌘+Enter on Mac) in the field",
     expandDisabledEmpty: "Enter something to convert",
     expandEmptyPositive: "Enter a prompt / instruction before converting.",
     expandEmptyNegative:
@@ -321,6 +324,9 @@ export const promptExpander = {
     chipManga: "Comic",
     chipInpaint: "Inpaint",
     chipReference: "Precise ref",
+    chipJumpTitle: 'Open the settings for "{{label}}"',
+    generateTitle:
+      "Generate an image from the fields. You can also press Ctrl+Shift+Enter (⌘+Shift+Enter on Mac)",
   },
   expansion: {
     titlePositive: "Conversion result (prompt)",

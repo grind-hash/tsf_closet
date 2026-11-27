@@ -651,7 +651,8 @@ test("expand with tags from the field toolbar, edit the inline result and genera
 
   const instruction = "猫耳メイドがカフェで微笑む";
   await positiveField(page).fill(instruction);
-  await expandButton.click();
+  // 欄の中で Ctrl+Enter を押すとボタンと同じくプロンプト化する
+  await positiveField(page).press("Control+Enter");
 
   await expect.poll(() => state.expandBodies.length).toBe(1);
   expect(state.expandBodies[0]).toMatchObject({
@@ -930,7 +931,10 @@ test("precise reference is off in economy mode, needs an image and an Anlas conf
   const state = await mockPromptExpanderApis(page);
   await openSession(page);
 
-  const heading = page.getByRole("button", { name: "精密参照", exact: true });
+  // 生成バーにも同名のチップがあるため、入力欄の側の見出しに絞る
+  const heading = page
+    .locator(".prompt-expander__composer")
+    .getByRole("button", { name: "精密参照", exact: true });
   await expect(heading).toHaveAttribute("aria-expanded", "false");
   const section = page.locator(
     ".prompt-expander__section[data-section-id='reference']",
@@ -971,6 +975,13 @@ test("precise reference is off in economy mode, needs an image and an Anlas conf
   const card = section.getByTestId("prompt-expander-reference-card");
   await expect(card).toHaveCount(1);
   await expect(section).toContainText("1 枚 · +5 Anlas");
+  // 名前を付けると、プロンプト欄の上に登場人物のチップが出て、押すと精密参照の欄へ移れる
+  await card.getByLabel("登場人物の名前（任意）").fill("サクラ");
+  const castChips = page.getByRole("group", { name: "登場人物:" });
+  await expect(castChips.getByRole("button", { name: "サクラ" })).toBeVisible();
+  await castChips.getByRole("button", { name: "サクラ" }).click();
+  await expect(heading).toHaveAttribute("aria-expanded", "true");
+  await expect(section).toBeInViewport();
   await expect(section).toContainText("1 / 6 枚");
   // V4.5 では衣装の種別は選べない
   await expect(card.getByRole("radio", { name: "衣装" })).toBeDisabled();
@@ -1220,6 +1231,49 @@ test("the workspace offers a way back to the session list", async ({
   await mockPromptExpanderApis(page);
   await openSession(page);
 
+  // セクションの並び: 登場人物（精密参照）はキャラクタープロンプトの直後、画像の加工（i2i・インペイント）は後ろ
+  const order = await page
+    .locator(".prompt-expander__composer > .prompt-expander__section")
+    .evaluateAll((sections) =>
+      sections.map((el) => el.getAttribute("data-section-id")),
+    );
+  expect(order).toEqual([
+    "params",
+    "manga",
+    "prompt",
+    "characters",
+    "reference",
+    "i2i",
+    "inpaint",
+  ]);
+
+  // 生成バーの要約チップを押すと、その設定のセクションが開いてそこへ移る
+  const bar = page.getByRole("toolbar", { name: "生成操作" });
+  const paramsSection = page.locator(
+    ".prompt-expander__section[data-section-id='params']",
+  );
+  await page
+    .getByRole("button", { name: "生成パラメータ", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "生成パラメータ", exact: true }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await bar
+    .getByRole("button", { name: "NAI Diffusion V4.5 Full", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "生成パラメータ", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect(paramsSection).toBeInViewport();
+
+  // Anlas はスクロールで隠れない下端の生成バーに出し、作業中の見出しには出さない
+  await expect(page.getByRole("toolbar", { name: "生成操作" })).toContainText(
+    "Anlas: 100",
+  );
+  await expect(page.locator(".prompt-expander__header")).not.toContainText(
+    "Anlas",
+  );
+
   // 作業中はどのセッションを開いているかが分かり、一覧へ戻れる
   const header = page.locator(".prompt-expander__header");
   await expect(header).toContainText("テストセッション");
@@ -1410,6 +1464,15 @@ test("draft a storyboard from the synopsis, then revert to the original text", a
   const draftButton = page.getByRole("button", {
     name: "あらすじからネームを下書き",
   });
+  // 作業の順に、ネーム下書きはプロンプト欄のツールバーでプロンプト化の左に並ぶ
+  const toolbarButtons = positiveToolbar(page).getByRole("button");
+  const labels = await toolbarButtons.allInnerTexts();
+  expect(labels.indexOf("あらすじからネームを下書き")).toBeGreaterThanOrEqual(
+    0,
+  );
+  expect(labels.indexOf("あらすじからネームを下書き")).toBeLessThan(
+    labels.indexOf("LLMでプロンプト化"),
+  );
   // 空欄では押せない
   await expect(draftButton).toBeDisabled();
   const field = positiveField(page);
@@ -1447,7 +1510,7 @@ test("composer sections collapse, expand and persist to localStorage", async ({
   await openSession(page);
 
   // 並び順: 生成パラメータ → 漫画（コマ割り） → プロンプト／指示 → キャラクタープロンプト
-  //         → i2i設定 → インペイント（部分修正） → 精密参照
+  //         → 精密参照（登場人物） → i2i設定 → インペイント（部分修正）
   const headings = page.locator(
     ".prompt-expander__composer .prompt-expander__section-toggle",
   );
@@ -1456,9 +1519,9 @@ test("composer sections collapse, expand and persist to localStorage", async ({
     /漫画（コマ割り）/,
     /プロンプト／指示/,
     /キャラクタープロンプト/,
+    /精密参照/,
     /i2i設定/,
     /インペイント（部分修正）/,
-    /精密参照/,
   ]);
 
   const paramsToggle = page.getByRole("button", { name: "生成パラメータ" });
@@ -2114,7 +2177,10 @@ test("dropping an image and choosing precise reference is off in economy mode an
       state.settingsBodies.some((b) => b.use_precise_reference === true),
     )
     .toBe(true);
-  const heading = page.getByRole("button", { name: "精密参照", exact: true });
+  // 生成バーにも同名のチップがあるため、入力欄の側の見出しに絞る
+  const heading = page
+    .locator(".prompt-expander__composer")
+    .getByRole("button", { name: "精密参照", exact: true });
   await expect(heading).toHaveAttribute("aria-expanded", "true");
   const section = page.locator(
     ".prompt-expander__section[data-section-id='reference']",

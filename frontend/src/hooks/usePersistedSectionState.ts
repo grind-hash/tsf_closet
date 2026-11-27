@@ -72,6 +72,21 @@ export function openPromptExpanderSection(id: string) {
   setSectionOpen(id, true);
 }
 
+/**
+ * 指定セクションを開き、開いた描画の後でそこまでスクロールする。
+ * 生成バーの要約チップや登場人物のチップから、目当ての欄へ移るときに使う。
+ */
+export function revealPromptExpanderSection(id: string) {
+  openPromptExpanderSection(id);
+  if (typeof window === "undefined") return;
+  // 開閉の反映（React の再描画）を待ってから位置を取る
+  window.requestAnimationFrame(() => {
+    document
+      .querySelector(`.prompt-expander__section[data-section-id="${id}"]`)
+      ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  });
+}
+
 /** 表示中のセクションをまとめて開閉する（画面下部のコントロールエリアから呼ぶ） */
 export function setAllPromptExpanderSections(open: boolean) {
   const next = { ...readMap() };

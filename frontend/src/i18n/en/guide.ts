@@ -127,6 +127,13 @@ export const guide = {
         ],
       },
       {
+        heading: "Handy controls",
+        items: [
+          'In the prompt field, Ctrl+Enter (⌘+Enter on Mac) runs "Convert to prompt", and Ctrl+Shift+Enter generates.',
+          "Click a chip in the generate bar at the bottom (model, comic, precise reference and so on) to open that setting's section and jump to it. Anlas and the V5 limit are always shown in this bar.",
+        ],
+      },
+      {
         heading: "Using entries elsewhere",
         items: [
           'Press "Make a character" on an entry to create a character with that image as the portrait and open the Characters screen. The appearance tags come from the prompt of the entry.',

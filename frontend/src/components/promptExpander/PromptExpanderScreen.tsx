@@ -126,11 +126,16 @@ export default function PromptExpanderScreen() {
       onToggleRightPanel={toggleSettings}
     >
       <div className="prompt-expander">
-        <div className="prompt-expander__scroll">
-          <header className="prompt-expander__header">
+        {/* セッション作業中は入力欄と生成履歴を別々にスクロールさせる（幅が広いときだけ。CSS 側） */}
+        <div
+          className={`prompt-expander__scroll${sessionId ? " prompt-expander__scroll--workspace" : ""}`}
+        >
+          <header
+            className={`prompt-expander__header${sessionId ? " prompt-expander__header--compact" : ""}`}
+          >
             <div className="prompt-expander__header-main">
-              {/* セッション作業中は一覧へ戻る導線と、いま開いているセッション名を出す */}
-              {sessionId && (
+              {sessionId ? (
+                // 作業中は入力欄を広く使えるよう、戻る導線・題名・セッション名を 1 行に詰める
                 <div className="prompt-expander__breadcrumb">
                   <button
                     type="button"
@@ -139,6 +144,12 @@ export default function PromptExpanderScreen() {
                   >
                     {t("promptExpander.header.backToList")}
                   </button>
+                  <h1 className="prompt-expander__title">
+                    {t("promptExpander.header.title")}
+                    <span className="feature-chip-experimental">
+                      Experimental
+                    </span>
+                  </h1>
                   {activeSession && (
                     <span
                       className="prompt-expander__breadcrumb-title"
@@ -148,24 +159,30 @@ export default function PromptExpanderScreen() {
                     </span>
                   )}
                 </div>
+              ) : (
+                <>
+                  <h1 className="prompt-expander__title">
+                    {t("promptExpander.header.title")}
+                    <span className="feature-chip-experimental">
+                      Experimental
+                    </span>
+                  </h1>
+                  <p className="prompt-expander__subtitle">
+                    {t("promptExpander.header.subtitle")}
+                  </p>
+                </>
               )}
-              <h1 className="prompt-expander__title">
-                {t("promptExpander.header.title")}
-                <span className="feature-chip-experimental">Experimental</span>
-              </h1>
-              <p className="prompt-expander__subtitle">
-                {t("promptExpander.header.subtitle")}
-              </p>
             </div>
             <div className="prompt-expander__header-side">
-              {showUsageBar && anlas?.usage && (
+              {/* 作業中の Anlas と V5 上限は下端の生成バーに常に出すので、ここでは一覧画面だけ */}
+              {!sessionId && showUsageBar && anlas?.usage && (
                 <NovelaiUsageBar
                   usage={anlas.usage}
                   compact
                   className="prompt-expander__usage-bar"
                 />
               )}
-              {anlas && (
+              {!sessionId && anlas && (
                 <span
                   className="prompt-expander__anlas"
                   title={t("promptExpander.header.anlasTitle")}
