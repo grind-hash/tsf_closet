@@ -231,6 +231,8 @@ bash scripts/build_portable_linux.sh --version dev --provider novelai
 
 両 OS とも Python とビルド済みフロントエンドを同梱します。生成 API、セルフホスト用サーバー、音声合成エンジンは別途必要です。
 
+依存は `backend/uv.lock` と `frontend/package-lock.json` に記録した版のとおりに入れます（両 OS とも uv が必要です）。`pyproject.toml` や `package.json` を変えたときは、先に `uv lock`（`backend` で実行）や `npm install` で lock を更新してください。フロントエンドの `node_modules` は `npm ci` で入れ直すため、開発サーバーは止めてから実行してください。
+
 ---
 
 ## 画像生成プロバイダー

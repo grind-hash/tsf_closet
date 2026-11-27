@@ -231,6 +231,8 @@ Output: `dist/tsf_closet_portable_v{Version}_{Provider}_linux/` (archived as `.t
 
 Both OS packages include Python and the built frontend. Generation APIs, selfhost servers, and speech engines must be provided separately.
 
+Dependencies are installed at the exact versions recorded in `backend/uv.lock` and `frontend/package-lock.json` (uv is required on both OSes). If you change `pyproject.toml` or `package.json`, update the lock first with `uv lock` (run in `backend`) or `npm install`. The build reinstalls the frontend `node_modules` with `npm ci`, so stop the dev server before running it.
+
 ---
 
 ## Image Generation Providers

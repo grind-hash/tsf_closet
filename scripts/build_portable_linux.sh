@@ -5,6 +5,9 @@
 # Python Standalone + ビルド済みReactフロントエンドを同梱した
 # ポータブルパッケージを作成します。
 #
+# 依存は uv.lock と package-lock.json に記録した版のとおりに入れます。
+# フロントエンドの node_modules は npm ci で入れ直すため、開発サーバーは止めてから実行してください。
+#
 # Usage:
 #   ./scripts/build_portable_linux.sh [OPTIONS]
 #
@@ -173,9 +176,11 @@ else
 
     pushd "$FRONTEND_DIR" > /dev/null
 
-    # npm install
-    if ! npm install 2>&1; then
-        write_failure "npm install に失敗しました。" 2
+    # package-lock.json のとおりに入れ直す（npm install は lock を更新して版を変えることがある）。
+    # npm ci は node_modules を消してから入れるので、開発サーバーは止めておくこと。
+    # 依存のインストールスクリプトは実行しない（esbuild はプラットフォーム別のパッケージから動く）
+    if ! npm ci --ignore-scripts 2>&1; then
+        write_failure "npm ci に失敗しました。package.json を変えたときは package-lock.json も更新してください。" 2
     fi
 
     # vite build (型チェックをスキップしてビルドのみ実行)
@@ -274,22 +279,20 @@ else
     fi
     write_success "pip を確認/インストール"
 
-    # requirements.txt を生成
+    # requirements.txt を uv.lock から書き出す。
+    # pyproject.toml から解決し直すと、開発で確かめた版より新しい版（リリース直後の版を含む）が入るため
     REQUIREMENTS_PATH="$BACKEND_DIR/requirements.txt"
-    pushd "$REPO_ROOT" > /dev/null
-    if command -v uv &>/dev/null; then
-        uv pip compile "$BACKEND_DIR/pyproject.toml" -o "$REQUIREMENTS_PATH" || \
-            write_failure "requirements.txt の生成に失敗しました。" 4
-    else
-        echo "  警告: uv が見つかりません。既存の requirements.txt を使用します。"
-        if [[ ! -f "$REQUIREMENTS_PATH" ]]; then
-            write_failure "requirements.txt が見つかりません。uv をインストールしてください。" 4
-        fi
+    if ! command -v uv &>/dev/null; then
+        write_failure "uv が見つかりません。uv.lock から依存を書き出すために uv が必要です。" 4
     fi
-    popd > /dev/null
+    if ! uv export --project "$BACKEND_DIR" --locked --quiet --no-dev --no-emit-project \
+            --format requirements.txt -o "$REQUIREMENTS_PATH" 2>&1; then
+        write_failure "uv.lock から requirements.txt を書き出せませんでした。pyproject.toml を変えたときは backend で uv lock を実行してください。" 4
+    fi
+    write_success "uv.lock から requirements.txt を書き出し"
 
-    # 依存ライブラリインストール
-    "$PYTHON_EXE" -m pip install -r "$REQUIREMENTS_PATH" --no-warn-script-location 2>&1 || \
+    # 依存ライブラリインストール。ハッシュ付きなので、uv.lock に記録したファイル以外は入らない
+    "$PYTHON_EXE" -m pip install --require-hashes -r "$REQUIREMENTS_PATH" --no-warn-script-location 2>&1 || \
         write_failure "依存ライブラリのインストールに失敗しました。" 4
 
     PACKAGE_COUNT=$("$PYTHON_EXE" -m pip list --format=columns 2>/dev/null | tail -n +3 | wc -l)

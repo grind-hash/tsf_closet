@@ -5,6 +5,8 @@
 .DESCRIPTION
     Python Embeddable + ビルド済みReactフロントエンドを同梱した
     ポータブルパッケージを作成します。
+    依存は uv.lock と package-lock.json に記録した版のとおりに入れます。
+    フロントエンドの node_modules は npm ci で入れ直すため、開発サーバーは止めてから実行してください。
 
 .PARAMETER Version
     パッケージバージョン (デフォルト: "dev")
@@ -159,11 +161,13 @@ if ($SkipFrontend) {
 
     Push-Location $FrontendDir
     try {
-        # npm install
-        $npmOutput = & cmd /c "npm install" 2>&1
+        # package-lock.json のとおりに入れ直す（npm install は lock を更新して版を変えることがある）。
+        # npm ci は node_modules を消してから入れるので、開発サーバーは止めておくこと。
+        # 依存のインストールスクリプトは実行しない（esbuild はプラットフォーム別のパッケージから動く）
+        $npmOutput = & cmd /c "npm ci --ignore-scripts" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host $npmOutput -ForegroundColor Gray
-            Write-Failure "npm install に失敗しました。" 2
+            Write-Failure "npm ci に失敗しました。package.json を変えたときは package-lock.json も更新してください。" 2
         }
 
         # vite build (型チェックをスキップしてビルドのみ実行)
@@ -255,22 +259,21 @@ if ($SkipPython) {
     }
     Write-Success "pip をインストール"
 
-    # requirements.txt を生成
+    # requirements.txt を uv.lock から書き出す。
+    # pyproject.toml から解決し直すと、開発で確かめた版より新しい版（リリース直後の版を含む）が入るため
     $RequirementsPath = Join-Path $BackendDir "requirements.txt"
-    Push-Location $RepoRoot
-    try {
-        $uvOutput = & uv pip compile "$BackendDir/pyproject.toml" -o $RequirementsPath 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host $uvOutput -ForegroundColor Gray
-            Write-Failure "requirements.txt の生成に失敗しました。" 4
-        }
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        Write-Failure "uv が見つかりません。uv.lock から依存を書き出すために uv が必要です。" 4
     }
-    finally {
-        Pop-Location
+    $uvOutput = & uv export --project $BackendDir --locked --quiet --no-dev --no-emit-project --format requirements.txt -o $RequirementsPath 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host $uvOutput -ForegroundColor Gray
+        Write-Failure "uv.lock から requirements.txt を書き出せませんでした。pyproject.toml を変えたときは backend で uv lock を実行してください。" 4
     }
+    Write-Success "uv.lock から requirements.txt を書き出し"
 
-    # 依存ライブラリインストール
-    $installOutput = & $PythonExe -m pip install -r $RequirementsPath --no-warn-script-location 2>&1
+    # 依存ライブラリインストール。ハッシュ付きなので、uv.lock に記録したファイル以外は入らない
+    $installOutput = & $PythonExe -m pip install --require-hashes -r $RequirementsPath --no-warn-script-location 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host $installOutput -ForegroundColor Gray
         Write-Failure "依存ライブラリのインストールに失敗しました。" 4
