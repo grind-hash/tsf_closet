@@ -293,3 +293,68 @@ async def test_broken_action_or_outfits_keep_the_tags(monkeypatch):
     assert scene.tags == "smile"
     assert scene.outfits == {}
     assert scene.action is None
+
+
+# --- 胸のある男性の体・動作に関わる枠のネガティブ ---
+
+
+def _with_look(state, resident_id, tags):
+    resident = logic.find_resident(state, resident_id)
+    resident["transformation"] = {"image": f"tf_{resident_id}.png", "tags": tags}
+    return state
+
+
+def test_male_body_with_breasts_is_emphasized_in_the_frame():
+    state = _with_look(
+        _with_look(
+            _state(),
+            "ren",
+            "1boy, young man, short dark green hair, flat chest, large breasts, white shirt",
+        ),
+        "aoi",
+        "1girl, adult woman, long brown hair, large breasts, cap",
+    )
+    event = {"participants": ["aoi", "ren"], "area": "living"}
+
+    request = scene_request(state, event, "smile")
+
+    aoi, ren = request["characters"]
+    assert ren["prompt"].startswith(
+        "1boy, 2::male with breasts, large breasts::, young man"
+    )
+    assert "flat chest" not in ren["prompt"]
+    assert "flat chest, pectorals" in ren["negative_prompt"]
+    # 女性の体はそのまま
+    assert aoi["prompt"] == "1girl, adult woman, long brown hair, large breasts, cap"
+    assert "flat chest" not in aoi.get("negative_prompt", "")
+    # NovelAI 以外へ送る1行には強調の書き方を入れない
+    assert "male with breasts, large breasts" in request["flat_prompt"]
+    assert "::" not in request["flat_prompt"]
+
+
+def test_male_body_without_breasts_keeps_the_frame():
+    state = _state()
+    event = {"participants": ["aoi", "ren"], "area": "living"}
+
+    request = scene_request(state, event, "smile")
+
+    ren = request["characters"][1]
+    assert "male with breasts" not in ren["prompt"]
+    assert "flat chest" not in ren.get("negative_prompt", "")
+
+
+def test_acting_frame_drops_penis_from_the_covered_negative_in_nsfw():
+    state = _state()
+    event = {"participants": ["aoi", "ren"], "area": "living"}
+    attire = {"aoi": "as_is", "ren": "as_is"}
+    action = SceneAction(tag="fellatio", source_id="aoi", target_id="ren")
+
+    acting = scene_request(state, event, "blush", attire, nsfw=True, action=action)
+    assert "penis" not in acting["characters"][1]["negative_prompt"]
+    assert "completely nude" in acting["characters"][1]["negative_prompt"]
+
+    # 動作に関わらない枠・NSFW でない場面では残す
+    idle = scene_request(state, event, "blush", attire, nsfw=True)
+    assert "penis" in idle["characters"][1]["negative_prompt"]
+    safe = scene_request(state, event, "blush", attire, action=action)
+    assert "penis" in safe["characters"][1]["negative_prompt"]

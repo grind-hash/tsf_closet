@@ -95,6 +95,20 @@ SCENE_POSITIONS: dict[int, list[tuple[float, float]]] = {
 }
 SCENE_EXTRA_NEGATIVE = "split screen, comparison, multiple views, panels"
 _SOLO_TAG = re.compile(r"^\s*solo( focus)?\s*$", re.IGNORECASE)
+# 男性の体に胸がある人物。キャラクター枠では胸のタグが男性の体に負けて描かれないため、
+# 性別トークンの直後に寄せて強調し、平らな胸をネガティブに入れる。V5 で、寄せるだけ・
+# 強調 1.5 では2人の場面で平らなまま、強調 2 で胸が出た
+MALE_WITH_BREASTS_TAG = "male with breasts"
+MALE_WITH_BREASTS_WEIGHT = 2
+MALE_WITH_BREASTS_NEGATIVE = "flat chest, pectorals"
+_BREAST_TAG = re.compile(
+    r"^(?:(?:small|medium|large|big|huge|gigantic)\s+)?breasts$", re.IGNORECASE
+)
+_FLAT_CHEST_TAG = re.compile(
+    r"^(?:flat chest|(?:large )?pectorals|male with breasts)$", re.IGNORECASE
+)
+# NSFW の場面で動作に関わる枠では、服を着せるためのネガティブから外す語(行為を妨げるため)
+_ACTING_UNCOVERED = frozenset({"penis"})
 
 
 def scene_suggestion(event: dict[str, Any], language: str) -> dict[str, str] | None:
@@ -171,6 +185,27 @@ def scene_attire_negative(attire: str | None, gender: str, *, nsfw: bool) -> str
     if attire not in HAKONIWA_SCENE_ATTIRES or (attire == "nude" and nsfw):
         return ""
     return HAKONIWA_SCENE_COVERED_NEGATIVE["male" if gender == "male" else "female"]
+
+
+def emphasize_male_breasts(
+    tags: str, gender: str, *, weight: float | None = None
+) -> str | None:
+    """男性の体に胸のタグがあれば、性別トークンの直後に male with breasts と胸のタグを
+    寄せたタグを返す。weight を渡すと NovelAI の強調(weight::…::)で囲む。該当しなければ None。"""
+    if gender != "male":
+        return None
+    parts = [tag.strip() for tag in str(tags or "").split(",") if tag.strip()]
+    breasts = [tag for tag in parts if _BREAST_TAG.match(tag)]
+    if not breasts:
+        return None
+    rest = [
+        tag for tag in parts if tag not in breasts and not _FLAT_CHEST_TAG.match(tag)
+    ]
+    head = next((index + 1 for index, tag in enumerate(rest) if tags_gender(tag)), 0)
+    lead = ", ".join([MALE_WITH_BREASTS_TAG, *breasts])
+    if weight is not None:
+        lead = f"{weight:g}::{lead}::"
+    return ", ".join([*rest[:head], lead, *rest[head:]])
 
 
 def _strip_solo(tags: str) -> str:
@@ -258,6 +293,16 @@ def scene_request(
         )
         for item, resident, gender in zip(tags, participants, genders, strict=True)
     ]
+    # キャラクター枠には強調つき、NovelAI 以外へ送る1行には強調なしで寄せる
+    frame_tags = [
+        emphasize_male_breasts(item, gender, weight=MALE_WITH_BREASTS_WEIGHT) or item
+        for item, gender in zip(tags, genders, strict=True)
+    ]
+    breasted = [frame != item for frame, item in zip(frame_tags, tags, strict=True)]
+    tags = [
+        emphasize_male_breasts(item, gender) or item
+        for item, gender in zip(tags, genders, strict=True)
+    ]
     ids = {resident["id"] for resident in participants}
     if action is not None and not (
         len(participants) >= 2 and action.source_id in ids and action.target_id in ids
@@ -282,8 +327,9 @@ def scene_request(
         others = [item for other, item in enumerate(tags) if other != index]
         resident_id = participants[index]["id"]
         acting = _action_prefix(action, resident_id)
+        shown = frame_tags[index]
         frame: dict[str, Any] = {
-            "prompt": f"{own}, {acting}" if acting else own,
+            "prompt": f"{shown}, {acting}" if acting else shown,
             "position": positions[index],
         }
         # 着せた服は裸に寄らないよう、服を着たまま描かせる
@@ -296,11 +342,18 @@ def scene_request(
                 (attire or {}).get(resident_id), genders[index], nsfw=nsfw
             )
         )
+        if nsfw and acting:
+            covered = ", ".join(
+                tag.strip()
+                for tag in covered.split(",")
+                if tag.strip() and tag.strip() not in _ACTING_UNCOVERED
+            )
         negative = ", ".join(
             part
             for part in (
                 cross_identity_negative(own, others) if others else "",
                 covered,
+                MALE_WITH_BREASTS_NEGATIVE if breasted[index] else "",
             )
             if part
         )
