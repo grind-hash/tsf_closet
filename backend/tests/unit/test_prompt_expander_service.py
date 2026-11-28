@@ -375,6 +375,7 @@ async def test_generate_entry_keeps_the_synopsis_of_a_storyboard(
             prompt="1girl, comic, 2koma",
             instruction="①鏡を見る「え…？」\n②戸惑う",
             synopsis="  朝起きたら女の子になっていた  ",
+            instruction_source="script",
             positive_expand_mode="tags",
             image_model="nai-diffusion-5-full",
             manga_mode=True,
@@ -384,10 +385,57 @@ async def test_generate_entry_keeps_the_synopsis_of_a_storyboard(
     # ネームは instruction に、下書き元のあらすじは synopsis に分けて残る
     assert entry["instruction"] == "①鏡を見る「え…？」\n②戸惑う"
     assert entry["synopsis"] == "朝起きたら女の子になっていた"
+    assert entry["instruction_source"] == "script"
 
     async with factory() as db:
         items, _ = await pe.PromptExpanderService.list_entries(db)
         assert pe.entry_to_dict(items[0])["synopsis"] == "朝起きたら女の子になっていた"
+        assert pe.entry_to_dict(items[0])["instruction_source"] == "script"
+
+
+@pytest.mark.asyncio
+async def test_generate_entry_records_a_handwritten_storyboard_without_synopsis(
+    factory, monkeypatch
+):
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(
+            images=[_png("purple")],
+            provider="novelai",
+            model="nai-diffusion-5-full",
+            seed=5,
+        )
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+
+    # あらすじを空のままネームを手書きしたときも、ネームの欄で書いたことが残る
+    handwritten = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, comic",
+            instruction="①鏡を見る「え…？」",
+            instruction_source="script",
+            positive_expand_mode="tags",
+            image_model="nai-diffusion-5-full",
+            manga_mode=True,
+        ),
+    )
+    assert handwritten.entry["synopsis"] is None
+    assert handwritten.entry["instruction_source"] == "script"
+
+    # 拡張しない（指示が無い）エントリには欄を記録しない
+    direct = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl",
+            instruction_source="instruction",
+            image_model="nai-diffusion-5-full",
+        ),
+    )
+    assert direct.entry["instruction_source"] is None
 
 
 @pytest.mark.asyncio
@@ -1278,6 +1326,18 @@ async def _add_story_entries(factory) -> str:
                     image_path="b.png",
                     created_at=datetime(2026, 11, 1),
                 ),
+                # 3 ページ目（あらすじを空のままネームを手書きした）
+                PromptExpanderEntry(
+                    id="page-handwritten",
+                    session_id=session.id,
+                    kind="generated",
+                    instruction="①彼女が振り向く「待って！」",
+                    instruction_source="script",
+                    final_prompt="1girl, sailor uniform, looking back",
+                    image_model="nai-diffusion-5-full",
+                    image_path="e.png",
+                    created_at=datetime(2026, 11, 4),
+                ),
                 # 文を持たないアップロード
                 PromptExpanderEntry(
                     id="page-upload",
@@ -1306,7 +1366,8 @@ async def test_load_story_pages_orders_by_creation_and_checks_owner(factory):
     await _add_story_entries(factory)
     async with factory() as db:
         pages = await pe.load_story_pages(
-            db, entry_ids=["page-a", "page-upload", "page-b", "page-a"]
+            db,
+            entry_ids=["page-handwritten", "page-a", "page-upload", "page-b", "page-a"],
         )
     assert pages == [
         pe.StoryPage(
@@ -1318,6 +1379,12 @@ async def test_load_story_pages_orders_by_creation_and_checks_owner(factory):
             script="①彼女が鏡を見る「これが僕…？」",
             character_prompts=("girl, silver hair, sailor uniform",),
             final_prompt='1girl, sailor uniform, red ribbon, says "hi"',
+        ),
+        # 手書きのネームは台詞を含むので、あらすじとしては渡さずネームとして渡す
+        pe.StoryPage(
+            synopsis="",
+            script="①彼女が振り向く「待って！」",
+            final_prompt="1girl, sailor uniform, looking back",
         ),
     ]
     async with factory() as db:

@@ -51,6 +51,9 @@ StoredExpandModeLiteral = Literal["off", "japanese", "tags"]
 
 SourceKindLiteral = Literal["none", "history", "entry", "upload"]
 
+# instruction を書いた欄（指示・あらすじの欄 | ネームの欄）
+InstructionSourceLiteral = Literal["instruction", "script"]
+
 ReferenceKindLiteral = Literal["history", "entry", "upload", "character"]
 
 MangaLayoutLiteral = Literal["auto", "vertical", "horizontal", "grid"]
@@ -246,6 +249,7 @@ class PromptExpanderEntryResponse(BaseModel):
     kind: str
     instruction: str | None = None
     synopsis: str | None = None
+    instruction_source: str | None = None
     positive_expand_mode: str
     negative_expand_mode: str
     character_mode: bool
@@ -437,6 +441,8 @@ class PromptExpanderGenerateRequest(BaseModel):
     )
     # 漫画のネームから作ったときの、ネームの下書き元のあらすじ（それ以外は null）
     synopsis: str | None = Field(None, max_length=PROMPT_EXPANDER_INSTRUCTION_MAX_LEN)
+    # instruction を書いた欄。あらすじが空のままネームを手書きしても、復元でネームの欄へ戻すため
+    instruction_source: InstructionSourceLiteral | None = None
     positive_expand_mode: StoredExpandModeLiteral = "off"
     negative_expand_mode: StoredExpandModeLiteral = "off"
     image_model: NovelAIImageModel

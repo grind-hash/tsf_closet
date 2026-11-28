@@ -148,6 +148,9 @@ export interface PromptExpanderCastMember {
   appearance_tags: string;
 }
 
+/** instruction を書いた欄（指示・あらすじの欄 or ネームの欄） */
+export type PromptExpanderInstructionSource = "instruction" | "script";
+
 export interface PromptExpanderEntry {
   id: string;
   session_id: string;
@@ -156,6 +159,8 @@ export interface PromptExpanderEntry {
   instruction: string | null;
   /** ネームから作ったときの、ネームの下書き元のあらすじ（それ以外は null） */
   synopsis?: string | null;
+  /** instruction を書いた欄。記録前の古いエントリと、拡張しないエントリは null */
+  instruction_source?: PromptExpanderInstructionSource | null;
   positive_expand_mode: PromptExpanderEntryExpandMode;
   negative_expand_mode: PromptExpanderEntryExpandMode;
   character_mode: boolean;
@@ -244,6 +249,8 @@ export interface PromptExpanderGenerateRequest {
   instruction?: string | null;
   /** ネームから作ったときの、ネームの下書き元のあらすじ */
   synopsis?: string | null;
+  /** instruction を書いた欄（復元でその欄へ戻すため） */
+  instruction_source?: PromptExpanderInstructionSource | null;
   positive_expand_mode: PromptExpanderEntryExpandMode;
   negative_expand_mode: PromptExpanderEntryExpandMode;
   image_model: string;

@@ -919,6 +919,10 @@ class PromptExpanderEntry(Base):
     instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     # ネームの下書き元のあらすじ。ネームから作ったときだけ入る（復元で欄を分けて戻すため）
     synopsis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # instruction を書いた欄。instruction（指示・あらすじの欄）| script（ネームの欄）。
+    # あらすじを空のままネームを手書きしたエントリも、復元でネームの欄へ戻すため。
+    # NULL は記録前の古いエントリ（synopsis の有無で見分ける）
+    instruction_source: Mapped[str | None] = mapped_column(String, nullable=True)
     # off | japanese | tags
     positive_expand_mode: Mapped[str] = mapped_column(
         String, default="off", nullable=False, server_default="off"

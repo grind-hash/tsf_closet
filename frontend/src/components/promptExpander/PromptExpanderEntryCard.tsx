@@ -34,6 +34,7 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { revealPromptExpanderSection } from "../../hooks/usePersistedSectionState";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import { ROUTES } from "../../routes";
+import { isEntryFromScript } from "../../utils/promptExpanderEntry";
 import { entryHasStoryText } from "../../utils/promptExpanderStoryContext";
 import { EMPTY_CHARACTER_PROFILE } from "../characters/characterMaker";
 import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
@@ -312,7 +313,7 @@ export default function PromptExpanderEntryCard({
             {entry.instruction?.trim() && (
               <>
                 <dt>
-                  {entry.synopsis?.trim()
+                  {isEntryFromScript(entry)
                     ? t("promptExpander.entry.script")
                     : t("promptExpander.entry.instruction")}
                 </dt>

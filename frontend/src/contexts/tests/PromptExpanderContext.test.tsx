@@ -647,6 +647,20 @@ function Probe() {
       >
         restore-script
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.restoreEntry({
+            ...OLD_ENTRY,
+            instruction: "①鏡を見る「え」",
+            synopsis: null,
+            instruction_source: "script",
+            manga_mode: true,
+          })
+        }
+      >
+        restore-handwritten-script
+      </button>
       <button type="button" onClick={() => void ctx.regenerateEntry(OLD_ENTRY)}>
         regenerate
       </button>
@@ -1305,6 +1319,7 @@ describe("PromptExpanderContext", () => {
     expect(body.positive_expand_mode).toBe("tags");
     expect(body.instruction).toBe("old instruction");
     expect(body.synopsis).toBeNull();
+    expect(body.instruction_source).toBe("instruction");
     expect(body.character_prompts).toEqual(["girl A", "girl B"]);
   });
 
@@ -1337,6 +1352,35 @@ describe("PromptExpanderContext", () => {
     const body = lastBody("/generate", "POST");
     expect(body.instruction).toBe("①鏡を見る「え」");
     expect(body.synopsis).toBe("朝起きたら女の子になっていた");
+  });
+
+  it("restoreEntry puts a storyboard written by hand without a synopsis back into the storyboard field", async () => {
+    await openSessionAndWait();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "restore-handwritten-script" }),
+      );
+    });
+    expect(screen.getByTestId("instruction").textContent).toBe("");
+    expect(screen.getByTestId("script").textContent).toBe("①鏡を見る「え」");
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}"),
+    ).toEqual({
+      mode: "tags",
+      instruction: "①鏡を見る「え」",
+      source: "script",
+      synopsis: null,
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    expect(lastBody("/generate", "POST")).toMatchObject({
+      instruction: "①鏡を見る「え」",
+      synopsis: null,
+      instruction_source: "script",
+    });
   });
 
   it("restoreEntry restores the final prompt directly for entries generated without expansion", async () => {
@@ -1503,6 +1547,7 @@ describe("PromptExpanderContext", () => {
     expect(lastBody("/generate", "POST")).toMatchObject({
       instruction: "①a cat girl「え…？」\n②戸惑う『どうして…』",
       synopsis: "a cat girl",
+      instruction_source: "script",
     });
 
     // 手で書いたネームの上に下書きし直しても、元に戻せる
@@ -2424,6 +2469,110 @@ describe("PromptExpanderContext", () => {
       JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}")
         .instruction,
     ).toBe("a cat girl");
+  });
+
+  it("a conversion that returns after restoreEntry does not overwrite the restored fields", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    let release: () => void = () => {};
+    mockState.llmGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "expand-positive" }));
+    });
+    expect(screen.getByTestId("expanding").textContent).toBe("positive");
+
+    // 応答の前に別の履歴を復元すると、変換中の表示はその場で止まる
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore" }));
+    });
+    expect(screen.getByTestId("expanding").textContent).toBe("none");
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    // 遅れて届いた結果は、復元した欄を上書きしない
+    expect(screen.getByTestId("instruction").textContent).toBe(
+      "old instruction",
+    );
+    expect(screen.getByTestId("positive").textContent).toBe(
+      "1girl, old prompt",
+    );
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}")
+        .instruction,
+    ).toBe("old instruction");
+    expect(screen.getByTestId("expanding").textContent).toBe("none");
+
+    // そのまま生成すると、復元した作品の内容を送る
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    expect(lastBody("/generate", "POST")).toMatchObject({
+      prompt: "1girl, old prompt",
+      instruction: "old instruction",
+    });
+  });
+
+  it("a storyboard draft that returns after restoreEntry does not overwrite the restored storyboard", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "manga-on-v5" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("manga-active").textContent).toBe("on"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    let release: () => void = () => {};
+    mockState.llmGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
+    });
+    expect(screen.getByTestId("drafting").textContent).toBe("yes");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore-script" }));
+    });
+    expect(screen.getByTestId("drafting").textContent).toBe("no");
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.getByTestId("script").textContent).toBe("①鏡を見る「え」");
+    expect(screen.getByTestId("instruction").textContent).toBe(
+      "朝起きたら女の子になっていた",
+    );
+    expect(screen.getByTestId("script-undo").textContent).toBe("none");
+  });
+
+  it("an error from a conversion discarded by undoRestore is not shown", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    // 書きかけの上に復元しておき、変換の途中で復元を取り消す
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore" }));
+    });
+    let release: () => void = () => {};
+    mockState.llmGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockState.expandErrorCode = "llm_failed";
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "expand-positive" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "undo-restore" }));
+    });
+    expect(screen.getByTestId("expanding").textContent).toBe("none");
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
+    await act(async () => {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.getByTestId("expansion-error").textContent).toBe("none");
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("positive").textContent).toBe("");
   });
 
   it("a session load that returns late does not replace the session opened after it", async () => {

@@ -87,6 +87,7 @@ import {
   clampReferenceStrength,
   isReferenceTypeSupported,
 } from "../utils/preciseReferences";
+import { isEntryFromScript } from "../utils/promptExpanderEntry";
 import { compareEntriesByCreation } from "../utils/promptExpanderStoryContext";
 import {
   readStorage,
@@ -449,6 +450,14 @@ function updateStoredSessionDraft(
 }
 
 /** 「欄へ復元」の前に控える内容 */
+/** 実行中の LLM 呼び出し（ネーム下書き・プロンプト化・ネガティブの変換） */
+interface PendingLlmCall {
+  /** 依頼したセッション */
+  sessionId: string | null;
+  /** 欄を丸ごと置き換えたので、届いた結果もエラーも欄へ入れない */
+  discarded: boolean;
+}
+
 interface RestoreSnapshot {
   instructionText: string;
   scriptText: string;
@@ -978,6 +987,36 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   // 生成の完了時に「いま開いているセッション」を見るため、最新の ID を ref に写しておく
   const activeSessionIdRef = useRef<string | null>(null);
   activeSessionIdRef.current = activeSession?.id ?? null;
+  // 実行中の LLM 呼び出し。ボタンは busy で止めるので同時に1つだけ
+  const pendingLlmCallRef = useRef<PendingLlmCall | null>(null);
+
+  const startLlmCall = useCallback((): PendingLlmCall => {
+    const call: PendingLlmCall = {
+      sessionId: activeSessionIdRef.current,
+      discarded: false,
+    };
+    pendingLlmCallRef.current = call;
+    return call;
+  }, []);
+
+  // 呼び出しが終わったか。欄の置き換えで捨てた呼び出しは、実行中の表示をすでに止めているので false
+  const finishLlmCall = useCallback((call: PendingLlmCall): boolean => {
+    if (pendingLlmCallRef.current !== call) return false;
+    pendingLlmCallRef.current = null;
+    return true;
+  }, []);
+
+  // 欄を丸ごと置き換えたとき（欄へ復元・復元の取り消し）、今のセッションで実行中の
+  // LLM 呼び出しを捨てる。置き換え前の欄に向けた結果が後から届いて欄を上書きしないようにし、
+  // 実行中の表示も止めてすぐ次の呼び出しを始められるようにする
+  const discardPendingLlmCall = useCallback(() => {
+    const call = pendingLlmCallRef.current;
+    if (!call || call.sessionId !== activeSessionIdRef.current) return;
+    call.discarded = true;
+    pendingLlmCallRef.current = null;
+    setExpandingTarget(null);
+    setDraftingScript(false);
+  }, []);
 
   const clearError = useCallback(() => setError(null), []);
   const clearExpansionError = useCallback(() => setExpansionError(null), []);
@@ -1543,6 +1582,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           fields.positiveOrigin?.source === "script"
             ? fields.positiveOrigin.synopsis
             : null,
+        // 書いた欄も残す（あらすじが空のまま手書きしたネームも、復元でネームの欄へ戻すため）
+        instruction_source: fields.positiveOrigin?.source ?? null,
         positive_expand_mode: fields.positiveOrigin?.mode ?? "off",
         negative_expand_mode: fields.negativeOrigin?.mode ?? "off",
         image_model: settings.image_model,
@@ -1786,7 +1827,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         field === "script" ? instructionText.trim() || null : null;
       setExpansionError(null);
       // 依頼したセッション。応答までに別のセッションへ移っていたら、結果はこのセッションの書きかけにだけ入れる
-      const requestSessionId = activeSessionIdRef.current;
+      const call = startLlmCall();
+      const requestSessionId = call.sessionId;
       setExpandingTarget("positive");
       try {
         const resp = await expandPrompt({
@@ -1818,6 +1860,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
             ? { context_entry_ids: storyContextEntryIds }
             : {}),
         });
+        if (call.discarded) return;
         const prompt = resp.positive_prompt ?? "";
         const slots =
           characterMode && resp.character_prompts?.length
@@ -1866,11 +1909,14 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         // 別のセッションへ移っていたら、そのセッションの欄にエラーを出さない
-        if (activeSessionIdRef.current === requestSessionId) {
+        if (
+          !call.discarded &&
+          activeSessionIdRef.current === requestSessionId
+        ) {
           failExpansion("positive", err, field);
         }
       } finally {
-        setExpandingTarget(null);
+        if (finishLlmCall(call)) setExpandingTarget(null);
       }
     },
     [
@@ -1878,6 +1924,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       characterSlots,
       effectivePositiveMode,
       failExpansion,
+      finishLlmCall,
       instructionText,
       language,
       mangaActive,
@@ -1892,6 +1939,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       settings.inherit_source_prompts,
       settings.text_model,
       sourceFields,
+      startLlmCall,
       storyContextEntryIds,
       transparentActive,
     ],
@@ -1920,7 +1968,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     }
     setExpansionError(null);
     // 依頼したセッション。応答までに別のセッションへ移っていたら、ネームはこのセッションの書きかけにだけ入れる
-    const requestSessionId = activeSessionIdRef.current;
+    const call = startLlmCall();
+    const requestSessionId = call.sessionId;
     setDraftingScript(true);
     try {
       const resp = await draftMangaScript({
@@ -1936,6 +1985,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           ? { context_entry_ids: storyContextEntryIds }
           : {}),
       });
+      if (call.discarded) return;
       if (activeSessionIdRef.current === requestSessionId) {
         // 前のネームが空でも控える（「下書きしました」の案内と、空に戻す操作のため）
         setScriptUndo({ script: scriptText, applied: resp.script });
@@ -1948,14 +1998,15 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         }));
       }
     } catch (err) {
-      if (activeSessionIdRef.current === requestSessionId) {
+      if (!call.discarded && activeSessionIdRef.current === requestSessionId) {
         failExpansion("positive", err, "instruction");
       }
     } finally {
-      setDraftingScript(false);
+      if (finishLlmCall(call)) setDraftingScript(false);
     }
   }, [
     failExpansion,
+    finishLlmCall,
     instructionText,
     language,
     mangaRequest,
@@ -1963,6 +2014,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     scriptText,
     settings.image_model,
     settings.text_model,
+    startLlmCall,
     storyContextEntryIds,
   ]);
 
@@ -1984,7 +2036,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     }
     setExpansionError(null);
     // 依頼したセッション。応答までに別のセッションへ移っていたら、結果はこのセッションの書きかけにだけ入れる
-    const requestSessionId = activeSessionIdRef.current;
+    const call = startLlmCall();
+    const requestSessionId = call.sessionId;
     // 今の変換カードは新しい結果が届くまで残す
     setExpandingTarget("negative");
     try {
@@ -2004,6 +2057,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         inherit_source_prompts: settings.inherit_source_prompts,
         current_character_prompts: characterMode ? characterSlots : [],
       });
+      if (call.discarded) return;
       const card: PromptExpanderNegativeExpansion = {
         mode: negativeMode,
         negativePrompt: resp.negative_prompt ?? "",
@@ -2017,16 +2071,17 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         }));
       }
     } catch (err) {
-      if (activeSessionIdRef.current === requestSessionId) {
+      if (!call.discarded && activeSessionIdRef.current === requestSessionId) {
         failExpansion("negative", err);
       }
     } finally {
-      setExpandingTarget(null);
+      if (finishLlmCall(call)) setExpandingTarget(null);
     }
   }, [
     characterMode,
     characterSlots,
     failExpansion,
+    finishLlmCall,
     language,
     negativeMode,
     negativeText,
@@ -2035,6 +2090,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     settings.inherit_source_prompts,
     settings.text_model,
     sourceFields,
+    startLlmCall,
   ]);
 
   const applyNegativeExpansion = useCallback(() => {
@@ -2248,7 +2304,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         expandMode !== "off" &&
         instruction.length > 0 &&
         instruction !== finalPrompt.trim();
-      const fromScript = expanded && synopsis.length > 0;
+      // ネームの欄で書いたものはネームの欄へ戻す（あらすじが空のまま手書きしたネームも含む）
+      const fromScript = expanded && isEntryFromScript(entry);
       const restoredPositive = finalPrompt;
       setInstructionText(expanded ? (fromScript ? synopsis : instruction) : "");
       setScriptText(fromScript ? instruction : "");
@@ -2263,13 +2320,14 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
               mode: expandMode,
               instruction,
               source: fromScript ? "script" : "instruction",
-              synopsis: fromScript ? synopsis : null,
+              synopsis: fromScript ? synopsis || null : null,
             }
           : null,
       );
       setNegativeOrigin(null);
       setExpansionError(null);
-      // 欄を丸ごと置き換えるので、変換カードと元に戻す用の控えも手放す
+      // 欄を丸ごと置き換えるので、実行中の変換の結果・変換カード・元に戻す用の控えも手放す
+      discardPendingLlmCall();
       setNegativeExpansion(null);
       setPromptUndo(null);
       setScriptUndo(null);
@@ -2350,6 +2408,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     [
       characterMode,
       characterSlots,
+      discardPendingLlmCall,
       inpaintMask,
       instructionText,
       negativeExpansion,
@@ -2375,6 +2434,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     if (!snapshot) return;
     // 復元で始めた精密参照の読み直しが後から終わっても、戻した参照を上書きしないようにする
     referenceRestoreSeq.current += 1;
+    // 復元のあとに始めた変換の結果も、戻した欄を上書きしないよう捨てる
+    discardPendingLlmCall();
     setInstructionText(snapshot.instructionText);
     setScriptText(snapshot.scriptText);
     setPositiveText(snapshot.positiveText);
@@ -2394,7 +2455,13 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       void updateSettings(snapshot.settings);
     }
     setRestoreSnapshot(null);
-  }, [restoreSnapshot, setCharacterMode, setPromptInputMode, updateSettings]);
+  }, [
+    discardPendingLlmCall,
+    restoreSnapshot,
+    setCharacterMode,
+    setPromptInputMode,
+    updateSettings,
+  ]);
 
   const restoreUndo = useMemo(
     () =>
@@ -2420,6 +2487,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         synopsis:
           entry.positive_expand_mode !== "off"
             ? (entry.synopsis ?? null)
+            : null,
+        instruction_source:
+          entry.positive_expand_mode !== "off"
+            ? (entry.instruction_source ?? null)
             : null,
         positive_expand_mode: entry.positive_expand_mode,
         negative_expand_mode: entry.negative_expand_mode,

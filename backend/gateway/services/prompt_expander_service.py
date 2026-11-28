@@ -517,6 +517,17 @@ def entry_nsfw(entry: PromptExpanderEntry) -> bool | None:
     return get_image_model_info(entry.image_model, nsfw_mode=True).family == "full"
 
 
+def entry_is_from_script(entry: PromptExpanderEntry) -> bool:
+    """instruction がネームの欄で書かれたか。
+
+    記録前の古いエントリ（instruction_source が NULL）は、ネームから作ったときだけ
+    入る synopsis の有無で見分ける。
+    """
+    if entry.instruction_source:
+        return entry.instruction_source == "script"
+    return bool((entry.synopsis or "").strip())
+
+
 def entry_to_dict(entry: PromptExpanderEntry) -> dict[str, Any]:
     return {
         "id": entry.id,
@@ -524,6 +535,7 @@ def entry_to_dict(entry: PromptExpanderEntry) -> dict[str, Any]:
         "kind": entry.kind,
         "instruction": entry.instruction,
         "synopsis": entry.synopsis,
+        "instruction_source": entry.instruction_source,
         "positive_expand_mode": entry.positive_expand_mode or "off",
         "negative_expand_mode": entry.negative_expand_mode or "off",
         "character_mode": bool(entry.character_mode),
@@ -982,17 +994,20 @@ async def load_story_pages(
     for entry in entries:
         synopsis = (entry.synopsis or "").strip()
         instruction = (entry.instruction or "").strip()
+        from_script = entry_is_from_script(entry)
         page = StoryPage(
             # ネームから作ったページは下書き元のあらすじとネームを分け、
-            # あらすじから直接作ったページは指示をあらすじとして渡す
-            synopsis=synopsis or instruction,
-            script=instruction if synopsis else "",
+            # あらすじから直接作ったページは指示をあらすじとして渡す。
+            # あらすじを空のまま手書きしたネームも、あらすじとしては渡さない
+            # （プロンプト化には台詞を含むネームを渡さないため）
+            synopsis=synopsis if from_script else instruction,
+            script=instruction if from_script else "",
             character_prompts=tuple(
                 _load_character_prompts(entry.character_prompts_json)
             ),
             final_prompt=(entry.final_prompt or "").strip(),
         )
-        if page.synopsis or page.character_prompts or page.final_prompt:
+        if page.synopsis or page.script or page.character_prompts or page.final_prompt:
             pages.append(page)
     return pages
 
@@ -1464,6 +1479,8 @@ class GenerateParams:
     instruction: str = ""
     # 漫画のネームから作ったときの、ネームの下書き元のあらすじ
     synopsis: str = ""
+    # instruction を書いた欄（instruction | script）。拡張しないときは None
+    instruction_source: str | None = None
     positive_expand_mode: str = "off"
     negative_expand_mode: str = "off"
     image_model: str = DEFAULT_PROMPT_EXPANDER_IMAGE_MODEL
@@ -1782,6 +1799,11 @@ async def generate_entry(
             kind="generated",
             instruction=(params.instruction or "").strip() or prompt,
             synopsis=(params.synopsis or "").strip() or None,
+            instruction_source=(
+                params.instruction_source
+                if (params.instruction or "").strip()
+                else None
+            ),
             positive_expand_mode=params.positive_expand_mode or "off",
             negative_expand_mode=params.negative_expand_mode or "off",
             character_mode=bool(params.character_mode or character_prompts),
