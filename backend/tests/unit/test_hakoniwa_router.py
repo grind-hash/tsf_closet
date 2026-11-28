@@ -701,6 +701,7 @@ def test_rule_look_generates_one_resident_at_a_time(
         "stale": 0,
         "total": 2,
         "pending": ["aoi", "ren"],
+        "resident_ids": ["aoi", "ren"],
     }
 
     running = {"now": 0, "max": 0}
@@ -728,7 +729,13 @@ def test_rule_look_generates_one_resident_at_a_time(
     by_id = {r["id"]: r for r in body["world"]["residents"]}
     assert by_id["aoi"]["display_kind"] == "rule"
     card = next(c for c in body["world"]["rule_cards"] if c["id"] == rule["id"])
-    assert card["look"] == {"ready": 2, "stale": 0, "total": 2, "pending": []}
+    assert card["look"] == {
+        "ready": 2,
+        "stale": 0,
+        "total": 2,
+        "pending": [],
+        "resident_ids": ["aoi", "ren"],
+    }
 
     again = client.post(
         f"/api/hakoniwa/worlds/{wid}/custom-rules/{rule['id']}/look", json={}
@@ -791,8 +798,10 @@ def test_world_memo_look_is_planned_then_drawn_one_by_one(
     assert planned.status_code == 200, planned.text
     body = planned.json()
     assert body["changes_look"] is True
-    # 人物の性別・人数のタグは外す
-    assert body["world"]["memo_look"]["tags"] == "bikini"
+    # 性別ごとに分けずに答えたら、両方の性別に同じ姿。人物の性別・人数のタグは外す
+    groups = body["world"]["memo_look"]["groups"]
+    assert groups["female"] == {"tags": "bikini", "body_gender": None}
+    assert groups["male"] == {"tags": "bikini", "body_gender": None}
     assert body["world"]["memo_look"]["pending"] == ["aoi", "ren"]
     assert body["world"]["memo_look_planned"] is True
 
@@ -825,6 +834,120 @@ def test_world_memo_look_is_planned_then_drawn_one_by_one(
     assert style_only.json()["changes_look"] is False
     missing = client.post(f"/api/hakoniwa/worlds/{wid}/memo-look", json={})
     assert missing.json()["detail"]["code"] == "no_memo_look"
+
+
+def test_world_memo_look_differs_by_original_sex(
+    client: TestClient, llm_outputs, monkeypatch
+):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    captured: list[str] = []
+
+    async def fake_avatar(tags, *, image_model, nsfw_mode):
+        captured.append(tags)
+        return _png()
+
+    monkeypatch.setattr(service_module, "generate_avatar_bytes", fake_avatar)
+    client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings",
+        json={"world_memo": "男性は美少女の巨乳になるが、男性器はそのまま"},
+    )
+    llm_outputs.append(
+        '{"changes_look": true, "female": null, "male": {"appearance_tags": '
+        '"1girl, large breasts, feminine face", "body_gender": "keep"}}'
+    )
+    planned = client.post(f"/api/hakoniwa/worlds/{wid}/memo-look/plan", json={})
+    look = planned.json()["world"]["memo_look"]
+    assert look["groups"] == {
+        "female": None,
+        "male": {"tags": "large breasts, feminine face", "body_gender": None},
+    }
+    # 姿が変わるのは本来は男性の住民だけ
+    assert (look["total"], look["pending"], look["resident_ids"]) == (
+        1,
+        ["ren"],
+        ["ren"],
+    )
+
+    unchanged = client.post(
+        f"/api/hakoniwa/worlds/{wid}/memo-look", json={"resident_id": "aoi"}
+    )
+    assert unchanged.json()["detail"]["code"] == "no_memo_look"
+
+    llm_outputs.append("short dark green hair, large breasts, feminine face")
+    drawn = client.post(f"/api/hakoniwa/worlds/{wid}/memo-look", json={}).json()
+    assert drawn["generated"] == 1
+    # 体は男性のまま(性別のトークンは本来の性別)
+    assert captured[-1].startswith("1boy, short dark green hair, large breasts")
+    by_id = {r["id"]: r for r in drawn["world"]["residents"]}
+    assert by_id["ren"]["display_kind"] == "memo"
+    assert by_id["ren"]["body_gender"] == "male"
+    assert by_id["aoi"]["display_kind"] != "memo"
+    assert drawn["world"]["memo_look"]["pending"] == []
+
+
+def test_world_memo_look_can_be_fixed_by_hand_and_rechecked(
+    client: TestClient, llm_outputs
+):
+    world = _create(client, ["aoi", "ren"])
+    wid = world["id"]
+    url = f"/api/hakoniwa/worlds/{wid}/memo-look"
+    empty = client.put(url, json={"male": {"tags": "large breasts"}})
+    assert empty.json()["detail"]["code"] == "no_world_memo"
+
+    client.patch(
+        f"/api/hakoniwa/worlds/{wid}/settings",
+        json={"world_memo": "男性は胸が大きくなる"},
+    )
+    llm_outputs.append(
+        '{"changes_look": true, "female": {"appearance_tags": "large breasts", '
+        '"body_gender": "keep"}, "male": {"appearance_tags": "large breasts", '
+        '"body_gender": "female"}}'
+    )
+    client.post(f"/api/hakoniwa/worlds/{wid}/memo-look/plan", json={})
+
+    fixed = client.put(
+        url,
+        json={
+            "female": {"tags": "", "body_gender": "female"},
+            "male": {"tags": "1girl, large breasts,\nbra", "body_gender": None},
+        },
+    )
+    assert fixed.status_code == 200, fixed.text
+    look = fixed.json()["memo_look"]
+    # 本来と同じ体の性別でタグも無い性別は、姿が変わらない
+    assert look["groups"] == {
+        "female": None,
+        "male": {"tags": "large breasts, bra", "body_gender": None},
+    }
+    assert look["edited"] is True
+    assert look["resident_ids"] == ["ren"]
+    assert fixed.json()["residents"][1]["body_gender"] == "male"
+
+    # 確かめ済みなら LLM を呼ばず、手で直した姿のまま
+    kept = client.post(f"/api/hakoniwa/worlds/{wid}/memo-look/plan", json={})
+    assert kept.json()["world"]["memo_look"]["edited"] is True
+
+    bad = client.put(url, json={"male": {"tags": "1girl"}})
+    assert bad.json()["detail"]["code"] == "invalid_tags"
+
+    cleared = client.put(url, json={"female": None, "male": None}).json()
+    assert cleared["memo_look"] is None
+    assert cleared["memo_look_planned"] is True
+
+    # 判断し直すと、手で直した姿も LLM の判断に置き換わる
+    llm_outputs.append(
+        '{"changes_look": true, "female": null, "male": {"appearance_tags": '
+        '"large breasts", "body_gender": "keep"}}'
+    )
+    rechecked = client.post(
+        f"/api/hakoniwa/worlds/{wid}/memo-look/plan", json={"force": True}
+    ).json()["world"]["memo_look"]
+    assert rechecked["edited"] is False
+    assert rechecked["groups"]["male"] == {
+        "tags": "large breasts",
+        "body_gender": None,
+    }
 
 
 def test_body_changing_rule_look_sets_gender_token(
@@ -876,6 +999,7 @@ def test_body_changing_rule_look_sets_gender_token(
         "stale": 2,
         "total": 2,
         "pending": ["aoi", "ren"],
+        "resident_ids": ["aoi", "ren"],
     }
     by_id = {r["id"]: r for r in edited["residents"]}
     assert by_id["ren"]["body_gender"] == "male"

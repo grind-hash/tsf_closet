@@ -26,6 +26,7 @@ import hashlib
 import random
 import re
 import uuid
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
@@ -285,7 +286,7 @@ def own_body_gender(state: dict[str, Any], resident: dict[str, Any]) -> str:
         )
     return (
         active_look_body_gender(state)
-        or memo_look_body_gender(state)
+        or memo_look_body_gender(state, resident)
         or resident_gender(resident)
     )
 
@@ -313,7 +314,8 @@ def appearance_kind(state: dict[str, Any], resident: dict[str, Any]) -> str | No
         return "combo"
     if look_rule_ids(state):
         return "rule"
-    if active_memo_look(state) is not None:
+    # メモの姿は体の本来の性別で決まる(入れ替わり中は相手の体)
+    if memo_look_for(state, body_of(state, resident)) is not None:
         return "memo"
     if "dress" in state.get("active_rules", []):
         return "dress"
@@ -337,7 +339,8 @@ def is_male_in_feminine_form(state: dict[str, Any], resident: dict[str, Any]) ->
     if kind in ("combo", "rule"):
         return has_feminine_marker(look_rules_tags(state, kind))
     if kind == "memo":
-        return has_feminine_marker((active_memo_look(state) or {}).get("tags", ""))
+        look = memo_look_for(state, body_of(state, resident)) or {}
+        return has_feminine_marker(str(look.get("tags") or ""))
     return False
 
 
@@ -498,14 +501,29 @@ def look_entry_is_current(entry: dict[str, Any], tags: str, body: str | None) ->
 def _look_status(
     state: dict[str, Any], kind: str, key: str, tags: str, body: str | None
 ) -> dict[str, Any]:
+    return _look_status_by(state, kind, key, lambda _resident: (tags, body))
+
+
+def _look_status_by(
+    state: dict[str, Any],
+    kind: str,
+    key: str,
+    source_for: Callable[[dict[str, Any]], tuple[str, str | None] | None],
+) -> dict[str, Any]:
+    """姿の生成状況。source_for は住民ごとの (見た目のタグ, 体の性別)。None の住民は数えない。"""
     ready = stale = 0
     pending: list[str] = []
+    targets: list[str] = []
     for resident in state["residents"]:
+        source = source_for(resident)
+        if source is None:
+            continue
+        targets.append(resident["id"])
         entry = look_entry_for(state, resident, kind, key)
         if not entry or not entry.get("image"):
             pending.append(resident["id"])
             continue
-        if look_entry_is_current(entry, tags, body):
+        if look_entry_is_current(entry, *source):
             ready += 1
         else:
             stale += 1
@@ -513,8 +531,9 @@ def _look_status(
     return {
         "ready": ready,
         "stale": stale,
-        "total": len(state["residents"]),
+        "total": len(targets),
         "pending": pending,
+        "resident_ids": targets,
     }
 
 
@@ -535,8 +554,10 @@ def combo_look_status(state: dict[str, Any], combo: dict[str, Any]) -> dict[str,
     )
 
 
-# 世界のメモの姿: メモから LLM が作った、住民全員に効く見た目の変化
-# state["memo_look"] = {memo: 作った元のメモ, tags, body_gender}、住民の memo_images[MEMO_LOOK_KEY]
+# 世界のメモの姿: メモから LLM が作った(またはプレイヤーが直した)、住民の本来の性別ごとの
+# 見た目の変化。state["memo_look"] = {memo: 作った元のメモ, groups: {female|male: {tags,
+# body_gender} | None}, edited: 手で直したか}、住民の memo_images[MEMO_LOOK_KEY]。
+# groups の無い旧形式 {memo, tags, body_gender} は、両方の性別に同じ姿として読む
 MEMO_LOOK_KEY = "memo"
 _LOOK_IMAGE_FIELDS = {
     "rule": "rule_images",
@@ -550,22 +571,57 @@ def look_image_field(kind: str) -> str:
     return _LOOK_IMAGE_FIELDS[kind]
 
 
-def _normalize_memo_look(value: Any) -> dict[str, Any] | None:
+def _normalize_memo_group(value: Any, gender: str) -> dict[str, Any] | None:
+    """本来の性別 gender の住民へのメモの姿 {tags, body_gender}。変わらなければ None。
+
+    体の性別が本来の性別と同じなら、体は変えない(None)として扱う。
+    """
     if not isinstance(value, dict):
         return None
     tags = str(value.get("tags") or "").strip()
     body = rule_body_gender(value)
+    if body == gender:
+        body = None
     if not tags and body is None:
         return None
-    return {"memo": str(value.get("memo") or ""), "tags": tags, "body_gender": body}
+    return {"tags": tags, "body_gender": body}
+
+
+def _normalize_memo_look(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_groups = value.get("groups")
+    groups = {
+        gender: _normalize_memo_group(
+            raw_groups.get(gender) if isinstance(raw_groups, dict) else value, gender
+        )
+        for gender in GENDERS
+    }
+    if all(group is None for group in groups.values()):
+        return None
+    return {
+        "memo": str(value.get("memo") or ""),
+        "groups": groups,
+        "edited": value.get("edited") is True,
+    }
 
 
 def active_memo_look(state: dict[str, Any]) -> dict[str, Any] | None:
-    """いまの世界のメモから作った姿の指定 {tags, body_gender}(メモを変えたあとは無効)。"""
+    """いまの世界のメモから作った姿の指定 {groups, edited}(メモを変えたあとは無効)。"""
     look = _normalize_memo_look(state.get("memo_look"))
     if look is None or look["memo"] != play.world_memo(state):
         return None
-    return {"tags": look["tags"], "body_gender": look["body_gender"]}
+    return {"groups": look["groups"], "edited": look["edited"]}
+
+
+def memo_look_for(
+    state: dict[str, Any], resident: dict[str, Any]
+) -> dict[str, Any] | None:
+    """住民(体のエントリ)の本来の性別に効くメモの姿 {tags, body_gender}。変わらなければ None。"""
+    look = active_memo_look(state)
+    if look is None:
+        return None
+    return look["groups"].get(resident_gender(resident))
 
 
 def memo_look_planned(state: dict[str, Any]) -> bool:
@@ -574,41 +630,56 @@ def memo_look_planned(state: dict[str, Any]) -> bool:
     return planned is not None and planned == play.world_memo(state)
 
 
-def memo_look_body_gender(state: dict[str, Any]) -> str | None:
-    return (active_memo_look(state) or {}).get("body_gender")
+def memo_look_body_gender(
+    state: dict[str, Any], resident: dict[str, Any]
+) -> str | None:
+    return (memo_look_for(state, resident) or {}).get("body_gender")
 
 
 def set_memo_look(
-    state: dict[str, Any], tags: str, body_gender: str | None
+    state: dict[str, Any],
+    groups: dict[str, dict[str, Any] | None],
+    *,
+    edited: bool = False,
 ) -> dict[str, Any]:
-    """いまの世界のメモから作った姿の指定を保存する。タグも体の性別も無ければ消す。"""
+    """いまの世界のメモの姿を、本来の性別ごとに保存する。どの性別も変わらなければ消す。
+
+    groups は {female|male: {tags, body_gender} | None}。edited は手で直したか。
+    """
     new_state = deepcopy(state)
     memo = play.world_memo(new_state)
-    look = _normalize_memo_look(
-        {"memo": memo, "tags": tags, "body_gender": body_gender}
-    )
+    look = _normalize_memo_look({"memo": memo, "groups": groups, "edited": edited})
     new_state["memo_look"] = look
     new_state["memo_look_planned_for"] = memo
     return new_state
 
 
+def _memo_source(
+    state: dict[str, Any], resident: dict[str, Any]
+) -> tuple[str, str | None] | None:
+    group = memo_look_for(state, resident)
+    return (group["tags"], group["body_gender"]) if group else None
+
+
 def memo_look_status(state: dict[str, Any]) -> dict[str, Any] | None:
-    """メモの姿の生成状況(メモが姿を変えていなければ None)。"""
-    look = active_memo_look(state)
-    if look is None:
+    """メモの姿の生成状況(メモが姿を変えていなければ None)。数えるのは姿が変わる住民だけ。"""
+    if active_memo_look(state) is None:
         return None
-    return _look_status(state, "memo", MEMO_LOOK_KEY, look["tags"], look["body_gender"])
+    return _look_status_by(
+        state,
+        "memo",
+        MEMO_LOOK_KEY,
+        lambda resident: _memo_source(state, resident),
+    )
 
 
 def current_memo_look_tags(state: dict[str, Any], resident: dict[str, Any]) -> str:
     """住民のメモの姿のタグ(いまのメモで生成済みのときだけ。掟の姿の元にする)。"""
-    look = active_memo_look(state)
-    if look is None:
+    source = _memo_source(state, resident)
+    if source is None:
         return ""
     entry = (resident.get("memo_images") or {}).get(MEMO_LOOK_KEY) or {}
-    if entry.get("image") and look_entry_is_current(
-        entry, look["tags"], look["body_gender"]
-    ):
+    if entry.get("image") and look_entry_is_current(entry, *source):
         return str(entry.get("tags") or "")
     return ""
 
@@ -861,7 +932,7 @@ def own_look(state: dict[str, Any], resident: dict[str, Any]) -> dict[str, Any]:
                 "tags": str(entry.get("tags") or ""),
                 "rule_id": rule_id,
             }
-    if active_memo_look(state) is not None:
+    if memo_look_for(state, resident) is not None:
         entry = (resident.get("memo_images") or {}).get(MEMO_LOOK_KEY)
         if entry and entry.get("image"):
             return {

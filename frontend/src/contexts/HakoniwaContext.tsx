@@ -50,6 +50,7 @@ import {
   type HakoniwaDirectedEventInput,
   type HakoniwaEvent,
   type HakoniwaInterventionChoice,
+  type HakoniwaMemoLookGroups,
   type HakoniwaPlayerPresence,
   type HakoniwaRandomResident,
   type HakoniwaResidentChange,
@@ -75,6 +76,7 @@ import {
   touchHakoniwaResident,
   transformHakoniwaResident,
   updateHakoniwaCustomRule,
+  updateHakoniwaMemoLook,
   updateHakoniwaResident,
   updateHakoniwaSettings,
 } from "../apis/hakoniwa";
@@ -326,8 +328,13 @@ interface HakoniwaContextValue {
     regenerate: boolean,
     residentIds?: string[],
   ) => void;
-  /** 世界のメモが姿に関わるかを確かめ直し、関わるならまだの住民の姿を生成する */
-  applyMemoLook: (worldId: string) => Promise<void>;
+  /**
+   * 世界のメモが姿に関わるかを確かめ、関わるならまだの住民の姿を生成する
+   * (force なら確かめ済み・手で直した姿でも LLM に判断し直させる)
+   */
+  applyMemoLook: (worldId: string, force?: boolean) => Promise<void>;
+  /** 世界のメモの姿を本来の性別ごとに手で直し、姿が変わる住民の姿を生成する */
+  saveMemoLook: (groups: HakoniwaMemoLookGroups) => Promise<boolean>;
   /** 生成中の掟の姿("combo" は複合の姿) */
   lookTarget: string | null;
   /** 生成中の姿の進み具合(1人ずつ呼ぶので、終わった人数) */
@@ -1557,13 +1564,14 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
             : source.rule_cards.find((card) => card.id === target)?.look;
       // 選んだ住民は生成済みでも描き直す
       const regenerate = requestedRegenerate || onlyResidentIds !== undefined;
+      // この姿になる住民(メモの姿は本来の性別で決まるので、全員とは限らない)
+      const eligible =
+        status?.resident_ids ?? source.residents.map((resident) => resident.id);
       // 選んだ住民だけ、描き直しは全員、それ以外はまだ(または見た目を変える前)の住民だけ
       const residentIds = onlyResidentIds
-        ? source.residents
-            .map((resident) => resident.id)
-            .filter((id) => onlyResidentIds.includes(id))
+        ? eligible.filter((id) => onlyResidentIds.includes(id))
         : regenerate
-          ? source.residents.map((resident) => resident.id)
+          ? eligible
           : (status?.pending ?? []);
       if (residentIds.length === 0) return;
       guardImageGeneration(() => {
@@ -1652,14 +1660,15 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
   );
 
   /**
-   * いまの世界のメモが住民全員の姿を変えるかを確かめ、変えるなら、まだの住民の姿を
-   * 1人ずつ生成する(同じメモで確かめ済みならバックエンドは LLM を呼ばない)
+   * いまの世界のメモが住民の姿を変えるかを本来の性別ごとに確かめ、変えるなら、まだの住民の
+   * 姿を1人ずつ生成する(同じメモで確かめ済みならバックエンドは LLM を呼ばない。force なら
+   * 手で直した姿も含めて判断し直す)
    */
   const applyMemoLook = useCallback(
-    async (targetWorldId: string) => {
+    async (targetWorldId: string, force = false) => {
       setLookTarget("memo");
       const planned = await run("look", () =>
-        planHakoniwaMemoLook(targetWorldId, language),
+        planHakoniwaMemoLook(targetWorldId, language, force),
       );
       setLookTarget(null);
       if (!planned) return;
@@ -1668,6 +1677,21 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       if (planned.changes_look) runLookGeneration(planned.world, "memo", false);
     },
     [applyWorld, language, recordCost, run, runLookGeneration],
+  );
+
+  const saveMemoLook = useCallback(
+    async (groups: HakoniwaMemoLookGroups) => {
+      if (!worldId) return false;
+      const updated = await run("settings", () =>
+        updateHakoniwaMemoLook(worldId, groups, language),
+      );
+      if (!updated) return false;
+      applyWorld(updated);
+      // 姿が変わる住民のうち、まだ(または直す前の姿)の住民だけ描く
+      if (updated.memo_look) runLookGeneration(updated, "memo", false);
+      return true;
+    },
+    [applyWorld, language, run, runLookGeneration, worldId],
   );
 
   const setWorldMemo = useCallback(
@@ -1876,6 +1900,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       saveCustomRule,
       generateLook,
       applyMemoLook,
+      saveMemoLook,
       lookTarget,
       lookProgress,
       deleteCustomRule,
@@ -1960,6 +1985,7 @@ export function HakoniwaProvider({ children }: { children: ReactNode }) {
       saveCustomRule,
       generateLook,
       applyMemoLook,
+      saveMemoLook,
       lookTarget,
       lookProgress,
       deleteCustomRule,

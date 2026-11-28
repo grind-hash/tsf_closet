@@ -34,6 +34,8 @@ from ..schemas.hakoniwa import (
     HakoniwaLanguageRequest,
     HakoniwaLookRequest,
     HakoniwaLookResponse,
+    HakoniwaMemoLookEditRequest,
+    HakoniwaMemoLookPlanRequest,
     HakoniwaMemoLookPlanResponse,
     HakoniwaRandomResidentsRequest,
     HakoniwaRandomResidentsResponse,
@@ -381,16 +383,43 @@ async def generate_layered_look(
     response_model=HakoniwaMemoLookPlanResponse,
     summary="世界のメモが姿に関わるかを確かめる",
     description=(
-        "いまの世界のメモが住民全員の見た目を変えるかを LLM が判断し、変えるなら見た目の"
-        "タグを保存する。同じメモでもう確かめていれば LLM を呼ばない"
+        "いまの世界のメモが住民の見た目を変えるかを、住民の本来の性別ごとに LLM が判断し、"
+        "変えるなら見た目のタグと体の性別を保存する。同じメモでもう確かめていれば LLM を"
+        "呼ばない(force なら手で直した姿も含めて判断し直す)"
     ),
     responses=_ERROR_RESPONSES,
 )
 async def plan_memo_look(
-    world_id: str, request: HakoniwaLanguageRequest
+    world_id: str, request: HakoniwaMemoLookPlanRequest
 ) -> HakoniwaMemoLookPlanResponse:
-    result = await _call(hakoniwa_service.plan_memo_look(world_id, request.language))
+    result = await _call(
+        hakoniwa_service.plan_memo_look(world_id, request.language, force=request.force)
+    )
     return HakoniwaMemoLookPlanResponse(**result)
+
+
+@router.put(
+    "/worlds/{world_id}/memo-look",
+    response_model=HakoniwaWorldResponse,
+    summary="世界のメモの姿を手で直す",
+    description=(
+        "世界のメモが住民の本来の性別ごとに与える姿(見た目のタグ・体の性別)をプレイヤーが"
+        "決める。null の性別、またはタグが空で体も変えない性別は、姿が変わらない"
+    ),
+    responses=_ERROR_RESPONSES,
+)
+async def update_memo_look(
+    world_id: str, request: HakoniwaMemoLookEditRequest
+) -> HakoniwaWorldResponse:
+    groups = {
+        "female": request.female.model_dump() if request.female else None,
+        "male": request.male.model_dump() if request.male else None,
+    }
+    return HakoniwaWorldResponse(
+        **await _call(
+            hakoniwa_service.update_memo_look(world_id, groups, request.language)
+        )
+    )
 
 
 @router.post(
@@ -398,7 +427,8 @@ async def plan_memo_look(
     response_model=HakoniwaLookResponse,
     summary="世界のメモの姿を生成",
     description=(
-        "世界のメモが住民全員に与える姿を1人ずつ生成する(resident_id ならその1人)。"
+        "世界のメモが住民に与える姿を、姿が変わる住民だけ1人ずつ生成する"
+        "(resident_id ならその1人)。"
         "regenerate=false なら、今のメモの姿でまだ生成していない住民だけ"
     ),
     responses=_ERROR_RESPONSES,

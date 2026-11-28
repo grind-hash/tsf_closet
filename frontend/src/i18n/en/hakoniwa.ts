@@ -451,6 +451,7 @@ export const hakoniwa = {
     appearanceNone: "Look: unchanged",
     lookStatus: "Looks: {{ready}} / {{total}}",
     lookReady: "Looks: ready for everyone",
+    lookReadyTargets: "Looks: done for all affected residents ({{count}})",
     lookStale: "({{count}} drawn before the look changed)",
     synergy: "Combo with “{{name}}”: {{label}} — {{hint}}",
     synergyActive: "In effect",
@@ -506,13 +507,33 @@ export const hakoniwa = {
     memoCount: "{{count}} / {{max}} characters",
     memoSave: "Save memo",
     memoNote:
-      "What you write becomes this world's common sense (what everyone believes has always been true) and applies right away to events, greetings, conversations and reactions, ahead of the rules. If it changes how every resident looks, everyone's look is redrawn when you save.",
+      "What you write becomes this world's common sense (what everyone believes has always been true) and applies right away to events, greetings, conversations and reactions, ahead of the rules. If it changes how residents look (judged separately by each resident's original sex), their looks are redrawn when you save.",
     memoLookPlanning: "Checking whether the memo changes how residents look…",
     memoLookHeading: "Memo look",
     memoLookLabel: "the world memo's look",
     memoLookTags: "Look: {{tags}}",
-    memoLookBodyOnly: "Look: only the body's sex changes",
-    memoLookBody: "Body: {{gender}}",
+    memoLookBody: "Body: becomes {{gender}}",
+    memoLookBodyKeep: "Body: unchanged",
+    memoLookLine: "{{look}} / {{body}}",
+    memoLookUnchanged: "No change",
+    memoLookGroup: {
+      female: "Originally female residents",
+      male: "Originally male residents",
+    },
+    memoLookEdited:
+      "You set this look by hand. “Redecide from the memo” goes back to what the LLM decides from the memo.",
+    memoLookEdit: "Set the look by hand",
+    memoLookRecheck: "Redecide from the memo",
+    memoLookRecheckTitle: "Redecide the look from the memo?",
+    memoLookRecheckBody:
+      "The look you set by hand is replaced by what the LLM decides when it reads the memo again.",
+    memoLookEditTitle: "Set the memo look by hand",
+    memoLookEditSave: "Save",
+    memoLookEditNote:
+      "For each original sex, set the look tags the memo adds and the body's sex. Residents whose tags are empty and whose body is set to “Keep” do not change. When you save, the residents whose look changes are redrawn.",
+    memoLookEditTags: "Look tags",
+    memoLookEditTagsPlaceholder:
+      "e.g. cat ears, maid outfit (leave empty to keep the look)",
     memoLookNone:
       "This memo does not change how residents look (it only affects the writing).",
     memoLookUnchecked:

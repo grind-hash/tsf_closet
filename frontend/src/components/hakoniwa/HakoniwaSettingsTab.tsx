@@ -1,8 +1,10 @@
+import type { TFunction } from "i18next";
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
   HAKONIWA_PLAYER_NAME_MAX,
+  type HakoniwaMemoLookGroup,
   type HakoniwaTheme,
 } from "../../apis/hakoniwa";
 import {
@@ -17,6 +19,9 @@ import WebSearchTermsDialog, {
   type WebSearchTermsMode,
 } from "../settings/WebSearchTermsDialog";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import HakoniwaMemoLookDialog, {
+  MEMO_LOOK_GENDERS,
+} from "./HakoniwaMemoLookDialog";
 import HakoniwaPresencePicker from "./HakoniwaPresencePicker";
 import {
   LookControls,
@@ -364,9 +369,28 @@ export default function HakoniwaSettingsTab() {
   );
 }
 
+/** 本来の性別が同じ住民たちへのメモの姿を1行の文にする */
+function memoGroupText(
+  t: TFunction,
+  group: HakoniwaMemoLookGroup | null,
+): string {
+  if (!group) return t("hakoniwa.settings.memoLookUnchanged");
+  const body = group.body_gender
+    ? t("hakoniwa.settings.memoLookBody", {
+        gender: t(`hakoniwa.gender.${group.body_gender}`),
+      })
+    : t("hakoniwa.settings.memoLookBodyKeep");
+  if (!group.tags) return body;
+  return t("hakoniwa.settings.memoLookLine", {
+    look: t("hakoniwa.settings.memoLookTags", { tags: group.tags }),
+    body,
+  });
+}
+
 /**
- * 世界のメモが住民全員に与える姿の状態。姿に関わるかを確かめている間はスピナー、
- * 関わるなら見た目のタグと生成状況、関わらないならその旨を出す
+ * 世界のメモが住民に与える姿の状態。姿に関わるかを確かめている間はスピナー、関わるなら
+ * 本来の性別ごとの見た目と生成状況、関わらないならその旨を出す。どの状態でも、姿を手で
+ * 直すことと、メモから決め直すことができる
  */
 function MemoLookStatus({
   planning,
@@ -380,7 +404,9 @@ function MemoLookStatus({
   onRequest: (request: LookRequest) => void;
 }) {
   const { t } = useTranslation();
-  const { world } = useHakoniwa();
+  const { world, applyMemoLook } = useHakoniwa();
+  const [editing, setEditing] = useState(false);
+  const [confirmRecheck, setConfirmRecheck] = useState(false);
   if (!world) return null;
   const memoLook = world.memo_look ?? null;
   if (planning) {
@@ -391,19 +417,72 @@ function MemoLookStatus({
       </div>
     );
   }
+  const recheck = () => void applyMemoLook(world.id, true);
+  const actions = (
+    <div className="hakoniwa-settings__memo-look-actions">
+      <button
+        type="button"
+        className="hakoniwa-button hakoniwa-button--ghost"
+        onClick={() => setEditing(true)}
+        disabled={locked}
+      >
+        {t("hakoniwa.settings.memoLookEdit")}
+      </button>
+      {(memoLook || world.memo_look_planned) && (
+        <button
+          type="button"
+          className="hakoniwa-button hakoniwa-button--ghost"
+          // 手で直した姿は LLM の判断に置き換わるので、先に確かめる
+          onClick={() =>
+            memoLook?.edited ? setConfirmRecheck(true) : recheck()
+          }
+          disabled={locked}
+        >
+          {t("hakoniwa.settings.memoLookRecheck")}
+        </button>
+      )}
+    </div>
+  );
+  const dialogs = (
+    <>
+      {editing && <HakoniwaMemoLookDialog onClose={() => setEditing(false)} />}
+      <ConfirmDialog
+        open={confirmRecheck}
+        title={t("hakoniwa.settings.memoLookRecheckTitle")}
+        confirmLabel={t("hakoniwa.settings.memoLookRecheck")}
+        cancelLabel={t("hakoniwa.residentForm.cancel")}
+        onCancel={() => setConfirmRecheck(false)}
+        onConfirm={() => {
+          setConfirmRecheck(false);
+          recheck();
+        }}
+      >
+        <p>{t("hakoniwa.settings.memoLookRecheckBody")}</p>
+      </ConfirmDialog>
+    </>
+  );
   if (memoLook) {
     return (
       <div className="hakoniwa-settings__memo-look">
-        <strong>{t("hakoniwa.settings.memoLookHeading")}</strong>
-        <p className="hakoniwa-note">
-          {memoLook.tags
-            ? t("hakoniwa.settings.memoLookTags", { tags: memoLook.tags })
-            : t("hakoniwa.settings.memoLookBodyOnly")}
-          {memoLook.body_gender &&
-            ` ${t("hakoniwa.settings.memoLookBody", {
-              gender: t(`hakoniwa.gender.${memoLook.body_gender}`),
-            })}`}
-        </p>
+        <div className="hakoniwa-settings__memo-look-head">
+          <strong>{t("hakoniwa.settings.memoLookHeading")}</strong>
+          {actions}
+        </div>
+        <ul className="hakoniwa-settings__memo-look-groups">
+          {MEMO_LOOK_GENDERS.map((gender) => (
+            <li key={gender}>
+              <span className="hakoniwa-settings__memo-look-group">
+                {t(`hakoniwa.settings.memoLookGroup.${gender}`)}
+              </span>
+              <span>{memoGroupText(t, memoLook.groups[gender])}</span>
+            </li>
+          ))}
+        </ul>
+        {memoLook.edited && (
+          <p className="hakoniwa-note">
+            {t("hakoniwa.settings.memoLookEdited")}
+          </p>
+        )}
         <LookControls
           status={memoLook}
           target="memo"
@@ -411,12 +490,19 @@ function MemoLookStatus({
           disabled={locked}
           onRequest={onRequest}
         />
+        {dialogs}
       </div>
     );
   }
   if (world.memo_look_planned) {
     return (
-      <p className="hakoniwa-note">{t("hakoniwa.settings.memoLookNone")}</p>
+      <div className="hakoniwa-settings__memo-look">
+        <div className="hakoniwa-settings__memo-look-head">
+          <p className="hakoniwa-note">{t("hakoniwa.settings.memoLookNone")}</p>
+          {actions}
+        </div>
+        {dialogs}
+      </div>
     );
   }
   return (
@@ -424,14 +510,25 @@ function MemoLookStatus({
       <p className="hakoniwa-note">
         {t("hakoniwa.settings.memoLookUnchecked")}
       </p>
-      <button
-        type="button"
-        className="hakoniwa-button hakoniwa-button--ghost"
-        onClick={onCheck}
-        disabled={locked}
-      >
-        {t("hakoniwa.settings.memoLookCheck")}
-      </button>
+      <div className="hakoniwa-settings__memo-look-actions">
+        <button
+          type="button"
+          className="hakoniwa-button hakoniwa-button--ghost"
+          onClick={onCheck}
+          disabled={locked}
+        >
+          {t("hakoniwa.settings.memoLookCheck")}
+        </button>
+        <button
+          type="button"
+          className="hakoniwa-button hakoniwa-button--ghost"
+          onClick={() => setEditing(true)}
+          disabled={locked}
+        >
+          {t("hakoniwa.settings.memoLookEdit")}
+        </button>
+      </div>
+      {dialogs}
     </div>
   );
 }

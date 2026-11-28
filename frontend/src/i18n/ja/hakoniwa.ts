@@ -450,6 +450,7 @@ export const hakoniwa = {
     appearanceNone: "見た目: 変えない",
     lookStatus: "姿: {{ready}} / {{total}}人",
     lookReady: "姿: 全員ぶん生成済み",
+    lookReadyTargets: "姿: 対象の{{count}}人ぶん生成済み",
     lookStale: "（見た目を変える前の姿が{{count}}人分）",
     synergy: "相性:「{{name}}」と『{{label}}』— {{hint}}",
     synergyActive: "発動中",
@@ -505,13 +506,33 @@ export const hakoniwa = {
     memoCount: "{{count}} / {{max}}文字",
     memoSave: "メモを保存",
     memoNote:
-      "書いたことは、この世界の常識（みんな昔からそうだと思っていること）として、出来事・一言・会話・反応にすぐ効きます（掟より優先）。住民全員の見た目に関わる内容なら、保存したときに全員の姿も描き直します。",
+      "書いたことは、この世界の常識（みんな昔からそうだと思っていること）として、出来事・一言・会話・反応にすぐ効きます（掟より優先）。住民の見た目に関わる内容なら、住民の本来の性別ごとに判断して、保存したときにその住民の姿も描き直します。",
     memoLookPlanning: "メモが住民の見た目に関わるか確かめています…",
     memoLookHeading: "メモの姿",
     memoLookLabel: "世界のメモの姿",
     memoLookTags: "見た目: {{tags}}",
-    memoLookBodyOnly: "見た目: 体の性別だけ変わる",
     memoLookBody: "体: {{gender}}になる",
+    memoLookBodyKeep: "体はそのまま",
+    memoLookLine: "{{look}}／{{body}}",
+    memoLookUnchanged: "変わらない",
+    memoLookGroup: {
+      female: "本来は女性の住民",
+      male: "本来は男性の住民",
+    },
+    memoLookEdited:
+      "手で直した姿です。「メモから姿を決め直す」で、LLM がメモを読んだ判断に戻せます。",
+    memoLookEdit: "姿を手で直す",
+    memoLookRecheck: "メモから姿を決め直す",
+    memoLookRecheckTitle: "メモから姿を決め直しますか？",
+    memoLookRecheckBody:
+      "手で直した姿は、LLM がメモを読み直して決めた姿に置き換わります。",
+    memoLookEditTitle: "メモの姿を手で直す",
+    memoLookEditSave: "保存する",
+    memoLookEditNote:
+      "住民の本来の性別ごとに、メモで変わる見た目のタグと体の性別を決めます。タグが空で体を「変えない」にした住民は、姿が変わりません。保存すると、姿が変わる住民の姿を描き直します。",
+    memoLookEditTags: "見た目のタグ",
+    memoLookEditTagsPlaceholder:
+      "例: cat ears, maid outfit（空なら見た目は変えない）",
     memoLookNone: "このメモは住民の見た目を変えません（文章にだけ効きます）。",
     memoLookUnchecked: "このメモが見た目に関わるかは、まだ確かめていません。",
     memoLookCheck: "見た目に関わるか確かめる",

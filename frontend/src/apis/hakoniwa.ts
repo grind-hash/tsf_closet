@@ -386,6 +386,8 @@ export interface HakoniwaLookStatus {
   total: number;
   /** まだ生成していないか、見た目を変える前の姿の住民の id(住民の並び順) */
   pending: string[];
+  /** この姿になる住民の id(住民の並び順)。total はこの人数 */
+  resident_ids?: string[];
 }
 
 export interface HakoniwaRuleCard {
@@ -468,16 +470,30 @@ export interface HakoniwaComboLook extends HakoniwaLookStatus {
   includes_dress: boolean;
 }
 
-/** 世界のメモが住民全員に与える姿と、その生成状況 */
-export interface HakoniwaMemoLook extends HakoniwaLookStatus {
+/** 世界のメモが、本来の性別が同じ住民たちに与える姿 */
+export interface HakoniwaMemoLookGroup {
+  /** 足す見た目のタグ(空なら見た目は変えない) */
   tags: string;
-  /** メモが定める体の性別(null は住民それぞれのまま) */
+  /** 体の性別(null は本来の性別のまま) */
   body_gender: HakoniwaGender | null;
+}
+
+/** 本来の性別ごとのメモの姿(null はその性別の住民の姿が変わらない) */
+export interface HakoniwaMemoLookGroups {
+  female: HakoniwaMemoLookGroup | null;
+  male: HakoniwaMemoLookGroup | null;
+}
+
+/** 世界のメモが住民に与える姿(本来の性別ごと)と、その生成状況 */
+export interface HakoniwaMemoLook extends HakoniwaLookStatus {
+  groups: HakoniwaMemoLookGroups;
+  /** プレイヤーが手で直した姿か */
+  edited: boolean;
 }
 
 export interface HakoniwaMemoLookPlanResult {
   world: HakoniwaWorld;
-  /** 世界のメモが住民全員の姿を変えるか */
+  /** 世界のメモが住民の姿を変えるか(どちらかの性別だけでも) */
   changes_look: boolean;
   cost_usd: number | null;
 }
@@ -873,14 +889,30 @@ export function generateHakoniwaLayeredLook(
   );
 }
 
-/** 世界のメモが住民全員の姿を変えるかを確かめる(同じメモで確かめ済みなら LLM を呼ばない) */
+/**
+ * 世界のメモが住民の姿を変えるかを、本来の性別ごとに確かめる
+ * (同じメモで確かめ済みなら LLM を呼ばない。force なら手で直した姿も含めて判断し直す)
+ */
 export function planHakoniwaMemoLook(
   worldId: string,
   language: string,
+  force = false,
 ): Promise<HakoniwaMemoLookPlanResult> {
   return requestJson<HakoniwaMemoLookPlanResult>(
     `${WORLDS}/${worldId}/memo-look/plan`,
-    jsonInit("POST", { language }),
+    jsonInit("POST", { language, force }),
+  );
+}
+
+/** 世界のメモの姿を、本来の性別ごとに手で直す */
+export function updateHakoniwaMemoLook(
+  worldId: string,
+  groups: HakoniwaMemoLookGroups,
+  language: string,
+): Promise<HakoniwaWorld> {
+  return requestJson<HakoniwaWorld>(
+    `${WORLDS}/${worldId}/memo-look`,
+    jsonInit("PUT", { ...groups, language }),
   );
 }
 

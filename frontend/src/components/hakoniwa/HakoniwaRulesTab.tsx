@@ -213,7 +213,11 @@ export function LookControls({
   const missing = status.total - status.ready;
   const generating = lookTarget === target;
   const progress = lookProgress?.target === target ? lookProgress : null;
-  const residents = world?.residents ?? [];
+  // この姿になる住民だけを選べる(メモの姿は本来の性別で決まるので、全員とは限らない)
+  const residents = (world?.residents ?? []).filter(
+    (resident) =>
+      !status.resident_ids || status.resident_ids.includes(resident.id),
+  );
   // 住民が去ったあとに残った選択は数えない
   const pickedIds = residents
     .map((resident) => resident.id)
@@ -236,7 +240,9 @@ export function LookControls({
                 ready: status.ready,
                 total: status.total,
               })
-            : t("hakoniwa.rules.lookReady")}
+            : residents.length < (world?.residents.length ?? 0)
+              ? t("hakoniwa.rules.lookReadyTargets", { count: status.total })
+              : t("hakoniwa.rules.lookReady")}
           {status.stale > 0 &&
             ` ${t("hakoniwa.rules.lookStale", { count: status.stale })}`}
         </span>

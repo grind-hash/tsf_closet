@@ -51,10 +51,10 @@ from . import hakoniwa_story_text as story_text
 from .hakoniwa_logic import (
     active_combo,
     active_custom_rules,
-    active_memo_look,
     address_name,
     appearance_kind,
     body_gender,
+    body_of,
     combo_tags,
     current_transformation,
     custom_rule,
@@ -63,6 +63,7 @@ from .hakoniwa_logic import (
     is_reality_look,
     look_rule_ids,
     male_body_pairs,
+    memo_look_for,
     realities,
     resident_gender,
     resident_name,
@@ -406,9 +407,11 @@ def current_appearance_summary(
     if kind in ("combo", "rule"):
         return _rule_look_summary(state, kind)
     if kind == "memo":
-        tags = str((active_memo_look(state) or {}).get("tags") or "")
+        tags = str(
+            (memo_look_for(state, body_of(state, resident)) or {}).get("tags") or ""
+        )
         return (
-            "the look that this world's reality (the player's memo) gives everyone"
+            "the look that this world's reality (the player's memo) gives them"
             f"{_tags_note(tags[:HAKONIWA_CUSTOM_RULE_PROMPT_MAX])}"
         )
     if kind == "dress":
@@ -1689,27 +1692,43 @@ def transform_tags_prompts(instruction: str, base_tags: str) -> tuple[str, str]:
 
 
 def memo_look_prompts(memo: str) -> tuple[str, str]:
-    """世界のメモが住民全員の見た目を変えるかを判断させ、変えるなら見た目のタグにさせる。"""
+    """世界のメモが住民の見た目を変えるかを、本来の性別ごとに判断させ、変えるなら見た目の
+    タグと体の性別にさせる。"""
+    group_shape = (
+        '{"appearance_tags": "comma-separated English tags, or an empty string", '
+        '"body_gender": "female" | "male" | "keep"} or null'
+    )
     system_prompt = (
         "You read the player's memo for a miniature world. The memo rewrites the "
         "world's reality (its common sense) and may also contain style instructions "
-        "for the writing. Decide whether it changes how every resident looks: their "
-        "clothing, accessories and items, visible additions such as animal ears, or "
-        "their sex. A role or occupation whose look is obvious counts (for example, "
-        "everyone being gravure idols means swimsuits such as a bikini; everyone "
-        "being maids means a maid outfit). Personality, relationships, speech, "
-        "events, writing style, or a change for only some of the residents do not "
-        "count.\n"
-        "If it changes the look, create Danbooru-style tags for that change only: "
-        "each item once, no extra clothing or decorations that the memo does not "
-        "state or clearly imply. Tag hair, eyes or body features only when "
-        "explicitly stated. Never include tags for sex, gender or the number of "
-        "people (1girl, 1boy, woman, man, female, male, solo); set body_gender "
-        "instead, and only when the memo changes everyone's sex.\n"
+        "for the writing. Decide whether it changes how the residents look: their "
+        "clothing, accessories and items, visible additions such as animal ears, "
+        "face or body features, or their sex. A role or occupation whose look is "
+        "obvious counts (for example, everyone being gravure idols means swimsuits "
+        "such as a bikini; everyone being maids means a maid outfit). Personality, "
+        "relationships, speech, events and writing style do not count.\n"
+        "Decide separately for the residents who are originally women (female) and "
+        "the residents who are originally men (male); the memo may change only one "
+        "of them, or change them differently. Use null for a group whose look the "
+        "memo does not change, and the same values for both when everyone changes "
+        "the same way. A change for specific named residents does not count.\n"
+        "appearance_tags: Danbooru-style tags for that group's change only, each "
+        "item once. Tag every face or body feature the memo states (for example, "
+        "becoming a beautiful girl means feminine face and cute face; big breasts "
+        "means large breasts). Clothing must be concrete garments that the memo "
+        "states or clearly implies (blouse, skirt), not vague words such as "
+        "women's clothes. Underwear worn under the clothes is not shown (having to "
+        "wear a bra is not a bra tag), so tag underwear only when the memo has "
+        "them show it. Never use words for sex "
+        "or people (girl, boy, woman, man, female, male, solo) in any tag.\n"
+        "body_gender: female or male only when the memo turns that group's body "
+        "itself into the other sex and they lose their own genitals; otherwise "
+        "keep. Gaining breasts, a girlish face, women's clothes, or the other "
+        "sex's genitals in addition to their own (having both) is keep: the body "
+        "is drawn as their original sex with those features as tags.\n"
         "Output only one JSON object, with no explanation or code fence: "
-        '{"changes_look": true or false, "appearance_tags": "comma-separated '
-        'English tags, or an empty string", "body_gender": "female" | "male" | '
-        '"keep"}'
+        f'{{"changes_look": true or false, "female": {group_shape}, '
+        f'"male": {group_shape}}}'
     )
     return system_prompt, f"Memo:\n{memo}"
 

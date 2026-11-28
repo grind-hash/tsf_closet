@@ -2293,6 +2293,62 @@
   justify-self: start;
 }
 
+/* 見出し(または「変えない」の文)と、手で直す・決め直すのボタンを1行に並べる */
+.hakoniwa-settings__memo-look-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.hakoniwa-settings__memo-look-head > .hakoniwa-note {
+  margin: 0;
+}
+
+.hakoniwa-settings__memo-look-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hakoniwa-settings__memo-look-groups {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9em;
+}
+
+.hakoniwa-settings__memo-look-groups li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  overflow-wrap: anywhere;
+}
+
+.hakoniwa-settings__memo-look-group {
+  flex: none;
+  color: var(--hk-muted);
+  font-weight: 600;
+}
+
+/* メモの姿を手で直すダイアログの、本来の性別ごとの枠 */
+.hakoniwa-memo-look-group {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--hk-border);
+  border-radius: 8px;
+}
+
+.hakoniwa-memo-look-group legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
 /* --- フォームのダイアログ --- */
 
 .hakoniwa-form-dialog {

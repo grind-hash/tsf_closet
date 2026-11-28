@@ -652,10 +652,25 @@ def clean_manual_look_tags(raw: str) -> str:
     return ", ".join(kept)
 
 
-class MemoLookOutput(BaseModel):
-    """世界のメモが住民全員の見た目を変えるかの判断。"""
+def clean_manual_memo_tags(raw: str) -> str:
+    """プレイヤーが手で直したメモの姿のタグを整える。空なら見た目は変えない("")。
 
-    changes_look: bool = False
+    人物の性別と人数のタグは外す(体の性別は別に選ぶ)。それしか書かれていなければ断る。
+    """
+    if not str(raw or "").strip():
+        return ""
+    kept = [tag for tag in _manual_tag_list(raw) if not _PERSON_TAG.match(tag)]
+    if not kept:
+        raise HakoniwaError(
+            "invalid_tags",
+            "メモの姿のタグには、服装や体つきなどの見た目を書いてください",
+        )
+    return ", ".join(kept)
+
+
+class MemoLookGroupOutput(BaseModel):
+    """世界のメモが、本来の性別が同じ住民たちの見た目をどう変えるか。"""
+
     appearance_tags: str = ""
     body_gender: str | None = None
 
@@ -672,12 +687,72 @@ class MemoLookOutput(BaseModel):
         return value if value in ("female", "male") else None
 
 
+class MemoLookOutput(MemoLookGroupOutput):
+    """世界のメモが住民の見た目を変えるかの判断(本来の性別ごと)。
+
+    female・male が無く appearance_tags・body_gender だけの出力は、両方の性別に同じ姿とみなす。
+    """
+
+    changes_look: bool = False
+    female: MemoLookGroupOutput | None = None
+    male: MemoLookGroupOutput | None = None
+
+    @field_validator("female", "male", mode="before")
+    @classmethod
+    def _group(cls, value: Any) -> Any:
+        return value if isinstance(value, dict) else None
+
+
+# 人物を指す語で終わるタグ(beautiful girl など)と、性別の語を含むタグ(female body など)。
+# 性別の判定に拾われ、体の性別を変えない姿でも別の性別で描かれるため、メモの姿からは外す
+_PERSON_NOUN_TAG = re.compile(
+    r"\b(?:girls?|boys?|wom[ae]n|m[ae]n)$|\b(?:fe)?males?\b", re.IGNORECASE
+)
+# 服の種類を言わない漠然とした服のタグ(women's clothes など)。画像では服として描かれず、
+# 変換で住民の服だけが外れて裸に近い姿になるため、メモの姿からは外す(普段の服のまま)
+_VAGUE_CLOTHING_TAG = re.compile(
+    r"^(?:(?:wom[ae]n'?s?|lad(?:y|ie)s?'?s?|feminine|girl'?s?|casual|everyday|"
+    r"normal|regular)\s+)?(?:clothes|clothing|outfit|fashion|wear|attire)$",
+    re.IGNORECASE,
+)
+
+
+# 服の下に着る下着のタグ。上に着る服と一緒なら見えないので外す(下着だけなら下着姿の常識)
+_UNDERWEAR_TAG = re.compile(
+    r"^(?:bra|brassiere|panties|underwear|lingerie|briefs|boxers|boxer briefs)$",
+    re.IGNORECASE,
+)
+_OUTER_CLOTHING_TAG = re.compile(
+    r"(?:shirt|blouse|skirt|dress|pants|trousers|jeans|shorts|jacket|coat|sweater|"
+    r"cardigan|hoodie|uniform|kimono|yukata|outfit|suit|apron|overalls|leotard)\b",
+    re.IGNORECASE,
+)
+
+
+def _memo_group(output: MemoLookGroupOutput | None) -> dict[str, Any] | None:
+    if output is None:
+        return None
+    tags = [
+        tag
+        for tag in (clean_look_tags(output.appearance_tags) or "").split(", ")
+        if tag
+        and not _PERSON_NOUN_TAG.search(tag.replace("_", " "))
+        and not _VAGUE_CLOTHING_TAG.match(tag.replace("_", " "))
+    ]
+    if any(_OUTER_CLOTHING_TAG.search(tag) for tag in tags):
+        tags = [tag for tag in tags if not _UNDERWEAR_TAG.match(tag)]
+    if not tags and output.body_gender is None:
+        return None
+    return {"tags": ", ".join(tags), "body_gender": output.body_gender}
+
+
 async def plan_memo_look(
     memo: str, *, novelai_model: str | None
-) -> tuple[str, str | None]:
-    """世界のメモが住民全員の見た目を変えるかを判断し、(見た目のタグ, 体の性別) を返す。
+) -> dict[str, dict[str, Any] | None]:
+    """世界のメモが住民の見た目を変えるかを本来の性別ごとに判断し、
+    {female|male: {tags, body_gender} | None} を返す。
 
-    姿に関わらなければ ("", None)。生成に失敗したら HakoniwaError。
+    姿に関わらなければ両方 None。生成に失敗したら HakoniwaError。
     """
     system_prompt, user_prompt = memo_look_prompts(memo)
 
@@ -702,9 +777,12 @@ async def plan_memo_look(
             "世界のメモが姿に関わるかを確かめられませんでした。もう一度お試しください",
         ) from error
     if not output.changes_look:
-        return "", None
-    tags = clean_look_tags(output.appearance_tags) or ""
-    return tags, output.body_gender
+        return {"female": None, "male": None}
+    if output.female is None and output.male is None:
+        # 性別ごとに分けずに答えたときは、全員に同じ姿とみなす
+        same = _memo_group(output)
+        return {"female": same, "male": same}
+    return {"female": _memo_group(output.female), "male": _memo_group(output.male)}
 
 
 async def generate_rule_look_tags(

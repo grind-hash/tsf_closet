@@ -79,6 +79,9 @@ async function mockHakoniwa(
       create?: Record<string, unknown>;
       settings: unknown[];
       avatars?: string[];
+      /** メモの姿を確かめた本文と、手で直した本文 */
+      memoPlans?: unknown[];
+      memoLooks?: unknown[];
     };
     /** 葵が変身していて、その後に有効にしたドレスの掟を重ねられる状態で始める */
     layeredDress?: boolean;
@@ -604,9 +607,64 @@ async function mockHakoniwa(
       return;
     }
     if (path.endsWith("/memo-look/plan")) {
+      options.recorded?.memoPlans?.push(route.request().postDataJSON());
       world.memo_look_planned = true;
+      // 「オトコのコ」のメモは、本来は男性の住民だけの姿を変える
+      world.memo_look = world.world_memo.includes("オトコのコ")
+        ? {
+            groups: {
+              female: null,
+              male: {
+                tags: "large breasts, feminine face, blouse, skirt",
+                body_gender: null,
+              },
+            },
+            edited: false,
+            ready: 0,
+            stale: 0,
+            total: 1,
+            pending: ["ren"],
+            resident_ids: ["ren"],
+          }
+        : null;
       await route.fulfill({
-        json: { world, changes_look: false, cost_usd: null },
+        json: {
+          world,
+          changes_look: world.memo_look !== null,
+          cost_usd: null,
+        },
+      });
+      return;
+    }
+    if (path.endsWith("/memo-look")) {
+      if (route.request().method() === "PUT") {
+        const body = route.request().postDataJSON();
+        options.recorded?.memoLooks?.push(body);
+        const ids = world.residents
+          .filter((item) => body[item.gender] !== null)
+          .map((item) => item.id);
+        world.memo_look = {
+          groups: { female: body.female, male: body.male },
+          edited: true,
+          ready: 0,
+          stale: 0,
+          total: ids.length,
+          pending: ids,
+          resident_ids: ids,
+        };
+        await route.fulfill({ json: world });
+        return;
+      }
+      const look = world.memo_look;
+      for (const item of world.residents) {
+        if (look?.resident_ids?.includes(item.id)) item.display_kind = "memo";
+      }
+      if (look) {
+        look.ready = look.total;
+        look.pending = [];
+      }
+      await route.fulfill({
+        json: { world, generated: look?.total ?? 0, failed: 0, cost_usd: null },
       });
       return;
     }
@@ -1315,6 +1373,84 @@ test("自作の掟の姿と、ドレスの掟と重ねた複合の姿を生成�
   await expect(page.locator(".hakoniwa-resident__states")).toContainText(
     "複合の姿",
   );
+});
+
+test("世界のメモの姿を本来の性別ごとに表示し、手で直せる", async ({ page }) => {
+  const recorded = {
+    settings: [] as unknown[],
+    memoPlans: [] as unknown[],
+    memoLooks: [] as unknown[],
+  };
+  await mockHakoniwa(page, true, 0, { recorded });
+  await page.goto("/hakoniwa");
+  await page.getByRole("button", { name: "この顔ぶれで世界をつくる" }).click();
+  await page.getByRole("tab", { name: "設定", exact: true }).click();
+  await page
+    .getByLabel("世界のメモ")
+    .fill("オトコのコは美少女の巨乳で、男性器はそのまま");
+  await page.getByRole("button", { name: "メモを保存" }).click();
+
+  const memoLook = page.locator(".hakoniwa-settings__memo-look");
+  const groups = memoLook.locator(".hakoniwa-settings__memo-look-groups li");
+  await expect(groups.nth(0)).toHaveText(/本来は女性の住民\s*変わらない/);
+  await expect(groups.nth(1)).toHaveText(
+    /本来は男性の住民\s*見た目: large breasts, feminine face, blouse, skirt／体はそのまま/,
+  );
+  // 姿を作るのは、姿が変わる住民(蓮)だけ
+  await expect(memoLook).toContainText("姿: 対象の1人ぶん生成済み");
+  await memoLook.getByRole("button", { name: "住民を選んで描き直す" }).click();
+  const chips = memoLook.locator(
+    ".hakoniwa-rule__look-pick-body .hakoniwa-areas__chip",
+  );
+  await expect(chips).toHaveCount(1);
+  await expect(chips).toContainText("苑田 蓮");
+
+  await memoLook.getByRole("button", { name: "姿を手で直す" }).click();
+  const dialog = page.getByRole("dialog", { name: "メモの姿を手で直す" });
+  const female = dialog.getByRole("group", { name: "本来は女性の住民" });
+  const male = dialog.getByRole("group", { name: "本来は男性の住民" });
+  await expect(female.getByLabel("見た目のタグ")).toHaveValue("");
+  await expect(male.getByLabel("見た目のタグ")).toHaveValue(
+    "large breasts, feminine face, blouse, skirt",
+  );
+  // 体の選択肢は「変えない」と、もう一方の性別だけ
+  await expect(male.getByRole("button", { name: "女性にする" })).toBeVisible();
+  await expect(male.getByRole("button", { name: "男性にする" })).toHaveCount(0);
+  await expect(male.getByRole("button", { name: "変えない" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.screenshot({ path: "/tmp/tsf-hakoniwa-memo-look-dialog.png" });
+  await male
+    .getByLabel("見た目のタグ")
+    .fill("large breasts, cute face, sailor uniform");
+  await dialog.getByRole("button", { name: "保存する" }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(recorded.memoLooks.at(-1)).toMatchObject({
+    female: null,
+    male: {
+      tags: "large breasts, cute face, sailor uniform",
+      body_gender: null,
+    },
+  });
+  await expect(groups.nth(1)).toContainText("sailor uniform");
+  await expect(memoLook).toContainText("手で直した姿です。");
+
+  // 手で直した姿を決め直すときは、置き換わることを確かめる
+  await memoLook.getByRole("button", { name: "メモから姿を決め直す" }).click();
+  const confirm = page.getByRole("dialog", {
+    name: "メモから姿を決め直しますか？",
+  });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "メモから姿を決め直す" }).click();
+  await expect
+    .poll(() => recorded.memoPlans.at(-1))
+    .toMatchObject({
+      force: true,
+    });
+  await expect(memoLook).not.toContainText("手で直した姿です。");
+  await page.screenshot({ path: "/tmp/tsf-hakoniwa-memo-look.png" });
 });
 
 test("明日の介入・世界のメモ・立ち絵に触れる・箱庭の中で話す", async ({

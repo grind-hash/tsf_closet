@@ -144,6 +144,7 @@ def test_look_status_tracks_stale_images_and_rule_deletion():
         "stale": 1,
         "total": 2,
         "pending": ["ren"],
+        "resident_ids": ["aoi", "ren"],
     }
     deleted = logic.delete_custom_rule(state, rule_id)
     assert all(not r["rule_images"] for r in deleted["residents"])
@@ -305,6 +306,7 @@ def test_look_status_is_stale_after_body_gender_changes():
         "stale": 1,
         "total": 2,
         "pending": ["aoi", "ren"],
+        "resident_ids": ["aoi", "ren"],
     }
     redrawn = _look(changed, "aoi", "rule", rule_id, body="female")
     assert logic.rule_look_status(redrawn, rule_id)["ready"] == 1
@@ -454,3 +456,55 @@ def test_layered_rule_decides_body_gender_and_old_states_keep_transform_on_top()
     # 正規化しても番号は残る
     kept = logic.normalize_state(state)
     assert kept["rule_seq"] == state["rule_seq"] and kept["look_seq"] > 0
+
+
+# --- 世界のメモの姿(本来の性別ごと) ---
+
+
+def _with_memo(state, memo="男性は胸が大きくなる"):
+    state = dict(state)
+    state["world_memo"] = memo
+    return state
+
+
+def test_old_memo_look_reads_as_the_same_look_for_both_sexes():
+    state = _with_memo(_world())
+    state["memo_look"] = {
+        "memo": "男性は胸が大きくなる",
+        "tags": "bikini",
+        "body_gender": "female",
+    }
+    aoi, ren = state["residents"]
+
+    look = logic.active_memo_look(state)
+    # 本来と同じ体の性別は「体は変えない」として扱う
+    assert look["groups"]["female"] == {"tags": "bikini", "body_gender": None}
+    assert look["groups"]["male"] == {"tags": "bikini", "body_gender": "female"}
+    assert look["edited"] is False
+    assert logic.body_gender(state, aoi) == "female"
+    assert logic.body_gender(state, ren) == "female"
+
+
+def test_memo_look_changes_only_the_matching_original_sex():
+    state = logic.set_memo_look(
+        _with_memo(_world()),
+        {"female": None, "male": {"tags": "large breasts", "body_gender": None}},
+    )
+    aoi, ren = state["residents"]
+
+    assert logic.memo_look_for(state, aoi) is None
+    assert logic.memo_look_for(state, ren) == {
+        "tags": "large breasts",
+        "body_gender": None,
+    }
+    assert logic.appearance_kind(state, aoi) is None
+    assert logic.appearance_kind(state, ren) == "memo"
+    assert logic.body_gender(state, ren) == "male"
+    status = logic.memo_look_status(state)
+    assert (status["total"], status["pending"]) == (1, ["ren"])
+    assert "large breasts" in current_appearance_summary(state, ren)
+    assert current_appearance_summary(state, aoi) is None
+
+    # メモを変えると、確かめ直すまで効かない
+    changed = _with_memo(state, "文体は軽めに")
+    assert logic.memo_look_for(changed, ren) is None

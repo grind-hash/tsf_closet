@@ -194,6 +194,33 @@ class HakoniwaCustomRuleRequest(HakoniwaLanguageRequest):
     )
 
 
+class HakoniwaMemoLookGroup(BaseModel):
+    tags: str = Field(
+        "",
+        max_length=HAKONIWA_MANUAL_TAGS_INPUT_MAX,
+        description="この性別の住民に足す見た目のタグ(空なら見た目は変えない)",
+    )
+    body_gender: Gender | None = Field(
+        None, description="この性別の住民の体の性別(None は本来の性別のまま)"
+    )
+
+
+class HakoniwaMemoLookPlanRequest(HakoniwaLanguageRequest):
+    force: bool = Field(
+        False,
+        description="確かめ済み・手で直した姿でも、LLM にメモから判断し直させる",
+    )
+
+
+class HakoniwaMemoLookEditRequest(HakoniwaLanguageRequest):
+    female: HakoniwaMemoLookGroup | None = Field(
+        None, description="本来は女性の住民の姿(null は変わらない)"
+    )
+    male: HakoniwaMemoLookGroup | None = Field(
+        None, description="本来は男性の住民の姿(null は変わらない)"
+    )
+
+
 class HakoniwaLookRequest(HakoniwaLanguageRequest):
     regenerate: bool = Field(
         False, description="生成済みの住民も描き直す。false はまだの住民だけ"
@@ -530,6 +557,10 @@ class HakoniwaLookStatus(BaseModel):
         default_factory=list,
         description="まだ生成していないか、見た目を変える前の姿の住民の id(住民の並び順)",
     )
+    resident_ids: list[str] = Field(
+        default_factory=list,
+        description="この姿になる住民の id(住民の並び順)。total はこの人数",
+    )
 
 
 class HakoniwaRuleCard(BaseModel):
@@ -557,13 +588,20 @@ class HakoniwaComboLook(HakoniwaLookStatus):
     includes_dress: bool
 
 
+class HakoniwaMemoLookGroups(BaseModel):
+    female: HakoniwaMemoLookGroup | None = Field(
+        None, description="本来は女性の住民の姿(null は変わらない)"
+    )
+    male: HakoniwaMemoLookGroup | None = Field(
+        None, description="本来は男性の住民の姿(null は変わらない)"
+    )
+
+
 class HakoniwaMemoLook(HakoniwaLookStatus):
-    tags: str = Field(
-        ..., description="世界のメモから作った、住民全員に効く見た目のタグ"
+    groups: HakoniwaMemoLookGroups = Field(
+        ..., description="世界のメモが住民の本来の性別ごとに与える姿"
     )
-    body_gender: str | None = Field(
-        None, description="メモが定める体の性別(None は住民それぞれのまま)"
-    )
+    edited: bool = Field(False, description="プレイヤーが手で直した姿か")
 
 
 class HakoniwaSlot(BaseModel):
@@ -648,7 +686,7 @@ class HakoniwaWorldResponse(BaseModel):
     )
     memo_look: HakoniwaMemoLook | None = Field(
         None,
-        description="世界のメモが住民全員に与える姿(メモが姿を変えていなければ null)",
+        description="世界のメモが住民に与える姿(メモが姿を変えていなければ null)",
     )
     memo_look_planned: bool = Field(
         False, description="いまの世界のメモが姿に関わるかを、もう確かめたか"
@@ -767,7 +805,9 @@ class HakoniwaImageResponse(BaseModel):
 
 class HakoniwaMemoLookPlanResponse(BaseModel):
     world: HakoniwaWorldResponse
-    changes_look: bool = Field(..., description="世界のメモが住民全員の姿を変えるか")
+    changes_look: bool = Field(
+        ..., description="世界のメモが住民の姿を変えるか(どちらかの性別だけでも)"
+    )
     cost_usd: float | None = None
 
 

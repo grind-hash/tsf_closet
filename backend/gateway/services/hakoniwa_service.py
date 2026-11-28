@@ -78,6 +78,7 @@ from .hakoniwa_generation import (
     classify_chat_alteration,
     clean_look_tags,
     clean_manual_look_tags,
+    clean_manual_memo_tags,
     clean_manual_tags,
     clean_profile,
     clean_tags,
@@ -414,12 +415,12 @@ def _combo_look_view(state: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _memo_look_view(state: dict[str, Any]) -> dict[str, Any] | None:
-    """世界のメモが住民全員に与える姿と、その生成状況(メモが姿を変えていなければ None)。"""
+    """世界のメモが住民に与える姿(本来の性別ごと)と、その生成状況(姿を変えていなければ None)。"""
     look = logic.active_memo_look(state)
     status = logic.memo_look_status(state)
     if look is None or status is None:
         return None
-    return {"tags": look["tags"], "body_gender": look["body_gender"], **status}
+    return {"groups": look["groups"], "edited": look["edited"], **status}
 
 
 def _unlock_hakoniwa_achievements() -> list[dict[str, Any]]:
@@ -1472,11 +1473,12 @@ class HakoniwaService:
             )
 
     async def plan_memo_look(
-        self, world_id: str, language: str | None = None
+        self, world_id: str, language: str | None = None, *, force: bool = False
     ) -> dict[str, Any]:
-        """いまの世界のメモが住民全員の姿を変えるかを LLM に確かめ、メモの姿の指定を保存する。
+        """いまの世界のメモが住民の姿を変えるかを、本来の性別ごとに LLM に確かめて保存する。
 
-        同じメモでもう確かめていれば LLM を呼ばない。メモが空なら指定を消す。
+        同じメモでもう確かめていれば LLM を呼ばない(force なら手で直した姿も含めて判断し直す)。
+        メモが空なら指定を消す。
         """
         lang, user_settings = await self._context(language)
         async with self._world_locks[world_id]:
@@ -1484,15 +1486,15 @@ class HakoniwaService:
                 state = _load_state(await self._load(db, world_id))
             tracker = begin_cost_tracking()
             memo = play.world_memo(state)
-            if not logic.memo_look_planned(state):
-                tags, body_gender = (
+            if force or not logic.memo_look_planned(state):
+                groups = (
                     await plan_memo_look(
                         memo, novelai_model=user_settings.get("novelai_text_model")
                     )
                     if memo
-                    else ("", None)
+                    else {"female": None, "male": None}
                 )
-                state = logic.set_memo_look(state, tags, body_gender)
+                state = logic.set_memo_look(state, groups)
             view = await self._store_view(world_id, state, lang, user_settings)
         return {
             "world": view,
@@ -1508,30 +1510,77 @@ class HakoniwaService:
         resident_id: str | None = None,
         language: str | None = None,
     ) -> dict[str, Any]:
-        """世界のメモの姿を住民の人数分(resident_id があればその1人)つくる。"""
+        """世界のメモの姿を、姿が変わる住民の人数分(resident_id があればその1人)つくる。"""
         lang, user_settings = await self._context(language)
         async with self._world_locks[world_id]:
             async with async_session_factory() as db:
                 state = _load_state(await self._load(db, world_id))
-            look = logic.active_memo_look(state)
-            if look is None:
+            if logic.active_memo_look(state) is None:
                 raise HakoniwaError("no_memo_look", "世界のメモは姿を変えていません")
+            targets = [
+                resident
+                for resident in state["residents"]
+                if logic.memo_look_for(state, resident) is not None
+            ]
+            if resident_id is not None:
+                target = logic.find_resident(state, resident_id)
+                if logic.memo_look_for(state, target) is None:
+                    raise HakoniwaError(
+                        "no_memo_look", "この住民の姿は世界のメモで変わりません"
+                    )
+                targets = [target]
             tracker = begin_cost_tracking()
-            state, generated, failed = await self._generate_look_images(
-                world_id,
-                state,
-                user_settings,
-                kind="memo",
-                key=logic.MEMO_LOOK_KEY,
-                source_tags=look["tags"],
-                body_gender=look["body_gender"],
-                dress=False,
-                regenerate=regenerate,
-                resident_id=resident_id,
-            )
+            generated = failed = 0
+            # 本来の性別ごとに姿が違うので、1人ずつその人の姿で作る
+            for target in targets:
+                look = logic.memo_look_for(state, target) or {}
+                state, done, missed = await self._generate_look_images(
+                    world_id,
+                    state,
+                    user_settings,
+                    kind="memo",
+                    key=logic.MEMO_LOOK_KEY,
+                    source_tags=str(look.get("tags") or ""),
+                    body_gender=look.get("body_gender"),
+                    dress=False,
+                    regenerate=regenerate,
+                    resident_id=target["id"],
+                )
+                generated += done
+                failed += missed
             return await self._finish_look(
                 world_id, state, lang, user_settings, tracker, generated, failed
             )
+
+    async def update_memo_look(
+        self,
+        world_id: str,
+        groups: dict[str, dict[str, Any] | None],
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        """世界のメモの姿を、本来の性別ごとにプレイヤーが手で直す(LLM の判断の代わりに使う)。
+
+        groups は {female|male: {tags, body_gender} | None}。タグが空で体も変えない性別は、
+        姿が変わらない。
+        """
+        cleaned = {
+            gender: (
+                {
+                    "tags": clean_manual_memo_tags(str(group.get("tags") or "")),
+                    "body_gender": group.get("body_gender"),
+                }
+                if group
+                else None
+            )
+            for gender, group in ((key, groups.get(key)) for key in ("female", "male"))
+        }
+
+        def change(state: dict[str, Any]) -> dict[str, Any]:
+            if not play.world_memo(state):
+                raise HakoniwaError("no_world_memo", "世界のメモが空です")
+            return logic.set_memo_look(state, cleaned, edited=True)
+
+        return await self._mutate(world_id, language, change)
 
     async def generate_layered_look(
         self, world_id: str, resident_id: str, language: str | None = None
