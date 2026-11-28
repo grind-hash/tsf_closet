@@ -152,7 +152,10 @@ export interface PromptExpanderEntry {
   id: string;
   session_id: string;
   kind: PromptExpanderEntryKind;
+  /** プロンプトを作った文（指示、漫画ではネーム）。拡張なしは最終プロンプトと同じ */
   instruction: string | null;
+  /** ネームから作ったときの、ネームの下書き元のあらすじ（それ以外は null） */
+  synopsis?: string | null;
   positive_expand_mode: PromptExpanderEntryExpandMode;
   negative_expand_mode: PromptExpanderEntryExpandMode;
   character_mode: boolean;
@@ -237,6 +240,8 @@ export interface PromptExpanderGenerateRequest {
   character_prompts: string[];
   character_mode: boolean;
   instruction?: string | null;
+  /** ネームから作ったときの、ネームの下書き元のあらすじ */
+  synopsis?: string | null;
   positive_expand_mode: PromptExpanderEntryExpandMode;
   negative_expand_mode: PromptExpanderEntryExpandMode;
   image_model: string;

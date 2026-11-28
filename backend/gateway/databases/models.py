@@ -914,8 +914,11 @@ class PromptExpanderEntry(Base):
     )
     # generated | uploaded
     kind: Mapped[str] = mapped_column(String, nullable=False, default="generated")
-    # 拡張前のユーザー指示（拡張 OFF のときは final_prompt と同じ文面）
+    # 拡張前のユーザー指示（拡張 OFF のときは final_prompt と同じ文面）。
+    # 漫画のネームから作ったときはネームの文面
     instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ネームの下書き元のあらすじ。ネームから作ったときだけ入る（復元で欄を分けて戻すため）
+    synopsis: Mapped[str | None] = mapped_column(Text, nullable=True)
     # off | japanese | tags
     positive_expand_mode: Mapped[str] = mapped_column(
         String, default="off", nullable=False, server_default="off"

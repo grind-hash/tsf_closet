@@ -244,6 +244,7 @@ class PromptExpanderEntryResponse(BaseModel):
     session_id: str
     kind: str
     instruction: str | None = None
+    synopsis: str | None = None
     positive_expand_mode: str
     negative_expand_mode: str
     character_mode: bool
@@ -421,6 +422,8 @@ class PromptExpanderGenerateRequest(BaseModel):
     instruction: str | None = Field(
         None, max_length=PROMPT_EXPANDER_INSTRUCTION_MAX_LEN
     )
+    # 漫画のネームから作ったときの、ネームの下書き元のあらすじ（それ以外は null）
+    synopsis: str | None = Field(None, max_length=PROMPT_EXPANDER_INSTRUCTION_MAX_LEN)
     positive_expand_mode: StoredExpandModeLiteral = "off"
     negative_expand_mode: StoredExpandModeLiteral = "off"
     image_model: NovelAIImageModel

@@ -355,18 +355,59 @@ function Probe() {
       >
         rename
       </button>
-      <div data-testid="pending-positive-prompt">
-        {ctx.pendingExpansions.positive?.positivePrompt ?? "none"}
+      <div data-testid="pending-negative-prompt">
+        {ctx.negativeExpansion?.negativePrompt ?? "none"}
       </div>
       <button
         type="button"
-        onClick={() =>
-          ctx.editPendingExpansion("positive", {
-            positivePrompt: "hand edited",
-          })
-        }
+        onClick={() => ctx.editNegativeExpansion("hand edited")}
       >
         edit-card
+      </button>
+      <div data-testid="instruction">{ctx.instructionText}</div>
+      <div data-testid="script">{ctx.scriptText}</div>
+      <div data-testid="prompt-undo">
+        {ctx.promptUndo ? ctx.promptUndo.prompt : "none"}
+      </div>
+      <div data-testid="script-undo">
+        {ctx.scriptUndo ? ctx.scriptUndo.script : "none"}
+      </div>
+      <div data-testid="input-mode">{ctx.promptInputMode}</div>
+      <button
+        type="button"
+        onClick={() => ctx.setInstructionText("a cat girl")}
+      >
+        set-instruction
+      </button>
+      <button
+        type="button"
+        onClick={() => ctx.setInstructionText("a dog girl")}
+      >
+        set-instruction-2
+      </button>
+      <button type="button" onClick={() => ctx.setInstructionText("")}>
+        clear-instruction
+      </button>
+      <button
+        type="button"
+        onClick={() => ctx.setScriptText("①鏡を見る「え」")}
+      >
+        set-script
+      </button>
+      <button
+        type="button"
+        onClick={() => ctx.setPositiveText("edited prompt")}
+      >
+        edit-prompt
+      </button>
+      <button type="button" onClick={() => ctx.setPromptInputMode("direct")}>
+        input-direct
+      </button>
+      <button type="button" onClick={() => void ctx.expandPositive("script")}>
+        expand-script
+      </button>
+      <button type="button" onClick={() => ctx.undoPrompt()}>
+        undo-prompt
       </button>
       <div data-testid="notifications">
         {notifications.map((n) => n.title).join("|")}
@@ -395,13 +436,8 @@ function Probe() {
       </div>
       <div data-testid="image-model">{ctx.settings.image_model}</div>
       <div data-testid="entries">{ctx.entries.map((e) => e.id).join(",")}</div>
-      <div data-testid="pending-targets">
-        {(["positive", "negative"] as const)
-          .filter((target) => ctx.pendingExpansions[target] !== null)
-          .join(",") || "none"}
-      </div>
       <div data-testid="pending-expansion">
-        {ctx.pendingExpansion ? JSON.stringify(ctx.pendingExpansion) : "none"}
+        {ctx.negativeExpansion ? JSON.stringify(ctx.negativeExpansion) : "none"}
       </div>
       <div data-testid="pending-usage">
         {ctx.pendingUsageWarn ? "yes" : "no"}
@@ -419,9 +455,6 @@ function Probe() {
       </div>
       <div data-testid="expanding">{ctx.expandingTarget ?? "none"}</div>
       <div data-testid="drafting">{ctx.draftingScript ? "yes" : "no"}</div>
-      <div data-testid="draft-backup">
-        {ctx.scriptDraftBackup ? ctx.scriptDraftBackup.source : "none"}
-      </div>
       <div data-testid="character-mode">{ctx.characterMode ? "on" : "off"}</div>
       <div data-testid="manga-active">{ctx.mangaActive ? "on" : "off"}</div>
       <div data-testid="reference-active">
@@ -523,7 +556,10 @@ function Probe() {
       <button type="button" onClick={() => ctx.addCharacterSlot("slot text")}>
         add-slot
       </button>
-      <button type="button" onClick={() => void ctx.expandPositive()}>
+      <button
+        type="button"
+        onClick={() => void ctx.expandPositive("instruction")}
+      >
         expand-positive
       </button>
       <button type="button" onClick={() => void ctx.expandNegative()}>
@@ -532,48 +568,19 @@ function Probe() {
       <button type="button" onClick={() => void ctx.draftScript()}>
         draft-script
       </button>
-      <button type="button" onClick={() => ctx.undoScriptDraft()}>
+      <button type="button" onClick={() => ctx.undoScript()}>
         undo-draft
       </button>
-      <button
-        type="button"
-        onClick={() => {
-          if (!ctx.pendingExpansion) return;
-          ctx.applyExpansion(
-            ctx.pendingExpansion.target === "positive"
-              ? {
-                  ...ctx.pendingExpansion,
-                  positivePrompt: "edited prompt",
-                  characterPrompts: ctx.pendingExpansion.characterPrompts
-                    ? ["edited char"]
-                    : null,
-                }
-              : { ...ctx.pendingExpansion, negativePrompt: "edited negative" },
-          );
-        }}
-      >
+      <button type="button" onClick={() => ctx.applyNegativeExpansion()}>
         apply
       </button>
       <button
         type="button"
-        onClick={() => {
-          if (!ctx.pendingExpansion) return;
-          void ctx.generateFromExpansion(
-            ctx.pendingExpansion.target === "positive"
-              ? {
-                  ...ctx.pendingExpansion,
-                  positivePrompt: "edited prompt",
-                  characterPrompts: ctx.pendingExpansion.characterPrompts
-                    ? ["edited char"]
-                    : null,
-                }
-              : { ...ctx.pendingExpansion, negativePrompt: "edited negative" },
-          );
-        }}
+        onClick={() => void ctx.generateFromNegativeExpansion()}
       >
         generate-from
       </button>
-      <button type="button" onClick={() => ctx.discardExpansion()}>
+      <button type="button" onClick={() => ctx.discardNegativeExpansion()}>
         discard
       </button>
       <button type="button" onClick={() => void ctx.runGenerate()}>
@@ -593,6 +600,19 @@ function Probe() {
         }
       >
         restore-plain
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          ctx.restoreEntry({
+            ...OLD_ENTRY,
+            instruction: "①鏡を見る「え」",
+            synopsis: "朝起きたら女の子になっていた",
+            manga_mode: true,
+          })
+        }
+      >
+        restore-script
       </button>
       <button type="button" onClick={() => void ctx.regenerateEntry(OLD_ENTRY)}>
         regenerate
@@ -913,6 +933,17 @@ async function openSessionAndWait() {
   );
 }
 
+/** プロンプト化（結果はプロンプト欄へ直接入る）を押して、終わるまで待つ */
+async function convertAndWait(name = "expand-positive") {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name }));
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId("expanding").textContent).toBe("none"),
+  );
+}
+
+/** ネガティブ欄の変換カードが出るまで待ち、その内容を返す */
 async function clickAndWaitPending(name: string) {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name }));
@@ -958,22 +989,31 @@ describe("PromptExpanderContext", () => {
     expect(screen.getByTestId("entries").textContent).toBe("entry-old");
   });
 
-  it("expandPositive posts /expand and sets pendingExpansion(target=positive) without generating", async () => {
+  it("expandPositive puts the prompt into the prompt field and keeps the instruction", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     fireEvent.click(screen.getByRole("button", { name: "character-on" }));
     fireEvent.click(screen.getByRole("button", { name: "add-slot" }));
 
-    const pending = await clickAndWaitPending("expand-positive");
-    expect(pending.target).toBe("positive");
-    expect(pending.mode).toBe("tags");
-    expect(pending.instruction).toBe("a cat girl");
-    expect(pending.positivePrompt).toBe("expanded: a cat girl");
-    expect(pending.characterPrompts).toEqual([
-      "expanded char 1",
-      "expanded char 2",
-    ]);
-    expect(pending.negativePrompt).toBeNull();
+    await convertAndWait();
+    // 結果はプロンプト欄（とキャラ枠）へ直接入り、指示の欄はそのまま残る
+    expect(screen.getByTestId("positive").textContent).toBe(
+      "expanded: a cat girl",
+    );
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("slots").textContent).toBe(
+      "expanded char 1|expanded char 2",
+    );
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}"),
+    ).toEqual({
+      mode: "tags",
+      instruction: "a cat girl",
+      source: "instruction",
+      synopsis: null,
+    });
+    // 前のプロンプトは空だったので、元に戻す用の控えは無い
+    expect(screen.getByTestId("prompt-undo").textContent).toBe("none");
 
     const expandCalls = findCalls("/prompt-expander/expand", "POST");
     expect(expandCalls).toHaveLength(1);
@@ -986,31 +1026,18 @@ describe("PromptExpanderContext", () => {
     expect(expandBody.inherit_source_prompts).toBe(true);
     expect(expandBody).not.toHaveProperty("current_prompt");
 
+    // 生成はしない。確認カードは無いので、そのまま生成できる
     expect(findCalls("/generate", "POST")).toHaveLength(0);
-    // 確認カードが開いている間は「生成」は押せない
-    expect(screen.getByTestId("disabled-reason").textContent).toBe(
-      "pending_expansion",
-    );
+    expect(screen.getByTestId("disabled-reason").textContent).toBe("none");
   });
 
-  it("applyExpansion writes the fields + origin, and runGenerate posts the expand metadata", async () => {
+  it("a converted prompt is generated with the instruction it was made from", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     fireEvent.click(screen.getByRole("button", { name: "character-on" }));
-    await clickAndWaitPending("expand-positive");
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "apply" }));
-    });
-
-    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
-    expect(screen.getByTestId("positive").textContent).toBe("edited prompt");
-    expect(screen.getByTestId("slots").textContent).toBe("edited char");
-    expect(screen.getByTestId("character-mode").textContent).toBe("on");
-    expect(
-      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}"),
-    ).toEqual({ mode: "tags", instruction: "a cat girl" });
-    expect(findCalls("/generate", "POST")).toHaveLength(0);
+    await convertAndWait();
+    // プロンプト欄を手直ししても、元にした指示の印は残る
+    fireEvent.click(screen.getByRole("button", { name: "edit-prompt" }));
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "run" }));
@@ -1022,84 +1049,60 @@ describe("PromptExpanderContext", () => {
     );
     const body = lastBody("/generate", "POST");
     expect(body.prompt).toBe("edited prompt");
-    expect(body.character_prompts).toEqual(["edited char"]);
+    expect(body.character_prompts).toEqual([
+      "expanded char 1",
+      "expanded char 2",
+    ]);
     expect(body.character_mode).toBe(true);
     expect(body.positive_expand_mode).toBe("tags");
     expect(body.instruction).toBe("a cat girl");
+    expect(body.synopsis).toBeNull();
     expect(body.negative_expand_mode).toBe("off");
     expect(body.source_kind).toBe("none");
 
-    // 欄を空にすると拡張由来の印は消える
+    // プロンプト欄を空にすると、LLM で作った印は消える
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
     });
     expect(screen.getByTestId("positive-origin").textContent).toBe("none");
   });
 
-  it("generateFromExpansion posts directly with the edited result and leaves the fields as-is", async () => {
+  it("creating the prompt again keeps the previous prompt so it can be undone", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
-    fireEvent.click(screen.getByRole("button", { name: "set-negative" }));
-    fireEvent.click(screen.getByRole("button", { name: "positive-japanese" }));
-    fireEvent.click(screen.getByRole("button", { name: "character-on" }));
-    await clickAndWaitPending("expand-positive");
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    await convertAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "edit-prompt" }));
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId("entries").textContent).toBe(
-        "entry-new,entry-old",
-      ),
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction-2" }));
+    await convertAndWait();
+    expect(screen.getByTestId("positive").textContent).toBe(
+      "expanded: a dog girl",
     );
-    // 確認カードは残す（同じ内容で繰り返す・微調整して再生成できる）
-    expect(screen.getByTestId("pending-expansion").textContent).not.toBe(
-      "none",
-    );
-    // 欄の内容は書き換えない（指示のまま）
-    expect(screen.getByTestId("positive").textContent).toBe("a cat girl");
-    expect(screen.getByTestId("positive-origin").textContent).toBe("none");
+    expect(screen.getByTestId("prompt-undo").textContent).toBe("edited prompt");
 
-    const generateCalls = findCalls("/generate", "POST");
-    expect(generateCalls).toHaveLength(1);
-    const body = JSON.parse(String(generateCalls[0].init?.body));
-    expect(body.prompt).toBe("edited prompt");
-    expect(body.negative_prompt).toBe("blurry");
-    expect(body.character_prompts).toEqual(["edited char"]);
-    expect(body.character_mode).toBe(true);
-    expect(body.positive_expand_mode).toBe("japanese");
-    expect(body.negative_expand_mode).toBe("off");
-    expect(body.instruction).toBe("a cat girl");
-
-    // 残ったカードからもう一度生成できる。破棄すれば消える
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
-    });
-    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
-    fireEvent.click(screen.getByRole("button", { name: "discard" }));
-    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
+    // 元に戻すと、手直ししたプロンプトと、それを作った指示の印が戻る
+    fireEvent.click(screen.getByRole("button", { name: "undo-prompt" }));
+    expect(screen.getByTestId("positive").textContent).toBe("edited prompt");
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}")
+        .instruction,
+    ).toBe("a cat girl");
+    expect(screen.getByTestId("prompt-undo").textContent).toBe("none");
   });
 
-  it("generateFromExpansion records the instruction the card was made from", async () => {
+  it("records the text the prompt was made from even after the instruction is edited", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
-    await clickAndWaitPending("expand-positive");
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    await convertAndWait();
 
-    // 変換したあとで原文を書き換えても、送るのはカードのプロンプトなので、履歴の原文もカードの変換元にする
-    fireEvent.click(screen.getByRole("button", { name: "set-positive-2" }));
+    // 作ったあとで指示を書き換えても、送るのは作ったプロンプトなので、履歴の原文もその元の文にする
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction-2" }));
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
     expect(lastBody("/generate", "POST").instruction).toBe("a cat girl");
-
-    // 欄を空にしても同じ
-    fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
-    });
-    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
-    expect(lastBody("/generate", "POST").instruction).toBe("a cat girl");
+    expect(screen.getByTestId("instruction").textContent).toBe("a dog girl");
   });
 
   it("expandNegative expands the negative field only, and applying it sets negativeOrigin", async () => {
@@ -1108,27 +1111,32 @@ describe("PromptExpanderContext", () => {
     fireEvent.click(screen.getByRole("button", { name: "set-negative" }));
 
     const pending = await clickAndWaitPending("expand-negative");
-    expect(pending.target).toBe("negative");
-    expect(pending.mode).toBe("tags");
-    expect(pending.positivePrompt).toBeNull();
-    expect(pending.characterPrompts).toBeNull();
-    expect(pending.negativePrompt).toBe("expanded negative: blurry");
+    expect(pending).toEqual({
+      mode: "tags",
+      negativePrompt: "expanded negative: blurry",
+    });
 
     const expandBody = lastBody("/prompt-expander/expand", "POST");
     expect(expandBody.expand_positive).toBe(false);
     expect(expandBody.expand_negative).toBe(true);
     expect(expandBody.negative_instruction).toBe("blurry");
     expect(expandBody.negative_mode).toBe("tags");
+    // ネガティブのカードを確かめるまでは生成できない
+    expect(screen.getByTestId("disabled-reason").textContent).toBe(
+      "pending_expansion",
+    );
 
+    fireEvent.click(screen.getByRole("button", { name: "edit-card" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "apply" }));
     });
-    expect(screen.getByTestId("negative").textContent).toBe("edited negative");
+    expect(screen.getByTestId("negative").textContent).toBe("hand edited");
     expect(screen.getByTestId("positive").textContent).toBe("a cat girl");
     expect(
       JSON.parse(screen.getByTestId("negative-origin").textContent ?? "{}"),
     ).toEqual({ mode: "tags" });
     expect(screen.getByTestId("positive-origin").textContent).toBe("none");
+    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "run" }));
@@ -1136,76 +1144,108 @@ describe("PromptExpanderContext", () => {
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
     const body = lastBody("/generate", "POST");
     expect(body.prompt).toBe("a cat girl");
-    expect(body.negative_prompt).toBe("edited negative");
+    expect(body.negative_prompt).toBe("hand edited");
     expect(body.positive_expand_mode).toBe("off");
     expect(body.instruction).toBeNull();
     expect(body.negative_expand_mode).toBe("tags");
   });
 
+  it("generateFromNegativeExpansion generates with the card and keeps it", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-negative" }));
+    await clickAndWaitPending("expand-negative");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    const body = lastBody("/generate", "POST");
+    expect(body.prompt).toBe("a cat girl");
+    expect(body.negative_prompt).toBe("expanded negative: blurry");
+    expect(body.negative_expand_mode).toBe("tags");
+    // 欄は変えず、カードは残す（微調整して再生成できる）。破棄すれば消える
+    expect(screen.getByTestId("negative").textContent).toBe("blurry");
+    expect(screen.getByTestId("pending-expansion").textContent).not.toBe(
+      "none",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "discard" }));
+    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
+  });
+
   it("expansion failures surface as expansionError near the field instead of generating", async () => {
     mockState.expandErrorCode = "memory_empty";
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "expand-positive" }));
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId("expansion-error").textContent).not.toBe(
-        "none",
-      ),
-    );
+    await convertAndWait();
     const err = JSON.parse(
       screen.getByTestId("expansion-error").textContent ?? "{}",
     );
     expect(err.target).toBe("positive");
+    expect(err.field).toBe("instruction");
     expect(err.code).toBe("memory_empty");
-    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
+    expect(screen.getByTestId("positive").textContent).toBe("");
     expect(findCalls("/generate", "POST")).toHaveLength(0);
 
-    // 空欄のまま拡張しようとした場合は API を呼ばずに理由を出す
+    // 空のネーム欄からプロンプト化しようとした場合は API を呼ばずに、その欄のそばに理由を出す
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "expand-negative" }));
+      fireEvent.click(screen.getByRole("button", { name: "expand-script" }));
     });
     const err2 = JSON.parse(
       screen.getByTestId("expansion-error").textContent ?? "{}",
     );
-    expect(err2.target).toBe("negative");
-    expect(err2.code).toBe("empty_instruction");
+    expect(err2).toMatchObject({
+      target: "positive",
+      field: "script",
+      code: "empty_instruction",
+    });
+
+    // ネガティブ欄も同じ
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "expand-negative" }));
+    });
+    const err3 = JSON.parse(
+      screen.getByTestId("expansion-error").textContent ?? "{}",
+    );
+    expect(err3.target).toBe("negative");
+    expect(err3.code).toBe("empty_instruction");
     expect(findCalls("/prompt-expander/expand", "POST")).toHaveLength(1);
   });
 
-  it("restoreEntry puts the original instruction back, rebuilds the expansion card and updates settings without the seed", async () => {
+  it("restoreEntry puts the instruction and the prompt into their own fields and updates settings without the seed", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
-    await clickAndWaitPending("expand-positive");
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "apply" }));
-    });
-    expect(screen.getByTestId("positive-origin").textContent).not.toBe("none");
-    await clickAndWaitPending("expand-positive");
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    await convertAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "input-direct" }));
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "restore" }));
     });
 
-    // 拡張ありのエントリ: 原文を欄へ戻し、変換結果は確認カードとして再現する
-    expect(screen.getByTestId("positive").textContent).toBe("old instruction");
+    // 拡張ありのエントリ: 指示を指示欄へ、最終プロンプトをプロンプト欄へ戻す
+    expect(screen.getByTestId("instruction").textContent).toBe(
+      "old instruction",
+    );
+    expect(screen.getByTestId("script").textContent).toBe("");
+    expect(screen.getByTestId("positive").textContent).toBe(
+      "1girl, old prompt",
+    );
     expect(screen.getByTestId("negative").textContent).toBe("lowres");
     expect(screen.getByTestId("character-mode").textContent).toBe("on");
     expect(screen.getByTestId("slots").textContent).toBe("girl A|girl B");
-    expect(screen.getByTestId("positive-origin").textContent).toBe("none");
-    expect(screen.getByTestId("negative-origin").textContent).toBe("none");
     expect(
-      JSON.parse(screen.getByTestId("pending-expansion").textContent ?? "{}"),
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}"),
     ).toEqual({
-      target: "positive",
       mode: "tags",
       instruction: "old instruction",
-      positivePrompt: "1girl, old prompt",
-      characterPrompts: ["girl A", "girl B"],
-      negativePrompt: null,
+      source: "instruction",
+      synopsis: null,
     });
+    expect(screen.getByTestId("negative-origin").textContent).toBe("none");
+    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
+    // 直接書くのままだと戻した指示が見えないので、LLM で作るへ切り替える
+    expect(screen.getByTestId("input-mode").textContent).toBe("assist");
     expect(screen.getByTestId("image-model").textContent).toBe(
       "nai-diffusion-5-full",
     );
@@ -1222,22 +1262,54 @@ describe("PromptExpanderContext", () => {
       expect(body.i2i_noise).toBe(0.2);
     });
 
-    // 再現した確認カードからそのまま生成すると、原文と拡張モードのメタデータが付く
+    // 復元した内容をそのまま生成すると、元の文と拡張モードのメタデータが付く
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
     const body = lastBody("/generate", "POST");
-    expect(body.prompt).toBe("edited prompt");
+    expect(body.prompt).toBe("1girl, old prompt");
     expect(body.positive_expand_mode).toBe("tags");
     expect(body.instruction).toBe("old instruction");
-    expect(body.character_prompts).toEqual(["edited char"]);
+    expect(body.synopsis).toBeNull();
+    expect(body.character_prompts).toEqual(["girl A", "girl B"]);
+  });
+
+  it("restoreEntry puts a storyboard entry back as synopsis, storyboard and prompt", async () => {
+    await openSessionAndWait();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "restore-script" }));
+    });
+    expect(screen.getByTestId("instruction").textContent).toBe(
+      "朝起きたら女の子になっていた",
+    );
+    expect(screen.getByTestId("script").textContent).toBe("①鏡を見る「え」");
+    expect(screen.getByTestId("positive").textContent).toBe(
+      "1girl, old prompt",
+    );
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}"),
+    ).toEqual({
+      mode: "tags",
+      instruction: "①鏡を見る「え」",
+      source: "script",
+      synopsis: "朝起きたら女の子になっていた",
+    });
+
+    // そのまま生成すると、ネームとあらすじを分けて送る
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    const body = lastBody("/generate", "POST");
+    expect(body.instruction).toBe("①鏡を見る「え」");
+    expect(body.synopsis).toBe("朝起きたら女の子になっていた");
   });
 
   it("restoreEntry restores the final prompt directly for entries generated without expansion", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
-    await clickAndWaitPending("expand-positive");
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    await convertAndWait();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "restore-plain" }));
@@ -1245,7 +1317,9 @@ describe("PromptExpanderContext", () => {
     expect(screen.getByTestId("positive").textContent).toBe(
       "1girl, old prompt",
     );
-    expect(screen.getByTestId("pending-expansion").textContent).toBe("none");
+    // 指示から作っていないので、指示欄は空にする
+    expect(screen.getByTestId("instruction").textContent).toBe("");
+    expect(screen.getByTestId("positive-origin").textContent).toBe("none");
 
     // 復元した内容をそのまま生成すると拡張メタデータは付かない
     await act(async () => {
@@ -1348,13 +1422,13 @@ describe("PromptExpanderContext", () => {
     expect(localStorage.getItem("prompt_expander_character_mode")).toBe("true");
   });
 
-  it("draftScript rewrites the field into a notated storyboard and can be reverted", async () => {
+  it("draftScript puts a notated storyboard into the storyboard field and keeps the synopsis", async () => {
     await openSessionAndWait();
     fireEvent.click(screen.getByRole("button", { name: "manga-on-v5" }));
     await waitFor(() =>
       expect(screen.getByTestId("manga-active").textContent).toBe("on"),
     );
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
     });
@@ -1372,33 +1446,61 @@ describe("PromptExpanderContext", () => {
       manga: { panel_count: 3, layout: "vertical", narration: false },
     });
     await waitFor(() =>
-      expect(screen.getByTestId("positive").textContent).toBe(
+      expect(screen.getByTestId("script").textContent).toBe(
         "①a cat girl「え…？」\n②戸惑う『どうして…』",
       ),
     );
+    // あらすじは書き換えない
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
     expect(screen.getByTestId("drafting").textContent).toBe("no");
-    expect(screen.getByTestId("draft-backup").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("script-undo").textContent).toBe("");
 
-    // 元の文に戻せる
-    fireEvent.click(screen.getByRole("button", { name: "undo-draft" }));
-    expect(screen.getByTestId("positive").textContent).toBe("a cat girl");
-    expect(screen.getByTestId("draft-backup").textContent).toBe("none");
+    // ネームからプロンプトを作ると、ネームとあらすじを分けて記録する
+    await convertAndWait("expand-script");
+    expect(lastBody("/prompt-expander/expand", "POST").instruction).toBe(
+      "①a cat girl「え…？」\n②戸惑う『どうして…』",
+    );
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}"),
+    ).toMatchObject({ source: "script", synopsis: "a cat girl" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
+    expect(lastBody("/generate", "POST")).toMatchObject({
+      instruction: "①a cat girl「え…？」\n②戸惑う『どうして…』",
+      synopsis: "a cat girl",
+    });
 
-    // 空欄では呼ばず、欄のそばのエラーになる
-    fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
+    // 手で書いたネームの上に下書きし直しても、元に戻せる
+    fireEvent.click(screen.getByRole("button", { name: "set-script" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
     });
-    expect(findCalls("/prompt-expander/manga-script", "POST")).toHaveLength(1);
+    await waitFor(() =>
+      expect(screen.getByTestId("script-undo").textContent).toBe(
+        "①鏡を見る「え」",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "undo-draft" }));
+    expect(screen.getByTestId("script").textContent).toBe("①鏡を見る「え」");
+    expect(screen.getByTestId("script-undo").textContent).toBe("none");
+
+    // あらすじが空なら呼ばず、あらすじ欄のそばのエラーになる
+    fireEvent.click(screen.getByRole("button", { name: "clear-instruction" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
+    });
+    expect(findCalls("/prompt-expander/manga-script", "POST")).toHaveLength(2);
     expect(
-      JSON.parse(screen.getByTestId("expansion-error").textContent ?? "{}")
-        .code,
-    ).toBe("empty_instruction");
+      JSON.parse(screen.getByTestId("expansion-error").textContent ?? "{}"),
+    ).toMatchObject({ field: "instruction", code: "empty_instruction" });
   });
 
-  it("suggestCharacters sends the current input as input_text only when it is not empty", async () => {
+  it("suggestCharacters sends the first filled field as input_text only when there is one", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    // プロンプト欄が空なら、指示の欄を下書きとして渡す
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "suggest" }));
     });
@@ -1413,12 +1515,25 @@ describe("PromptExpanderContext", () => {
       input_text: "a cat girl",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
+    // プロンプト欄があればそちらを優先する
+    fireEvent.click(screen.getByRole("button", { name: "edit-prompt" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "suggest" }));
     });
     await waitFor(() =>
       expect(findCalls("/suggest-characters", "POST")).toHaveLength(2),
+    );
+    expect(lastBody("/suggest-characters", "POST").input_text).toBe(
+      "edited prompt",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "clear-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "clear-instruction" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "suggest" }));
+    });
+    await waitFor(() =>
+      expect(findCalls("/suggest-characters", "POST")).toHaveLength(3),
     );
     expect(lastBody("/suggest-characters", "POST")).not.toHaveProperty(
       "input_text",
@@ -1427,7 +1542,7 @@ describe("PromptExpanderContext", () => {
 
   it("manga mode is sent to /expand and /generate only while a V5 model is selected", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     // 日本語モードを選んでいても、漫画モード中はタグ扱いに固定される
     fireEvent.click(screen.getByRole("button", { name: "positive-japanese" }));
     await act(async () => {
@@ -1435,15 +1550,15 @@ describe("PromptExpanderContext", () => {
     });
     // V4.5 のままでは漫画モードは効かない
     expect(screen.getByTestId("manga-active").textContent).toBe("off");
-    let pending = await clickAndWaitPending("expand-positive");
+    await convertAndWait();
     let expandBody = lastBody("/prompt-expander/expand", "POST");
     expect(expandBody.manga_mode).toBe(false);
     expect(expandBody).not.toHaveProperty("manga");
     expect(expandBody.positive_mode).toBe("japanese");
-    expect(pending.mode).toBe("japanese");
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "discard" }));
-    });
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}")
+        .mode,
+    ).toBe("japanese");
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "manga-on-v5" }));
@@ -1451,11 +1566,14 @@ describe("PromptExpanderContext", () => {
     await waitFor(() =>
       expect(screen.getByTestId("manga-active").textContent).toBe("on"),
     );
-    pending = await clickAndWaitPending("expand-positive");
+    await convertAndWait();
     expandBody = lastBody("/prompt-expander/expand", "POST");
     expect(expandBody.manga_mode).toBe(true);
     expect(expandBody.positive_mode).toBe("tags");
-    expect(pending.mode).toBe("tags");
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}")
+        .mode,
+    ).toBe("tags");
     expect(expandBody.manga).toEqual({
       panel_count: 3,
       layout: "vertical",
@@ -1467,7 +1585,7 @@ describe("PromptExpanderContext", () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
     const body = lastBody("/generate", "POST");
@@ -1709,7 +1827,8 @@ describe("PromptExpanderContext", () => {
 
     // キャラ枠 ON のプロンプト化とネーム下書きにキャストを渡す
     fireEvent.click(screen.getByRole("button", { name: "character-on" }));
-    await clickAndWaitPending("expand-positive");
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    await convertAndWait();
     expect(lastBody("/prompt-expander/expand", "POST").cast).toHaveLength(2);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
@@ -1736,27 +1855,24 @@ describe("PromptExpanderContext", () => {
 
   it("transparent_background is sent to /expand and /generate, but not while comic mode is active", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "transparent-on" }));
     });
     await waitFor(() =>
       expect(screen.getByTestId("transparent-active").textContent).toBe("on"),
     );
-    await clickAndWaitPending("expand-positive");
+    await convertAndWait();
     expect(
       lastBody("/prompt-expander/expand", "POST").transparent_background,
     ).toBe(true);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(1));
     expect(lastBody("/generate", "POST").transparent_background).toBe(true);
 
     // 漫画モード（V5）中はコマ枠を切り抜けないので無効（設定は残る）
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "discard" }));
-    });
     await act(async () => {
       fireEvent.click(
         screen.getByRole("button", { name: "transparent-on-manga-v5" }),
@@ -1766,12 +1882,12 @@ describe("PromptExpanderContext", () => {
       expect(screen.getByTestId("manga-active").textContent).toBe("on"),
     );
     expect(screen.getByTestId("transparent-active").textContent).toBe("off");
-    await clickAndWaitPending("expand-positive");
+    await convertAndWait();
     const expandBody = lastBody("/prompt-expander/expand", "POST");
     expect(expandBody.manga_mode).toBe(true);
     expect(expandBody.transparent_background).toBe(false);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "generate-from" }));
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
     });
     await waitFor(() => expect(findCalls("/generate", "POST")).toHaveLength(2));
     expect(lastBody("/generate", "POST").transparent_background).toBe(false);
@@ -1945,7 +2061,10 @@ describe("PromptExpanderContext", () => {
     });
     expect(screen.getByTestId("restore-undo").textContent).toBe("none");
 
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-script" }));
     fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "input-direct" }));
     const putsBefore = findCalls("/prompt-expander/settings", "PUT").length;
     const modelBefore = screen.getByTestId("image-model").textContent;
     await act(async () => {
@@ -1965,7 +2084,11 @@ describe("PromptExpanderContext", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "undo-restore" }));
     });
+    // 3 つの欄と入れ方の切り替えも戻る
+    expect(screen.getByTestId("instruction").textContent).toBe("a dog girl");
+    expect(screen.getByTestId("script").textContent).toBe("①鏡を見る「え」");
     expect(screen.getByTestId("positive").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("input-mode").textContent).toBe("direct");
     expect(screen.getByTestId("restore-undo").textContent).toBe("none");
     // 復元で変えた設定と同じキーを、復元前の値で送り直す
     await waitFor(() => {
@@ -1976,39 +2099,36 @@ describe("PromptExpanderContext", () => {
       expect(undoPatch.image_model).toBe(modelBefore);
     });
   });
-  it("keeps the positive card when the negative field is converted, and keeps a card when re-conversion fails", async () => {
+
+  it("keeps the prompt when the negative field is converted, and keeps a card when re-conversion fails", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     fireEvent.click(screen.getByRole("button", { name: "set-negative" }));
-    await clickAndWaitPending("expand-positive");
-    expect(screen.getByTestId("pending-targets").textContent).toBe("positive");
+    await convertAndWait();
 
-    // ネガティブ欄をプロンプト化しても、正プロンプトのカードは残る
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "expand-negative" }));
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId("pending-targets").textContent).toBe(
-        "positive,negative",
-      ),
+    // ネガティブ欄をプロンプト化しても、プロンプト欄はそのまま
+    await clickAndWaitPending("expand-negative");
+    expect(screen.getByTestId("positive").textContent).toBe(
+      "expanded: a cat girl",
     );
 
-    // 再変換が失敗しても、今のカードは消えない
+    // 再変換が失敗しても、今のプロンプトとカードは消えない
     mockState.expandErrorCode = "llm_failed";
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "expand-positive" }));
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId("expanding").textContent).toBe("none"),
+    await convertAndWait();
+    await convertAndWait("expand-negative");
+    expect(screen.getByTestId("positive").textContent).toBe(
+      "expanded: a cat girl",
     );
-    expect(screen.getByTestId("pending-targets").textContent).toBe(
-      "positive,negative",
+    expect(screen.getByTestId("pending-expansion").textContent).not.toBe(
+      "none",
     );
   });
 
   it("keeps a separate draft for each session and restores it after a reload", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-script" }));
+    fireEvent.click(screen.getByRole("button", { name: "edit-prompt" }));
     fireEvent.click(screen.getByRole("button", { name: "set-negative" }));
 
     // 別のセッションを開くと、そのセッションの書きかけ（ここでは空）に入れ替わる
@@ -2021,6 +2141,8 @@ describe("PromptExpanderContext", () => {
     await waitFor(() =>
       expect(screen.getByTestId("positive").textContent).toBe(""),
     );
+    expect(screen.getByTestId("instruction").textContent).toBe("");
+    expect(screen.getByTestId("script").textContent).toBe("");
     expect(screen.getByTestId("negative").textContent).toBe("");
 
     // 元のセッションへ戻ると続きが戻る
@@ -2028,22 +2150,78 @@ describe("PromptExpanderContext", () => {
       fireEvent.click(screen.getByRole("button", { name: "open" }));
     });
     await waitFor(() =>
-      expect(screen.getByTestId("positive").textContent).toBe("a cat girl"),
+      expect(screen.getByTestId("positive").textContent).toBe("edited prompt"),
     );
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("script").textContent).toBe("①鏡を見る「え」");
     expect(screen.getByTestId("negative").textContent).toBe("blurry");
 
     // 再読み込み（作り直し）しても、同じタブなら残る
     cleanup();
     await openSessionAndWait();
     await waitFor(() =>
-      expect(screen.getByTestId("positive").textContent).toBe("a cat girl"),
+      expect(screen.getByTestId("positive").textContent).toBe("edited prompt"),
     );
-    expect(screen.getByTestId("negative").textContent).toBe("blurry");
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("script").textContent).toBe("①鏡を見る「え」");
+  });
+
+  it("reads a draft saved before the fields were split", async () => {
+    // 拡張結果を反映済みの書きかけ: 旧プロンプト欄はプロンプトへ、元の指示は指示欄へ
+    sessionStorage.setItem(
+      "prompt_expander_draft:sess-1",
+      JSON.stringify({
+        positiveText: "1girl, cat ears",
+        negativeText: "lowres",
+        characterSlots: [],
+        positiveOrigin: { mode: "tags", instruction: "猫耳の少女" },
+        negativeOrigin: null,
+        pendingExpansions: {
+          positive: null,
+          negative: { target: "negative", mode: "tags", negativePrompt: "bad" },
+        },
+        latestExpansionTarget: "negative",
+        scriptDraftBackup: null,
+      }),
+    );
+    await openSessionAndWait();
+    await waitFor(() =>
+      expect(screen.getByTestId("positive").textContent).toBe(
+        "1girl, cat ears",
+      ),
+    );
+    expect(screen.getByTestId("instruction").textContent).toBe("猫耳の少女");
+    expect(screen.getByTestId("negative").textContent).toBe("lowres");
+    expect(
+      JSON.parse(screen.getByTestId("pending-expansion").textContent ?? "{}"),
+    ).toEqual({ mode: "tags", negativePrompt: "bad" });
+
+    // ネームを下書きした後の書きかけ: 旧プロンプト欄はネーム欄へ、控えのあらすじは指示欄へ
+    cleanup();
+    sessionStorage.setItem(
+      "prompt_expander_draft:sess-1",
+      JSON.stringify({
+        positiveText: "①鏡を見る「え」",
+        negativeText: "",
+        characterSlots: [],
+        positiveOrigin: null,
+        negativeOrigin: null,
+        pendingExpansions: { positive: null, negative: null },
+        latestExpansionTarget: null,
+        scriptDraftBackup: { source: "あらすじ", script: "①鏡を見る「え」" },
+      }),
+    );
+    await openSessionAndWait();
+    await waitFor(() =>
+      expect(screen.getByTestId("script").textContent).toBe("①鏡を見る「え」"),
+    );
+    expect(screen.getByTestId("instruction").textContent).toBe("あらすじ");
+    expect(screen.getByTestId("positive").textContent).toBe("");
   });
 
   it("a storyboard requested in one session lands only in that session's draft", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     let release: () => void = () => {};
     mockState.llmGate = new Promise<void>((resolve) => {
       release = resolve;
@@ -2066,24 +2244,22 @@ describe("PromptExpanderContext", () => {
       expect(screen.getByTestId("drafting").textContent).toBe("no"),
     );
     // 移った先の欄は書き換えない
-    expect(screen.getByTestId("positive").textContent).toBe("");
-    expect(screen.getByTestId("draft-backup").textContent).toBe("none");
+    expect(screen.getByTestId("script").textContent).toBe("");
+    expect(screen.getByTestId("instruction").textContent).toBe("");
 
-    // 依頼したセッションへ戻ると、ネームと元のあらすじが入っている
+    // 依頼したセッションへ戻ると、あらすじとネームが入っている
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "open" }));
     });
     await waitFor(() =>
-      expect(screen.getByTestId("positive").textContent).toContain(
-        "①a cat girl",
-      ),
+      expect(screen.getByTestId("script").textContent).toContain("①a cat girl"),
     );
-    expect(screen.getByTestId("draft-backup").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
   });
 
   it("a conversion requested in one session lands only in that session's draft", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
     let release: () => void = () => {};
     mockState.llmGate = new Promise<void>((resolve) => {
       release = resolve;
@@ -2103,16 +2279,20 @@ describe("PromptExpanderContext", () => {
     await waitFor(() =>
       expect(screen.getByTestId("expanding").textContent).toBe("none"),
     );
-    expect(screen.getByTestId("pending-targets").textContent).toBe("none");
+    expect(screen.getByTestId("positive").textContent).toBe("");
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "open" }));
     });
     await waitFor(() =>
-      expect(screen.getByTestId("pending-positive-prompt").textContent).toBe(
+      expect(screen.getByTestId("positive").textContent).toBe(
         "expanded: a cat girl",
       ),
     );
+    expect(
+      JSON.parse(screen.getByTestId("positive-origin").textContent ?? "{}")
+        .instruction,
+    ).toBe("a cat girl");
   });
 
   it("a session load that returns late does not replace the session opened after it", async () => {
@@ -2143,41 +2323,48 @@ describe("PromptExpanderContext", () => {
     expect(screen.getByTestId("entries").textContent).toBe("");
   });
 
-  it("keeps hand edits on a conversion card in the session draft across a reload", async () => {
+  it("keeps hand edits on the negative conversion card in the session draft across a reload", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
-    await clickAndWaitPending("expand-positive");
+    fireEvent.click(screen.getByRole("button", { name: "set-negative" }));
+    await clickAndWaitPending("expand-negative");
     fireEvent.click(screen.getByRole("button", { name: "edit-card" }));
-    expect(screen.getByTestId("pending-positive-prompt").textContent).toBe(
+    expect(screen.getByTestId("pending-negative-prompt").textContent).toBe(
       "hand edited",
     );
 
     cleanup();
     await openSessionAndWait();
     await waitFor(() =>
-      expect(screen.getByTestId("pending-positive-prompt").textContent).toBe(
+      expect(screen.getByTestId("pending-negative-prompt").textContent).toBe(
         "hand edited",
       ),
     );
   });
 
-  it("undoing a restore also brings back the synopsis kept before the storyboard draft", async () => {
+  it("undoing a restore also brings back the storyboard and its undo", async () => {
     await openSessionAndWait();
-    fireEvent.click(screen.getByRole("button", { name: "set-positive" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    fireEvent.click(screen.getByRole("button", { name: "set-script" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
     });
     await waitFor(() =>
-      expect(screen.getByTestId("draft-backup").textContent).toBe("a cat girl"),
+      expect(screen.getByTestId("script-undo").textContent).toBe(
+        "①鏡を見る「え」",
+      ),
     );
-    const script = screen.getByTestId("positive").textContent;
+    const script = screen.getByTestId("script").textContent;
 
     fireEvent.click(screen.getByRole("button", { name: "restore" }));
-    expect(screen.getByTestId("draft-backup").textContent).toBe("none");
+    expect(screen.getByTestId("script").textContent).toBe("");
+    expect(screen.getByTestId("script-undo").textContent).toBe("none");
 
     fireEvent.click(screen.getByRole("button", { name: "undo-restore" }));
-    expect(screen.getByTestId("positive").textContent).toBe(script);
-    expect(screen.getByTestId("draft-backup").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("script").textContent).toBe(script);
+    expect(screen.getByTestId("script-undo").textContent).toBe(
+      "①鏡を見る「え」",
+    );
   });
 
   it("renameSession tells whether the name was saved", async () => {

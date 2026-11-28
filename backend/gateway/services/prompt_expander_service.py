@@ -522,6 +522,7 @@ def entry_to_dict(entry: PromptExpanderEntry) -> dict[str, Any]:
         "session_id": entry.session_id,
         "kind": entry.kind,
         "instruction": entry.instruction,
+        "synopsis": entry.synopsis,
         "positive_expand_mode": entry.positive_expand_mode or "off",
         "negative_expand_mode": entry.negative_expand_mode or "off",
         "character_mode": bool(entry.character_mode),
@@ -1400,6 +1401,8 @@ class GenerateParams:
     character_prompts: Sequence[str] = ()
     character_mode: bool = False
     instruction: str = ""
+    # 漫画のネームから作ったときの、ネームの下書き元のあらすじ
+    synopsis: str = ""
     positive_expand_mode: str = "off"
     negative_expand_mode: str = "off"
     image_model: str = DEFAULT_PROMPT_EXPANDER_IMAGE_MODEL
@@ -1717,6 +1720,7 @@ async def generate_entry(
             session_id=session_id,
             kind="generated",
             instruction=(params.instruction or "").strip() or prompt,
+            synopsis=(params.synopsis or "").strip() or None,
             positive_expand_mode=params.positive_expand_mode or "off",
             negative_expand_mode=params.negative_expand_mode or "off",
             character_mode=bool(params.character_mode or character_prompts),

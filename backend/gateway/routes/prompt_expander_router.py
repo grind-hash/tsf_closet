@@ -277,6 +277,7 @@ async def generate_image(session_id: str, body: PromptExpanderGenerateRequest):
         character_prompts=body.character_prompts,
         character_mode=body.character_mode,
         instruction=body.instruction or "",
+        synopsis=body.synopsis or "",
         positive_expand_mode=body.positive_expand_mode,
         negative_expand_mode=body.negative_expand_mode,
         image_model=body.image_model,

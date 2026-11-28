@@ -289,9 +289,20 @@ export default function PromptExpanderEntryCard({
         </div>
         {expanded && (
           <dl className="prompt-expander__entry-details">
+            {/* ネームから作ったエントリは、下書き元のあらすじとネームを分けて見せる */}
+            {entry.synopsis?.trim() && (
+              <>
+                <dt>{t("promptExpander.entry.synopsis")}</dt>
+                <dd>{entry.synopsis}</dd>
+              </>
+            )}
             {entry.instruction?.trim() && (
               <>
-                <dt>{t("promptExpander.entry.instruction")}</dt>
+                <dt>
+                  {entry.synopsis?.trim()
+                    ? t("promptExpander.entry.script")
+                    : t("promptExpander.entry.instruction")}
+                </dt>
                 <dd>{entry.instruction}</dd>
               </>
             )}

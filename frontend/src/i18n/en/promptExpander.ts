@@ -37,7 +37,7 @@ export const promptExpander = {
   composer: {
     sectionLabel: "Prompt composer",
     sectionParams: "Generation parameters",
-    sectionPrompt: "Prompt / Instruction",
+    sectionPrompt: "Prompt",
     sectionManga: "Comic (panels)",
     sectionCharacters: "Character prompts",
     sectionI2i: "i2i settings",
@@ -50,7 +50,7 @@ export const promptExpander = {
     mangaRequiresV5:
       "Comic mode (panel layout and speech-bubble text) works only with NAI Diffusion V5 models. With V4.5 the settings are kept but not used for expansion.",
     mangaHint:
-      'When you convert with the LLM, it builds a prompt with panels and speech bubbles from your instruction. You can write "panel 1 ... panel 2 ..." or just a synopsis. Generating the field as-is is not affected.',
+      "When you convert with the LLM, it builds a prompt with panels and speech bubbles from your synopsis or storyboard. A storyboard or just a synopsis both work. Generating the prompt field as-is is not affected.",
     mangaModeFixedHint:
       "In comic mode the panel descriptions and appearance are always written in English (Japanese prose would be rendered as caption boxes in the image). Japanese is used only inside the quoted dialogue and sound effects; pick the language in the comic section.",
     mangaPanelCount: "Panels",
@@ -93,14 +93,11 @@ export const promptExpander = {
     restoreDone: "Restored the entry into the fields.",
     restoreUndo: "Undo",
     draftScriptTitle:
-      "Rewrites the synopsis in this field into a notated storyboard (panel numbers, lines, narration) with the LLM. Edit it, then convert to prompt. You can revert to the original text",
+      "Drafts a notated storyboard (panel numbers, lines, narration) from the synopsis with the LLM and puts it in the storyboard field. The synopsis is not changed. You can also press Ctrl+Enter (⌘+Enter on Mac) in the field",
     draftingHint:
-      "The LLM is drafting the storyboard. This field is read-only until it finishes.",
-    draftDone:
-      "Drafted a storyboard from the synopsis. Edit it, then convert to prompt.",
-    draftUndo: "Revert to original text",
-    synopsisShow: "Show the original synopsis",
-    synopsisHide: "Hide the original synopsis",
+      "The LLM is drafting the storyboard. The storyboard field is read-only until it finishes.",
+    draftDone: "Drafted a storyboard. Edit it, then convert to prompt.",
+    draftUndo: "Undo",
     notation: {
       toolbar: "Insert comic notation",
       speech: "Speech",
@@ -143,31 +140,63 @@ export const promptExpander = {
       upload: "Upload",
       character: "Character",
     },
-    promptLabel: "Prompt / Instruction",
-    promptPlaceholder:
-      'Prompt passed to NovelAI, or a natural-language instruction that "Convert to prompt" turns into a NovelAI prompt',
-    promptPlaceholderManga:
-      "Describe the flow of the comic, e.g. ① a man looks in the mirror 【After school】 ② his body turns female 《thump》 ③ 「Is this... me?」『Why...』. A synopsis alone is fine; the LLM decides the panels and lines",
+    inputModeLabel: "How to fill the prompt",
+    inputModeAssist: "Create with the LLM",
+    inputModeDirect: "Write directly",
+    inputModeAssistHint:
+      "The LLM creates the prompt from your instruction (in comic mode, from the synopsis and storyboard). You can edit the prompt it creates.",
+    inputModeDirectHint:
+      "Write the prompt sent to NovelAI yourself. The instruction and storyboard fields are hidden, but what you wrote in them is kept.",
+    instructionLabel: "Instruction",
+    synopsisLabel: "Synopsis",
+    scriptLabel: "Storyboard",
+    promptLabel: "Prompt",
+    instructionPlaceholder:
+      'Describe the image you want in plain words. "Convert to prompt" turns it into a NovelAI prompt',
+    synopsisPlaceholder:
+      'Jot down the story for the comic. "Draft a storyboard from the synopsis" suggests panels and lines. You can also convert it to a prompt as it is',
+    scriptPlaceholder:
+      "Write the panels and lines, e.g. ① a man looks in the mirror 【After school】 ② his body turns female 《thump》 ③ 「Is this... me?」『Why...』",
+    promptPlaceholderAssist:
+      'The prompt made by "Convert to prompt" goes here. You can edit it or write it yourself. Generation sends this field',
+    promptPlaceholderDirect:
+      "Write the prompt sent to NovelAI (e.g. 1girl, silver hair, maid)",
     expandModeLabel: "Output format",
     expandJapanese: "Japanese prose",
     expandTags: "Tags",
     expandButton: "Convert to prompt",
-    expandPositiveTitle:
-      "Use this field as the instruction and convert it into a NovelAI prompt with the LLM (in the selected output format). You can also press Ctrl+Enter (⌘+Enter on Mac) in the field",
+    expandFromInstructionTitle:
+      "Create a NovelAI prompt from this instruction with the LLM (in the selected output format) and put it in the prompt field. You can also press Ctrl+Enter (⌘+Enter on Mac) in the field",
+    expandFromSynopsisTitle:
+      "Create the prompt straight from the synopsis, without a storyboard, and put it in the prompt field",
+    expandFromScriptTitle:
+      "Create a prompt with panels and speech bubbles from the storyboard with the LLM and put it in the prompt field. You can also press Ctrl+Enter (⌘+Enter on Mac) in the field",
     expandNegativeTitle:
       "Use this field as the instruction and convert it into a negative prompt with the LLM (in the selected output format). You can also press Ctrl+Enter (⌘+Enter on Mac) in the field",
     expandDisabledEmpty: "Enter something to convert",
-    expandEmptyPositive: "Enter a prompt / instruction before converting.",
+    expandEmptyInstruction: "Enter an instruction before converting.",
+    expandEmptySynopsis:
+      "Enter a synopsis before drafting a storyboard or converting.",
+    expandEmptyScript:
+      "Write a storyboard or draft one from the synopsis before converting.",
     expandEmptyNegative:
       "Enter what to avoid in the negative prompt field before converting.",
     expandFailed: "Conversion failed: {{message}}",
+    instructionToolbar: "Instruction field actions",
+    synopsisToolbar: "Synopsis field actions",
+    scriptToolbar: "Storyboard field actions",
     positiveToolbar: "Prompt field actions",
     negativeToolbar: "Negative field actions",
     suggestButton: "✨ Suggest",
     suggestNeedsCharacterMode:
       "Turn on character prompts to insert suggestions into a slot",
     applyExpansion: "Apply to field",
-    originTitle: "LLM conversion applied (instruction: {{instruction}})",
+    originTitle: "Prompt made by the LLM (from: {{instruction}})",
+    promptRebuilt: "Created the prompt again.",
+    promptUndo: "Undo",
+    sourceChanged:
+      "You changed the {{field}} after creating the prompt. This prompt was made from the earlier {{field}}.",
+    rebuildFromSource: "Create again from the current {{field}}",
     v45JapaneseHint:
       'Japanese prompts are less accurate on V4.5. The "Tags" output format is recommended.',
     negativeEconomyHint:
@@ -287,14 +316,16 @@ export const promptExpander = {
     generate: "Generate",
     expanding: "Converting…",
     expandingHint:
-      "The LLM is writing the prompt. This field is read-only until it finishes.",
+      "The LLM is writing the prompt. The prompt field is read-only until it finishes.",
     generating: "Generating…",
     disabledNotConfigured:
       "NovelAI is not configured, so conversion, suggestions and generation are unavailable",
     disabledNoSession: "Open a session first",
     disabledTooMany: "Too many character prompts",
-    disabledEmptyPrompt: "Enter a prompt / instruction",
-    disabledPendingExpansion: "Check the conversion result (apply or discard)",
+    disabledEmptyPrompt:
+      'The prompt field is empty. Use "Convert to prompt" on an instruction or write it directly',
+    disabledPendingExpansion:
+      "Check the negative conversion result (apply or discard)",
     generatingHint: "Generating the image…",
   },
   inpaint: {
@@ -338,16 +369,10 @@ export const promptExpander = {
       "Generate an image from the fields. You can also press Ctrl+Shift+Enter (⌘+Shift+Enter on Mac)",
   },
   expansion: {
-    titlePositive: "Conversion result (prompt)",
     titleNegative: "Conversion result (negative)",
     hint: "Review and edit the result, then apply it to the field or generate with it as-is.",
-    basePrompt: "Base prompt",
-    characterPrompt: "Character {{index}}",
     negativePrompt: "Negative prompt",
     confirm: "Generate with this",
-    instructionChanged:
-      "You changed the source text after converting. This result was made from the earlier text.",
-    reExpand: "Convert the current text again",
     discard: "Discard",
   },
   entry: {
@@ -359,6 +384,8 @@ export const promptExpander = {
     expandFull: "Show full text",
     collapse: "Collapse",
     instruction: "Instruction",
+    synopsis: "Synopsis",
+    script: "Storyboard",
     finalPrompt: "Final prompt",
     negativePrompt: "Negative",
     characterPrompts: "Characters",

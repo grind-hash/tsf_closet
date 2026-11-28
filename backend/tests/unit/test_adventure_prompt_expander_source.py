@@ -28,6 +28,7 @@ def _entry(tmp_path: Path, *, image_model: str = "nai-diffusion-5-full"):
         session_id="pe-sess",
         kind="generated",
         instruction="銀髪にして",
+        synopsis=None,
         positive_expand_mode="tags",
         negative_expand_mode="off",
         character_mode=True,

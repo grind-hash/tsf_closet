@@ -45,6 +45,7 @@ type PromptExpanderEntryPayload = {
   session_id: string;
   kind: "generated" | "uploaded";
   instruction: string | null;
+  synopsis?: string | null;
   positive_expand_mode: "off" | "japanese" | "tags";
   negative_expand_mode: "off" | "japanese" | "tags";
   character_mode: boolean;
@@ -323,6 +324,7 @@ async function mockPromptExpanderApis(page: Page) {
         negative_prompt?: string;
         character_prompts?: string[];
         instruction?: string | null;
+        synopsis?: string | null;
         positive_expand_mode: "off" | "japanese" | "tags";
         negative_expand_mode: "off" | "japanese" | "tags";
         image_model?: string;
@@ -352,6 +354,7 @@ async function mockPromptExpanderApis(page: Page) {
       const entry = entryPayload({
         id: `pe-entry-new-${generatedCount}`,
         instruction: body.instruction ?? null,
+        synopsis: body.synopsis ?? null,
         final_prompt: body.prompt,
         final_negative_prompt: body.negative_prompt ?? "",
         character_prompts: body.character_prompts ?? [],
@@ -578,6 +581,27 @@ function negativeToolbar(page: Page) {
   return page.getByRole("toolbar", { name: "ネガティブ欄の操作" });
 }
 
+/** 指示（漫画モードではあらすじ）の欄と、ネームの欄 */
+function instructionField(page: Page) {
+  return page.locator("#prompt-expander-instruction");
+}
+
+function scriptField(page: Page) {
+  return page.locator("#prompt-expander-script");
+}
+
+function instructionToolbar(page: Page) {
+  return page.getByRole("toolbar", { name: "指示欄の操作" });
+}
+
+function synopsisToolbar(page: Page) {
+  return page.getByRole("toolbar", { name: "あらすじ欄の操作" });
+}
+
+function scriptToolbar(page: Page) {
+  return page.getByRole("toolbar", { name: "ネーム欄の操作" });
+}
+
 function generateButton(page: Page) {
   return page.getByRole("button", { name: "生成", exact: true });
 }
@@ -634,18 +658,20 @@ test("creating a session opens the composer", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("expand with tags from the field toolbar, edit the inline result and generate", async ({
+test("convert the instruction into the prompt field, edit the prompt and generate", async ({
   page,
 }) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
   const state = await mockPromptExpanderApis(page);
   await openSession(page);
 
-  // 正プロンプト欄の右上ツールバー: モード（既定はタグ）+ 拡張 + 提案
-  const toolbar = positiveToolbar(page);
+  // 指示欄の右上: 出力形式（既定はタグ）+ プロンプト化。提案はプロンプト欄の右上
+  const toolbar = instructionToolbar(page);
   await expect(toolbar.getByRole("radio", { name: "タグ" })).toBeChecked();
-  await expect(toolbar.getByRole("button", { name: "✨ 提案" })).toBeEnabled();
-  // 空欄のうちは拡張できない（理由付き）
+  await expect(
+    positiveToolbar(page).getByRole("button", { name: "✨ 提案" }),
+  ).toBeEnabled();
+  // 空欄のうちはプロンプト化できない（理由付き）
   const expandButton = toolbar.getByRole("button", {
     name: "LLMでプロンプト化",
   });
@@ -656,9 +682,9 @@ test("expand with tags from the field toolbar, edit the inline result and genera
   );
 
   const instruction = "猫耳メイドがカフェで微笑む";
-  await positiveField(page).fill(instruction);
+  await instructionField(page).fill(instruction);
   // 欄の中で Ctrl+Enter を押すとボタンと同じくプロンプト化する
-  await positiveField(page).press("Control+Enter");
+  await instructionField(page).press("Control+Enter");
 
   await expect.poll(() => state.expandBodies.length).toBe(1);
   expect(state.expandBodies[0]).toMatchObject({
@@ -671,31 +697,29 @@ test("expand with tags from the field toolbar, edit the inline result and genera
   });
   expect(state.expandBodies[0]).not.toHaveProperty("current_prompt");
 
-  // 拡張結果は欄の直下にインライン表示され、編集できる
-  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
-  await expect(card).toBeVisible();
-  const basePrompt = card.getByLabel("ベースプロンプト");
-  await expect(basePrompt).toHaveValue(EXPANDED_PROMPT);
-  // カードが開いている間は下の「生成」は押せない（理由付き）
-  await expect(generateButton(page)).toBeDisabled();
+  // 結果はプロンプト欄へ直接入り、指示はそのまま残る。確認カードは出ない
+  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
+  await expect(instructionField(page)).toHaveValue(instruction);
+  await expect(
+    page.locator('label[for="prompt-expander-positive"]'),
+  ).toContainText("タグで変換");
+  await expect(page.getByRole("region", { name: /変換結果/ })).toHaveCount(0);
+
+  // プロンプト欄を手直しして、そのまま生成する
   const edited = `${EXPANDED_PROMPT}, smile`;
-  await basePrompt.fill(edited);
+  await positiveField(page).fill(edited);
   expect(state.generateBodies).toHaveLength(0);
-  await card.getByRole("button", { name: "この内容で生成" }).click();
+  await generateButton(page).click();
 
   await expect.poll(() => state.generateBodies.length).toBe(1);
   expect(state.generateBodies[0]).toMatchObject({
     prompt: edited,
     instruction,
+    synopsis: null,
     positive_expand_mode: "tags",
     negative_expand_mode: "off",
     image_model: "nai-diffusion-4-5-full",
   });
-  // 確認カードは生成後も残る（同じ内容で繰り返す・微調整して再生成できる）
-  await expect(card).toBeVisible();
-  await expect(basePrompt).toHaveValue(edited);
-  // 「この内容で生成」は欄を書き換えない（指示のまま残る）
-  await expect(positiveField(page)).toHaveValue(instruction);
 
   // 生成したエントリが一覧の先頭に並ぶ
   const entries = page.locator(".prompt-expander__entry-list > li");
@@ -704,38 +728,33 @@ test("expand with tags from the field toolbar, edit the inline result and genera
   await expect(entries.nth(1)).toContainText(ENTRY_INSTRUCTION);
 });
 
-test("apply the expansion to the field and generate with the expand metadata", async ({
+test("creating the prompt again can be undone below the prompt field", async ({
   page,
 }) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
   const state = await mockPromptExpanderApis(page);
   await openSession(page);
 
-  const instruction = "雨の日の駅で傘を差す少女";
-  await positiveField(page).fill(instruction);
-  await positiveToolbar(page)
-    .getByRole("button", { name: "LLMでプロンプト化" })
-    .click();
-  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
-  await expect(card).toBeVisible();
-  await card.getByRole("button", { name: "欄へ反映" }).click();
-
-  await expect(card).toBeHidden();
-  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
-  // 拡張由来であることがラベル横のバッジで分かる
-  await expect(
-    page.locator('label[for="prompt-expander-positive"]'),
-  ).toContainText("タグで変換");
-  expect(state.generateBodies).toHaveLength(0);
-
-  await generateButton(page).click();
-  await expect.poll(() => state.generateBodies.length).toBe(1);
-  expect(state.generateBodies[0]).toMatchObject({
-    prompt: EXPANDED_PROMPT,
-    instruction,
-    positive_expand_mode: "tags",
-    negative_expand_mode: "off",
+  await instructionField(page).fill("雨の日の駅で傘を差す少女");
+  const expandButton = instructionToolbar(page).getByRole("button", {
+    name: "LLMでプロンプト化",
   });
+  await expandButton.click();
+  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
+  // 初めて作ったときは、戻す先が無いので案内は出ない
+  const rebuilt = page.locator(".prompt-expander__draft-done", {
+    hasText: "プロンプトを作り直しました",
+  });
+  await expect(rebuilt).toHaveCount(0);
+
+  // 手直ししたあとで作り直すと、前のプロンプトに戻せる
+  await positiveField(page).fill("1girl, hand written");
+  await expandButton.click();
+  await expect.poll(() => state.expandBodies.length).toBe(2);
+  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
+  await rebuilt.getByRole("button", { name: "元に戻す" }).click();
+  await expect(positiveField(page)).toHaveValue("1girl, hand written");
+  await expect(rebuilt).toHaveCount(0);
 });
 
 test("negative field has its own expand toolbar and inline result", async ({
@@ -843,23 +862,22 @@ test("comic mode is V5-only, its options are sent with expand/generate, and entr
   ).toContainText("3コマ · 縦積み · 右→左 · 日本語");
   // 読み順は日本式（右上始まり）が既定
   await expect(page.getByLabel("読み順")).toHaveValue("rtl");
-  // 指示欄のプレースホルダーが漫画向けに変わり、拡張モードはタグ固定（理由つき）
-  await expect(positiveField(page)).toHaveAttribute(
+  // 指示欄は「あらすじ」になり、ネーム欄が出る。出力形式はタグ固定（理由つき）
+  await expect(instructionField(page)).toHaveAttribute(
     "placeholder",
-    /漫画にしたい流れを入力/,
+    /漫画にしたい話をざっと入力/,
   );
-  const toolbar = positiveToolbar(page);
+  await expect(scriptField(page)).toBeVisible();
+  const toolbar = synopsisToolbar(page);
   await expect(toolbar.getByRole("radio", { name: "タグ" })).toBeChecked();
   await expect(toolbar.getByRole("radio", { name: "日本語文" })).toBeDisabled();
   await expect(
-    page.getByText(/漫画モード中はコマ説明・外見を英語で組み立てます/),
+    page.getByText(/漫画モード中はコマ説明・外見を英語で組み立てます/).first(),
   ).toBeVisible();
 
-  // 拡張に漫画オプションが載る
-  await positiveField(page).fill("男が女の子になる3コマ");
-  await positiveToolbar(page)
-    .getByRole("button", { name: "LLMでプロンプト化" })
-    .click();
+  // あらすじから直接プロンプト化しても、漫画オプションが載る
+  await instructionField(page).fill("男が女の子になる3コマ");
+  await toolbar.getByRole("button", { name: "LLMでプロンプト化" }).click();
   await expect.poll(() => state.expandBodies.length).toBe(1);
   expect(state.expandBodies[0]).toMatchObject({
     manga_mode: true,
@@ -875,8 +893,8 @@ test("comic mode is V5-only, its options are sent with expand/generate, and entr
   });
 
   // 生成にも印が載り、エントリにバッジが出る
-  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
-  await card.getByRole("button", { name: "この内容で生成" }).click();
+  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
+  await generateButton(page).click();
   await expect.poll(() => state.generateBodies.length).toBe(1);
   expect(state.generateBodies[0]).toMatchObject({
     manga_mode: true,
@@ -891,7 +909,9 @@ test("comic mode is V5-only, its options are sent with expand/generate, and entr
   await page.getByLabel("画像モデル").selectOption("nai-diffusion-4-5-full");
   await expect(mangaSwitch).toBeDisabled();
   await expect(mangaSwitch).toBeChecked();
-  await positiveToolbar(page)
+  // 漫画モードが効かないので、欄は「指示」に戻り、ネーム欄は出ない
+  await expect(scriptField(page)).toHaveCount(0);
+  await instructionToolbar(page)
     .getByRole("button", { name: "LLMでプロンプト化" })
     .click();
   await expect.poll(() => state.expandBodies.length).toBe(2);
@@ -1102,14 +1122,14 @@ test("transparent background is sent with expand/generate and V4.5 entries are c
   );
 
   // 拡張にも生成にもフラグが載る
-  await positiveField(page).fill("銀髪の少女の立ち絵");
-  await positiveToolbar(page)
+  await instructionField(page).fill("銀髪の少女の立ち絵");
+  await instructionToolbar(page)
     .getByRole("button", { name: "LLMでプロンプト化" })
     .click();
   await expect.poll(() => state.expandBodies.length).toBe(1);
   expect(state.expandBodies[0]).toMatchObject({ transparent_background: true });
-  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
-  await card.getByRole("button", { name: "この内容で生成" }).click();
+  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
+  await generateButton(page).click();
   await expect.poll(() => state.generateBodies.length).toBe(1);
   expect(state.generateBodies[0]).toMatchObject({
     transparent_background: true,
@@ -1372,12 +1392,12 @@ test("comic notation chips insert markers at the caret and the narration toggle 
     page.getByRole("checkbox", { name: "漫画モード" }),
   ).toBeChecked();
 
-  // 記法チップは漫画モード中だけ欄の上に出る
+  // 記法チップは漫画モード中だけ、ネーム欄の上に出る
   const chips = page.getByRole("toolbar", { name: "漫画の記法を挿入" });
   await expect(chips).toBeVisible();
   await expect(page.getByText(/記法: 「セリフ」『モノローグ』/)).toBeVisible();
 
-  const field = positiveField(page);
+  const field = scriptField(page);
   await field.fill("放課後の教室");
   await field.press("End");
   // コマ番号は行頭に連番で入る（行の途中なら改行してから）
@@ -1417,7 +1437,7 @@ test("comic notation chips insert markers at the caret and the narration toggle 
   await expect(narrationSwitch).toBeChecked();
   await expect.poll(() => state.settings.manga_narration).toBe(true);
 
-  await positiveToolbar(page)
+  await scriptToolbar(page)
     .getByRole("button", { name: "LLMでプロンプト化" })
     .click();
   await expect.poll(() => state.expandBodies.length).toBe(1);
@@ -1456,7 +1476,7 @@ test("character prompt mode is remembered across reloads", async ({ page }) => {
   ).toBeChecked();
 });
 
-test("draft a storyboard from the synopsis, then revert to the original text", async ({
+test("draft a storyboard from the synopsis into the storyboard field, then undo it", async ({
   page,
 }) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
@@ -1470,9 +1490,10 @@ test("draft a storyboard from the synopsis, then revert to the original text", a
   const draftButton = page.getByRole("button", {
     name: "あらすじからネームを下書き",
   });
-  // 作業の順に、ネーム下書きはプロンプト欄のツールバーでプロンプト化の左に並ぶ
-  const toolbarButtons = positiveToolbar(page).getByRole("button");
-  const labels = await toolbarButtons.allInnerTexts();
+  // 作業の順に、ネーム下書きはあらすじ欄のツールバーでプロンプト化の左に並ぶ
+  const labels = await synopsisToolbar(page)
+    .getByRole("button")
+    .allInnerTexts();
   expect(labels.indexOf("あらすじからネームを下書き")).toBeGreaterThanOrEqual(
     0,
   );
@@ -1481,31 +1502,32 @@ test("draft a storyboard from the synopsis, then revert to the original text", a
   );
   // 空欄では押せない
   await expect(draftButton).toBeDisabled();
-  const field = positiveField(page);
-  await field.fill("放課後、彼女が制服姿に変わってしまい戸惑う");
+  const synopsis = "放課後、彼女が制服姿に変わってしまい戸惑う";
+  await instructionField(page).fill(synopsis);
   await expect(draftButton).toBeEnabled();
   await draftButton.click();
 
   await expect.poll(() => state.scriptBodies.length).toBe(1);
   expect(state.scriptBodies[0]).toMatchObject({
-    instruction: "放課後、彼女が制服姿に変わってしまい戸惑う",
+    instruction: synopsis,
     image_model: "nai-diffusion-5-full",
     manga: { narration: false },
   });
-  const script =
-    "①放課後、彼女が制服姿に変わってしまい戸惑う。彼女が鏡を見る「え…？」\n②体が変わっていく《ドクン》";
-  await expect(field).toHaveValue(script);
-  await expect(field).toBeEditable();
-  await expect(
-    page.getByText("あらすじからネームを下書きしました。", { exact: false }),
-  ).toBeVisible();
+  const script = `①${synopsis}。彼女が鏡を見る「え…？」\n②体が変わっていく《ドクン》`;
+  // ネームはネーム欄へ入り、あらすじは残る
+  await expect(scriptField(page)).toHaveValue(script);
+  await expect(scriptField(page)).toBeEditable();
+  await expect(instructionField(page)).toHaveValue(synopsis);
+  const drafted = page.locator(".prompt-expander__draft-done", {
+    hasText: "ネームを下書きしました。",
+  });
+  await expect(drafted).toBeVisible();
 
-  // 元の文に戻せる。戻すと案内は消える
-  await page.getByRole("button", { name: "元の文に戻す" }).click();
-  await expect(field).toHaveValue("放課後、彼女が制服姿に変わってしまい戸惑う");
-  await expect(page.getByRole("button", { name: "元の文に戻す" })).toHaveCount(
-    0,
-  );
+  // 元に戻すと、下書き前のネーム（ここでは空）に戻り、案内は消える
+  await drafted.getByRole("button", { name: "元に戻す" }).click();
+  await expect(scriptField(page)).toHaveValue("");
+  await expect(drafted).toHaveCount(0);
+  await expect(instructionField(page)).toHaveValue(synopsis);
 });
 
 test("composer sections collapse, expand and persist to localStorage", async ({
@@ -1515,7 +1537,7 @@ test("composer sections collapse, expand and persist to localStorage", async ({
   await mockPromptExpanderApis(page);
   await openSession(page);
 
-  // 並び順: 生成パラメータ → 漫画（コマ割り） → プロンプト／指示 → キャラクタープロンプト
+  // 並び順: 生成パラメータ → 漫画（コマ割り） → プロンプト → キャラクタープロンプト
   //         → 精密参照（登場人物） → i2i設定 → インペイント（部分修正）
   const headings = page.locator(
     ".prompt-expander__composer .prompt-expander__section-toggle",
@@ -1523,7 +1545,7 @@ test("composer sections collapse, expand and persist to localStorage", async ({
   await expect(headings).toHaveText([
     /生成パラメータ/,
     /漫画（コマ割り）/,
-    /プロンプト／指示/,
+    /▾プロンプト$/,
     /キャラクタープロンプト/,
     /精密参照/,
     /i2i設定/,
@@ -1630,34 +1652,30 @@ test("settings open as a right side panel and remember the state", async ({
     .toBe("false");
 });
 
-test("restore puts the original instruction back and rebuilds the expansion card", async ({
+test("restore puts the instruction and the prompt back into their own fields", async ({
   page,
 }) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
   const state = await mockPromptExpanderApis(page);
   await openSession(page);
 
-  const textarea = positiveField(page);
-  await expect(textarea).toHaveValue("");
+  await expect(positiveField(page)).toHaveValue("");
   await page
     .locator(".prompt-expander__entry-list > li")
     .first()
     .getByRole("button", { name: "欄へ復元" })
     .click();
-  // 拡張ありのエントリ: 原文が欄に戻り、変換結果は確認カードとして再現される
-  await expect(textarea).toHaveValue(ENTRY_INSTRUCTION);
+  // 拡張ありのエントリ: 指示は指示欄、最終プロンプトはプロンプト欄へ戻る
+  await expect(instructionField(page)).toHaveValue(ENTRY_INSTRUCTION);
+  await expect(positiveField(page)).toHaveValue(ENTRY_FINAL_PROMPT);
   await expect(negativeField(page)).toHaveValue("lowres");
-  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
-  await expect(card).toBeVisible();
-  await expect(card.getByLabel("ベースプロンプト")).toHaveValue(
-    ENTRY_FINAL_PROMPT,
-  );
+  await expect(page.getByRole("region", { name: /変換結果/ })).toHaveCount(0);
   // 既定では seed は復元しない（設定の部分更新に seed を含めない）
   await expect.poll(() => state.settingsBodies.length).toBeGreaterThan(0);
   expect(state.settingsBodies.at(-1)).not.toHaveProperty("seed");
 
-  // 再現したカードからそのまま生成すると、原文と拡張モードのメタデータが付く
-  await card.getByRole("button", { name: "この内容で生成" }).click();
+  // そのまま生成すると、元の指示と拡張モードのメタデータが付く
+  await generateButton(page).click();
   await expect.poll(() => state.generateBodies.length).toBe(1);
   expect(state.generateBodies[0]).toMatchObject({
     prompt: ENTRY_FINAL_PROMPT,
@@ -2377,58 +2395,132 @@ test("an entry can be set and cleared as the i2i source, and the generate bar sh
   await expect(bar.getByRole("button", { name: "i2i元あり" })).toHaveCount(0);
 });
 
-test("the conversion card warns when the source text changed after converting", async ({
+test("the prompt field tells when the instruction changed after creating the prompt", async ({
   page,
 }) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
   const state = await mockPromptExpanderApis(page);
   await openSession(page);
-  await positiveField(page).fill("赤いドレスの女の子");
-  await positiveToolbar(page)
+  await instructionField(page).fill("赤いドレスの女の子");
+  await instructionToolbar(page)
     .getByRole("button", { name: "LLMでプロンプト化" })
     .click();
-  const card = page.getByRole("region", { name: "変換結果（プロンプト）" });
-  await expect(card).toBeVisible();
-  await expect(card).not.toContainText("原文を変更しました");
-  // 原文だけ直すと、カードに案内と再変換が出る
-  await positiveField(page).fill("青いドレスの女の子");
-  await expect(card).toContainText("変換したあとで原文を変更しました");
-  await card.getByRole("button", { name: "いまの原文で再変換" }).click();
+  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
+  const notice = page.locator(".prompt-expander__draft-done", {
+    hasText: "プロンプトを作ったあとで指示を変更しました",
+  });
+  await expect(notice).toHaveCount(0);
+  // 指示だけ直すと、プロンプト欄の下に案内と作り直しが出る
+  await instructionField(page).fill("青いドレスの女の子");
+  await expect(notice).toBeVisible();
+  await notice.getByRole("button", { name: "いまの指示で作り直す" }).click();
   await expect.poll(() => state.expandBodies.length).toBe(2);
   expect(state.expandBodies[1]).toMatchObject({
     instruction: "青いドレスの女の子",
   });
-  await expect(card).not.toContainText("原文を変更しました");
+  await expect(notice).toHaveCount(0);
 });
 
-test("after editing a drafted storyboard, the original synopsis can still be viewed", async ({
+test("comic mode keeps the synopsis, storyboard and prompt apart and restores all three", async ({
   page,
 }) => {
   await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
-  await mockPromptExpanderApis(page);
+  const state = await mockPromptExpanderApis(page);
   await openSession(page);
   await page.getByLabel("画像モデル").selectOption("nai-diffusion-5-full");
   await page
     .locator(".prompt-expander__switch", { hasText: "漫画モード" })
     .click();
   const synopsis = "放課後、彼女が制服姿に変わってしまい戸惑う";
-  await positiveField(page).fill(synopsis);
+  await instructionField(page).fill(synopsis);
   await page
     .getByRole("button", { name: "あらすじからネームを下書き" })
     .click();
-  await expect(
-    page.getByRole("button", { name: "元の文に戻す" }),
-  ).toBeVisible();
-  // 1 文字足すと「元の文に戻す」は消えるが、元のあらすじは見られる
-  await positiveField(page).press("End");
-  await positiveField(page).type("！");
-  await expect(page.getByRole("button", { name: "元の文に戻す" })).toHaveCount(
-    0,
-  );
-  await page.getByRole("button", { name: "元のあらすじを見る" }).click();
-  await expect(page.locator(".prompt-expander__synopsis-text")).toHaveText(
+  await expect(scriptField(page)).not.toHaveValue("");
+  // ネームを手直ししても、あらすじはそのまま見える
+  await scriptField(page).press("End");
+  await scriptField(page).type("！");
+  const script = await scriptField(page).inputValue();
+  await expect(instructionField(page)).toHaveValue(synopsis);
+
+  // ネームからプロンプトを作って生成すると、ネームとあらすじが分けて送られる
+  await scriptToolbar(page)
+    .getByRole("button", { name: "LLMでプロンプト化" })
+    .click();
+  await expect.poll(() => state.expandBodies.length).toBe(1);
+  expect(state.expandBodies[0]).toMatchObject({ instruction: script });
+  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
+  await generateButton(page).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0]).toMatchObject({
+    instruction: script,
     synopsis,
-  );
+  });
+
+  // 欄を書き換えてから新しいエントリを復元すると、3 つの欄がそれぞれ戻る
+  await instructionField(page).fill("別のあらすじ");
+  await scriptField(page).fill("");
+  await positiveField(page).fill("");
+  await page
+    .locator(".prompt-expander__entry-list > li")
+    .first()
+    .getByRole("button", { name: "欄へ復元" })
+    .click();
+  await expect(instructionField(page)).toHaveValue(synopsis);
+  await expect(scriptField(page)).toHaveValue(script);
+  await expect(positiveField(page)).toHaveValue(EXPANDED_PROMPT);
+});
+
+test("writing directly shows only the prompt field and is remembered", async ({
+  page,
+}) => {
+  await enableFeatures(page, { experimentalPromptExpanderEnabled: true });
+  const state = await mockPromptExpanderApis(page);
+  await openSession(page);
+
+  const modes = page.getByRole("radiogroup", { name: "プロンプトの入れ方" });
+  await expect(modes.getByRole("radio", { name: "LLMで作る" })).toBeChecked();
+  await expect(instructionField(page)).toBeVisible();
+  await instructionField(page).fill("書きかけの指示");
+
+  // 直接書くと、指示の欄は隠れ、プロンプト欄だけで生成できる
+  await modes
+    .locator(".prompt-expander__radio", { hasText: "直接書く" })
+    .click();
+  await expect(modes.getByRole("radio", { name: "直接書く" })).toBeChecked();
+  await expect(instructionField(page)).toHaveCount(0);
+  await positiveField(page).fill("1girl, maid, cafe");
+  await generateButton(page).click();
+  await expect.poll(() => state.generateBodies.length).toBe(1);
+  expect(state.generateBodies[0]).toMatchObject({
+    prompt: "1girl, maid, cafe",
+    instruction: null,
+    positive_expand_mode: "off",
+  });
+
+  // 再読み込みしても選んだ入れ方は残る
+  await page.reload();
+  await expect(positiveField(page)).toBeVisible();
+  await expect(
+    page
+      .getByRole("radiogroup", { name: "プロンプトの入れ方" })
+      .getByRole("radio", { name: "直接書く" }),
+  ).toBeChecked();
+  await expect(instructionField(page)).toHaveCount(0);
+
+  // LLM で作ったエントリを復元すると、戻した指示が見えるよう「LLMで作る」へ切り替わる
+  await page
+    .locator(".prompt-expander__entry-list > li")
+    .filter({ hasText: ENTRY_INSTRUCTION })
+    .first()
+    .getByRole("button", { name: "欄へ復元" })
+    .click();
+  await expect(instructionField(page)).toHaveValue(ENTRY_INSTRUCTION);
+  await expect(
+    page
+      .getByRole("radiogroup", { name: "プロンプトの入れ方" })
+      .getByRole("radio", { name: "LLMで作る" }),
+  ).toBeChecked();
 });
 
 test("while another session loads, the previous session's fields, history and generate bar are not shown", async ({

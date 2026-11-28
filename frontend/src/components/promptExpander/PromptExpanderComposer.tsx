@@ -1,8 +1,9 @@
 /**
  * PromptExpanderComposer - Prompt Expander の入力欄
  *
- * 上から ① 生成パラメータ（背景透過スイッチを含む） ② 漫画 ③ プロンプト／指示（正 + ネガティブ。
- * 各欄の右上にモード切替・拡張・提案のツールバー、拡張結果は欄の直下にインライン表示）
+ * 上から ① 生成パラメータ（背景透過スイッチを含む） ② 漫画 ③ プロンプト（「LLMで作る｜直接書く」の切り替え、
+ * 指示（漫画ではあらすじ）→ ネーム（漫画のとき）→ プロンプト → ネガティブの欄。各欄の右上に、その欄の文から
+ * 次の段階を作るボタン。プロンプト化の結果はプロンプト欄へ直接入れ、ネガティブの変換結果は欄の直下のカードに出す）
  * ④ キャラクタープロンプト ⑤ i2i 設定 ⑥ 精密参照（V4.5 系のみ。i2i 元とは別の参照画像）の
  * 開閉セクションと、最下部の「生成」ボタン。
  */
@@ -52,6 +53,8 @@ import { useNotification } from "../../contexts/NotificationContext";
 import {
   type PromptExpanderExpansionTarget,
   type PromptExpanderPickerTarget,
+  type PromptExpanderPromptInputMode,
+  type PromptExpanderPromptSource,
   usePromptExpander,
 } from "../../contexts/PromptExpanderContext";
 import { useInsertAtCaret } from "../../hooks/useInsertAtCaret";
@@ -128,24 +131,36 @@ function ExpandModeRadio({
   );
 }
 
-/** 欄の下に出す拡張エラー（API の code を文言に変換する） */
+/** 欄の下に出す拡張エラー（API の code を文言に変換する）。正プロンプト側は操作した欄の下に出す */
 function ExpansionErrorNotice({
   target,
+  field,
 }: {
   target: PromptExpanderExpansionTarget;
+  field?: PromptExpanderPromptSource;
 }) {
   const { t } = useTranslation();
-  const { expansionError, clearExpansionError } = usePromptExpander();
+  const { expansionError, clearExpansionError, mangaActive } =
+    usePromptExpander();
   if (!expansionError || expansionError.target !== target) return null;
+  if (
+    target === "positive" &&
+    (expansionError.field ?? "instruction") !== field
+  )
+    return null;
 
   let message: string;
   let hint: string | null = null;
   switch (expansionError.code) {
     case "empty_instruction":
       message =
-        target === "positive"
-          ? t("promptExpander.composer.expandEmptyPositive")
-          : t("promptExpander.composer.expandEmptyNegative");
+        target === "negative"
+          ? t("promptExpander.composer.expandEmptyNegative")
+          : field === "script"
+            ? t("promptExpander.composer.expandEmptyScript")
+            : mangaActive
+              ? t("promptExpander.composer.expandEmptySynopsis")
+              : t("promptExpander.composer.expandEmptyInstruction");
       break;
     case "memory_empty":
       message = t("promptExpander.suggest.memoryEmpty");
@@ -274,11 +289,19 @@ export default function PromptExpanderComposer() {
     inpaintActive,
     setInpaintMask,
     clearInpaintMask,
+    promptInputMode,
+    setPromptInputMode,
+    instructionText,
+    setInstructionText,
+    scriptText,
+    setScriptText,
     positiveText,
     setPositiveText,
     positiveMode,
     setPositiveMode,
     positiveOrigin,
+    promptUndo,
+    undoPrompt,
     characterMode,
     setCharacterMode,
     characterSlots,
@@ -298,9 +321,9 @@ export default function PromptExpanderComposer() {
     expandPositive,
     expandNegative,
     draftingScript,
-    scriptDraftBackup,
     draftScript,
-    undoScriptDraft,
+    scriptUndo,
+    undoScript,
     restoreUndo,
     undoRestore,
     uploadImage,
@@ -385,11 +408,13 @@ export default function PromptExpanderComposer() {
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [revealSectionId]);
   const [suggestOpen, setSuggestOpen] = useState(false);
-  // ネームを手直ししたあとに、元のあらすじを開いて見比べているか
-  const [showSynopsis, setShowSynopsis] = useState(false);
   const [seedDraft, setSeedDraft] = useState<string | null>(null);
+  const instructionRef = useRef<HTMLTextAreaElement>(null);
+  const scriptRef = useRef<HTMLTextAreaElement>(null);
   const positiveRef = useRef<HTMLTextAreaElement>(null);
   const negativeRef = useRef<HTMLTextAreaElement>(null);
+  useAutoGrowTextarea(instructionRef, instructionText);
+  useAutoGrowTextarea(scriptRef, scriptText);
   useAutoGrowTextarea(positiveRef, positiveText);
   useAutoGrowTextarea(negativeRef, negativeText);
   const insertFavoriteIntoPositive = useInsertAtCaret(
@@ -403,27 +428,27 @@ export default function PromptExpanderComposer() {
     setNegativeText,
   );
 
-  // 記法チップ: カーソル位置（選択範囲があればそれを包む）へ挿入し、括弧の内側へカーソルを戻す
-  const insertIntoPositive = (before: string, after: string) => {
-    const el = positiveRef.current;
-    const start = el?.selectionStart ?? positiveText.length;
-    const end = el?.selectionEnd ?? positiveText.length;
-    const selected = positiveText.slice(start, end);
-    const next = `${positiveText.slice(0, start)}${before}${selected}${after}${positiveText.slice(end)}`;
+  // 記法チップ: ネーム欄のカーソル位置（選択範囲があればそれを包む）へ挿入し、括弧の内側へカーソルを戻す
+  const insertIntoScript = (before: string, after: string) => {
+    const el = scriptRef.current;
+    const start = el?.selectionStart ?? scriptText.length;
+    const end = el?.selectionEnd ?? scriptText.length;
+    const selected = scriptText.slice(start, end);
+    const next = `${scriptText.slice(0, start)}${before}${selected}${after}${scriptText.slice(end)}`;
     // 同期描画してから選択位置を置く（非同期だと React の再描画でカーソルが末尾へ飛ぶ）
-    flushSync(() => setPositiveText(next));
+    flushSync(() => setScriptText(next));
     const caret = start + before.length + selected.length;
-    const node = positiveRef.current;
+    const node = scriptRef.current;
     if (node) {
       node.focus();
       node.setSelectionRange(caret, caret);
     }
   };
   const insertPanelNumber = () => {
-    const el = positiveRef.current;
-    const start = el?.selectionStart ?? positiveText.length;
+    const el = scriptRef.current;
+    const start = el?.selectionStart ?? scriptText.length;
     const used = Array.from(
-      positiveText.matchAll(/[\u2460-\u2473]/g),
+      scriptText.matchAll(/[\u2460-\u2473]/g),
       (m) => m[0].charCodeAt(0) - CIRCLED_ONE + 1,
     );
     const nextNumber = Math.min(
@@ -431,16 +456,41 @@ export default function PromptExpanderComposer() {
       CIRCLED_MAX,
     );
     const mark = String.fromCharCode(CIRCLED_ONE + nextNumber - 1);
-    const atLineStart = start === 0 || positiveText[start - 1] === "\n";
-    insertIntoPositive(`${atLineStart ? "" : "\n"}${mark}`, "");
+    const atLineStart = start === 0 || scriptText[start - 1] === "\n";
+    insertIntoScript(`${atLineStart ? "" : "\n"}${mark}`, "");
   };
 
   const isV45 = !isV5ImageModel(settings.image_model);
   const mangaSupported = supportsMangaMode(settings.image_model);
   const busy = expanding || generating || draftingScript;
-  // LLM でプロンプト化／ネーム下書きしている欄は読み取り専用にして処理中を示す
-  const positiveBusy = expandingTarget === "positive" || draftingScript;
+  const assist = promptInputMode === "assist";
+  // LLM の結果が入る欄は、処理中は読み取り専用にして処理中を示す（指示・あらすじ欄は書き換えないので常に書ける）
+  const positiveBusy = expandingTarget === "positive";
+  const scriptBusy = draftingScript;
   const negativeBusy = expandingTarget === "negative";
+  // 指示欄の見出し（漫画モードでは「あらすじ」）
+  const instructionLabel = mangaActive
+    ? t("promptExpander.composer.synopsisLabel")
+    : t("promptExpander.composer.instructionLabel");
+  const sourceFieldLabel = (field: PromptExpanderPromptSource) =>
+    field === "script"
+      ? t("promptExpander.composer.scriptLabel")
+      : instructionLabel;
+  // プロンプトを作ったあとで、元にした欄（指示・ネーム）を書き換えたか
+  const promptSourceText =
+    positiveOrigin?.source === "script" ? scriptText : instructionText;
+  const sourceChanged =
+    assist &&
+    positiveOrigin !== null &&
+    promptSourceText.trim().length > 0 &&
+    promptSourceText.trim() !== positiveOrigin.instruction.trim();
+  const inputModes: Array<{
+    mode: PromptExpanderPromptInputMode;
+    label: string;
+  }> = [
+    { mode: "assist", label: t("promptExpander.composer.inputModeAssist") },
+    { mode: "direct", label: t("promptExpander.composer.inputModeDirect") },
+  ];
   const favoritePromptButtons = (
     text: string,
     onInsert: (content: string) => void,
@@ -463,7 +513,8 @@ export default function PromptExpanderComposer() {
     }
     return null;
   };
-  const positiveExpandReason = expandDisabledReason(positiveText);
+  const instructionExpandReason = expandDisabledReason(instructionText);
+  const scriptExpandReason = expandDisabledReason(scriptText);
   const negativeExpandReason = expandDisabledReason(negativeText);
   const suggestReason = notConfigured ? notConfiguredText : null;
   const slotSuggestReason = notConfigured
@@ -540,58 +591,60 @@ export default function PromptExpanderComposer() {
       ? t("promptExpander.composer.transparentEmphasisDisabledV5")
       : null;
 
-  const renderFieldToolbar = (
-    target: PromptExpanderExpansionTarget,
-    extra?: ReactNode,
-    // プロンプト化ボタンの前に置く操作（漫画モードのネーム下書き）。作業の順に左から並べる
-    leading?: ReactNode,
-  ) => {
-    const isPositive = target === "positive";
-    const reason = isPositive ? positiveExpandReason : negativeExpandReason;
-    const runningHere = expandingTarget === target;
-    return (
-      <div
-        className="prompt-expander__field-toolbar"
-        role="toolbar"
-        aria-label={
-          isPositive
-            ? t("promptExpander.composer.positiveToolbar")
-            : t("promptExpander.composer.negativeToolbar")
-        }
-      >
-        <ExpandModeRadio
-          name={`prompt-expander-${target}-mode`}
-          value={isPositive ? effectivePositiveMode : negativeMode}
-          onChange={isPositive ? setPositiveMode : setNegativeMode}
-          disabledReason={
-            isPositive && mangaActive
-              ? t("promptExpander.composer.mangaModeFixedHint")
-              : null
-          }
-        />
-        {leading}
+  // プロンプト化を押した欄（指示 or ネーム）。押した欄のボタンにだけ「プロンプト化中…」を出す
+  const [expandingField, setExpandingField] =
+    useState<PromptExpanderPromptSource | null>(null);
+  const runExpandPositive = async (field: PromptExpanderPromptSource) => {
+    setExpandingField(field);
+    try {
+      await expandPositive(field);
+    } finally {
+      setExpandingField(null);
+    }
+  };
+
+  // 欄の右上の操作。作業の順に左から並べる（出力形式 → 前段の操作 → プロンプト化 → 補助）
+  const renderFieldToolbar = ({
+    label,
+    mode,
+    leading,
+    expand,
+    extra,
+  }: {
+    label: string;
+    mode?: ReactNode;
+    leading?: ReactNode;
+    expand?: {
+      onClick: () => void;
+      reason: string | null;
+      title: string;
+      running: boolean;
+    };
+    extra?: ReactNode;
+  }) => (
+    <div
+      className="prompt-expander__field-toolbar"
+      role="toolbar"
+      aria-label={label}
+    >
+      {mode}
+      {leading}
+      {expand && (
         <button
           type="button"
           className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--primary"
-          onClick={() =>
-            void (isPositive ? expandPositive() : expandNegative())
-          }
-          disabled={busy || reason !== null}
-          title={
-            reason ??
-            (isPositive
-              ? t("promptExpander.composer.expandPositiveTitle")
-              : t("promptExpander.composer.expandNegativeTitle"))
-          }
+          onClick={expand.onClick}
+          disabled={busy || expand.reason !== null}
+          title={expand.reason ?? expand.title}
         >
-          {runningHere
+          {expand.running
             ? t("promptExpander.composer.expanding")
             : t("promptExpander.composer.expandButton")}
         </button>
-        {extra}
-      </div>
-    );
-  };
+      )}
+      {extra}
+    </div>
+  );
 
   const suggestButton = (reason: string | null) => (
     <button
@@ -938,12 +991,236 @@ export default function PromptExpanderComposer() {
         </p>
       </PromptExpanderSection>
 
-      {/* ③ プロンプト／指示 */}
+      {/* ③ プロンプト（指示 → ネーム → プロンプトの順に作る。直接書くときはプロンプト欄だけ） */}
       <PromptExpanderSection
         id="prompt"
         title={t("promptExpander.composer.sectionPrompt")}
       >
-        {/* 正プロンプト */}
+        <div className="prompt-expander__input-mode">
+          <div
+            className="prompt-expander__radio-group"
+            role="radiogroup"
+            aria-label={t("promptExpander.composer.inputModeLabel")}
+          >
+            {inputModes.map((item) => (
+              <label
+                key={item.mode}
+                className={`prompt-expander__radio ${promptInputMode === item.mode ? "is-active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name="prompt-expander-input-mode"
+                  value={item.mode}
+                  checked={promptInputMode === item.mode}
+                  onChange={() => setPromptInputMode(item.mode)}
+                />
+                {item.label}
+              </label>
+            ))}
+          </div>
+          <p className="prompt-expander__hint">
+            {assist
+              ? t("promptExpander.composer.inputModeAssistHint")
+              : t("promptExpander.composer.inputModeDirectHint")}
+          </p>
+        </div>
+
+        {/* 名前を付けた精密参照（登場人物）。あらすじやネームを書くときに名前を確かめられるよう欄の上に出す */}
+        {assist && referenceCast.length > 0 && (
+          <div
+            className="prompt-expander__cast-chips"
+            role="group"
+            aria-label={t("promptExpander.composer.castChipsLabel")}
+          >
+            <span className="prompt-expander__cast-chips-label">
+              {t("promptExpander.composer.castChipsLabel")}
+            </span>
+            {referenceCast.map((member) => (
+              <button
+                key={member.name}
+                type="button"
+                className="prompt-expander__btn prompt-expander__btn--sm"
+                onClick={revealReferenceSection}
+                title={t("promptExpander.composer.castChipTitle", {
+                  name: member.name,
+                })}
+              >
+                {member.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 指示（漫画モードではあらすじ）。利用者が書く欄で、LLM は書き換えない */}
+        {assist && (
+          <div className="prompt-expander__field-block">
+            <div className="prompt-expander__field-head">
+              <label
+                className="prompt-expander__label"
+                htmlFor="prompt-expander-instruction"
+              >
+                {instructionLabel}
+              </label>
+              {renderFieldToolbar({
+                label: mangaActive
+                  ? t("promptExpander.composer.synopsisToolbar")
+                  : t("promptExpander.composer.instructionToolbar"),
+                mode: (
+                  <ExpandModeRadio
+                    name="prompt-expander-positive-mode"
+                    value={effectivePositiveMode}
+                    onChange={setPositiveMode}
+                    disabledReason={
+                      mangaActive
+                        ? t("promptExpander.composer.mangaModeFixedHint")
+                        : null
+                    }
+                  />
+                ),
+                leading: mangaActive ? (
+                  // 主ボタン（赤塗り）が 2 つ並ぶと重いので、下書きは枠線のボタンにする
+                  <button
+                    type="button"
+                    className="prompt-expander__btn prompt-expander__btn--sm"
+                    onClick={() => void draftScript()}
+                    disabled={busy || !instructionText.trim()}
+                    title={t("promptExpander.composer.draftScriptTitle")}
+                  >
+                    {t("promptExpander.composer.draftScript")}
+                  </button>
+                ) : null,
+                expand: {
+                  onClick: () => void runExpandPositive("instruction"),
+                  reason: instructionExpandReason,
+                  title: mangaActive
+                    ? t("promptExpander.composer.expandFromSynopsisTitle")
+                    : t("promptExpander.composer.expandFromInstructionTitle"),
+                  running: positiveBusy && expandingField === "instruction",
+                },
+              })}
+            </div>
+            <textarea
+              id="prompt-expander-instruction"
+              ref={instructionRef}
+              className="prompt-expander__textarea prompt-expander__textarea--autogrow"
+              rows={3}
+              value={instructionText}
+              onChange={(e) => setInstructionText(e.target.value)}
+              onKeyDown={(e) => {
+                if (!isExpandShortcut(e)) return;
+                e.preventDefault();
+                if (busy || instructionExpandReason !== null) return;
+                // 漫画モードでは次の段階（ネームの下書き）、それ以外はプロンプト化
+                void (mangaActive
+                  ? draftScript()
+                  : runExpandPositive("instruction"));
+              }}
+              placeholder={
+                mangaActive
+                  ? t("promptExpander.composer.synopsisPlaceholder")
+                  : t("promptExpander.composer.instructionPlaceholder")
+              }
+            />
+            {mangaActive && (
+              <p className="prompt-expander__hint">
+                {t("promptExpander.composer.mangaModeFixedHint")}
+              </p>
+            )}
+            {positiveMode === "japanese" && isV45 && !mangaActive && (
+              <p className="prompt-expander__hint prompt-expander__hint--warning">
+                {t("promptExpander.composer.v45JapaneseHint")}
+              </p>
+            )}
+            <ExpansionErrorNotice target="positive" field="instruction" />
+          </div>
+        )}
+
+        {/* ネーム（漫画モード）。LLM の下書きが入り、手直ししてからプロンプト化する */}
+        {assist && mangaActive && (
+          <div className="prompt-expander__field-block">
+            <div className="prompt-expander__field-head">
+              <label
+                className="prompt-expander__label"
+                htmlFor="prompt-expander-script"
+              >
+                {t("promptExpander.composer.scriptLabel")}
+              </label>
+              {renderFieldToolbar({
+                label: t("promptExpander.composer.scriptToolbar"),
+                expand: {
+                  onClick: () => void runExpandPositive("script"),
+                  reason: scriptExpandReason,
+                  title: t("promptExpander.composer.expandFromScriptTitle"),
+                  running: positiveBusy && expandingField === "script",
+                },
+              })}
+            </div>
+            <div
+              className="prompt-expander__notation-chips"
+              role="toolbar"
+              aria-label={t("promptExpander.composer.notation.toolbar")}
+            >
+              {NOTATION_CHIPS.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  className="prompt-expander__btn prompt-expander__btn--sm"
+                  onClick={() =>
+                    chip.key === "panel"
+                      ? insertPanelNumber()
+                      : insertIntoScript(chip.open, chip.close)
+                  }
+                  disabled={scriptBusy}
+                  aria-label={t(`promptExpander.composer.notation.${chip.key}`)}
+                  title={t(`promptExpander.composer.notation.${chip.key}`)}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              id="prompt-expander-script"
+              ref={scriptRef}
+              className={`prompt-expander__textarea prompt-expander__textarea--autogrow${scriptBusy ? " prompt-expander__textarea--busy" : ""}`}
+              rows={5}
+              value={scriptText}
+              onChange={(e) => setScriptText(e.target.value)}
+              onKeyDown={(e) => {
+                if (!isExpandShortcut(e)) return;
+                e.preventDefault();
+                if (!busy && scriptExpandReason === null) {
+                  void runExpandPositive("script");
+                }
+              }}
+              readOnly={scriptBusy}
+              aria-busy={scriptBusy}
+              placeholder={t("promptExpander.composer.scriptPlaceholder")}
+            />
+            {scriptBusy && (
+              <PromptExpanderProgress
+                label={t("promptExpander.composer.draftingHint")}
+              />
+            )}
+            {scriptUndo && scriptText === scriptUndo.applied && (
+              <p className="prompt-expander__hint prompt-expander__draft-done">
+                <span>{t("promptExpander.composer.draftDone")}</span>
+                <button
+                  type="button"
+                  className="prompt-expander__btn prompt-expander__btn--sm"
+                  onClick={undoScript}
+                >
+                  {t("promptExpander.composer.draftUndo")}
+                </button>
+              </p>
+            )}
+            <p className="prompt-expander__hint">
+              {t("promptExpander.composer.mangaNotationHint")}
+            </p>
+            <ExpansionErrorNotice target="positive" field="script" />
+          </div>
+        )}
+
+        {/* プロンプト（生成で送る内容）。プロンプト化の結果が入り、直接書いても手直ししてもよい */}
         <div className="prompt-expander__field-block">
           <div className="prompt-expander__field-head">
             <label
@@ -962,108 +1239,74 @@ export default function PromptExpanderComposer() {
                 </span>
               )}
             </label>
-            {renderFieldToolbar(
-              "positive",
-              <>
-                {suggestButton(suggestReason)}
-                {favoritePromptButtons(
-                  positiveText,
-                  insertFavoriteIntoPositive,
-                  positiveBusy,
-                )}
-              </>,
-              mangaActive ? (
-                // 主ボタン（赤塗り）が 2 つ並ぶと重いので、下書きは枠線のボタンにする
-                <button
-                  type="button"
-                  className="prompt-expander__btn prompt-expander__btn--sm"
-                  onClick={() => void draftScript()}
-                  disabled={busy || !positiveText.trim()}
-                  title={t("promptExpander.composer.draftScriptTitle")}
-                >
-                  {t("promptExpander.composer.draftScript")}
-                </button>
-              ) : null,
-            )}
+            {renderFieldToolbar({
+              label: t("promptExpander.composer.positiveToolbar"),
+              extra: (
+                <>
+                  {suggestButton(suggestReason)}
+                  {favoritePromptButtons(
+                    positiveText,
+                    insertFavoriteIntoPositive,
+                    positiveBusy,
+                  )}
+                </>
+              ),
+            })}
           </div>
-          {/* 名前を付けた精密参照（登場人物）。ネームを書くときに名前を確かめられるよう欄の上に出す */}
-          {referenceCast.length > 0 && (
-            <div
-              className="prompt-expander__cast-chips"
-              role="group"
-              aria-label={t("promptExpander.composer.castChipsLabel")}
-            >
-              <span className="prompt-expander__cast-chips-label">
-                {t("promptExpander.composer.castChipsLabel")}
-              </span>
-              {referenceCast.map((member) => (
-                <button
-                  key={member.name}
-                  type="button"
-                  className="prompt-expander__btn prompt-expander__btn--sm"
-                  onClick={revealReferenceSection}
-                  title={t("promptExpander.composer.castChipTitle", {
-                    name: member.name,
-                  })}
-                >
-                  {member.name}
-                </button>
-              ))}
-            </div>
-          )}
-          {mangaActive && (
-            <div
-              className="prompt-expander__notation-chips"
-              role="toolbar"
-              aria-label={t("promptExpander.composer.notation.toolbar")}
-            >
-              {NOTATION_CHIPS.map((chip) => (
-                <button
-                  key={chip.key}
-                  type="button"
-                  className="prompt-expander__btn prompt-expander__btn--sm"
-                  onClick={() =>
-                    chip.key === "panel"
-                      ? insertPanelNumber()
-                      : insertIntoPositive(chip.open, chip.close)
-                  }
-                  disabled={positiveBusy}
-                  aria-label={t(`promptExpander.composer.notation.${chip.key}`)}
-                  title={t(`promptExpander.composer.notation.${chip.key}`)}
-                >
-                  {chip.label}
-                </button>
-              ))}
-            </div>
-          )}
           <textarea
             id="prompt-expander-positive"
             ref={positiveRef}
             className={`prompt-expander__textarea prompt-expander__textarea--autogrow${positiveBusy ? " prompt-expander__textarea--busy" : ""}`}
-            rows={5}
+            rows={assist ? 3 : 5}
             value={positiveText}
             onChange={(e) => setPositiveText(e.target.value)}
-            onKeyDown={(e) => {
-              if (!isExpandShortcut(e)) return;
-              e.preventDefault();
-              if (!busy && positiveExpandReason === null) void expandPositive();
-            }}
             readOnly={positiveBusy}
             aria-busy={positiveBusy}
             placeholder={
-              mangaActive
-                ? t("promptExpander.composer.promptPlaceholderManga")
-                : t("promptExpander.composer.promptPlaceholder")
+              assist
+                ? t("promptExpander.composer.promptPlaceholderAssist")
+                : t("promptExpander.composer.promptPlaceholderDirect")
             }
           />
           {positiveBusy && (
             <PromptExpanderProgress
-              label={
-                draftingScript
-                  ? t("promptExpander.composer.draftingHint")
-                  : t("promptExpander.composer.expandingHint")
-              }
+              label={t("promptExpander.composer.expandingHint")}
             />
+          )}
+          {promptUndo && positiveText === promptUndo.applied && (
+            <p className="prompt-expander__hint prompt-expander__draft-done">
+              <span>{t("promptExpander.composer.promptRebuilt")}</span>
+              <button
+                type="button"
+                className="prompt-expander__btn prompt-expander__btn--sm"
+                onClick={undoPrompt}
+              >
+                {t("promptExpander.composer.promptUndo")}
+              </button>
+            </p>
+          )}
+          {/* プロンプトを作ったあとで元の欄を書き換えたら、作り直せることを知らせる */}
+          {sourceChanged && positiveOrigin && (
+            <p
+              className="prompt-expander__hint prompt-expander__hint--warning prompt-expander__draft-done"
+              role="status"
+            >
+              <span>
+                {t("promptExpander.composer.sourceChanged", {
+                  field: sourceFieldLabel(positiveOrigin.source),
+                })}
+              </span>
+              <button
+                type="button"
+                className="prompt-expander__btn prompt-expander__btn--sm"
+                onClick={() => void runExpandPositive(positiveOrigin.source)}
+                disabled={busy}
+              >
+                {t("promptExpander.composer.rebuildFromSource", {
+                  field: sourceFieldLabel(positiveOrigin.source),
+                })}
+              </button>
+            </p>
           )}
           {/* 「欄へ復元」で書きかけの内容を置き換えたときは、すぐ元に戻せるようにする */}
           {restoreUndo && positiveText === restoreUndo.restoredPositive && (
@@ -1078,56 +1321,7 @@ export default function PromptExpanderComposer() {
               </button>
             </p>
           )}
-          {scriptDraftBackup && positiveText === scriptDraftBackup.script && (
-            <p className="prompt-expander__hint prompt-expander__draft-done">
-              <span>{t("promptExpander.composer.draftDone")}</span>
-              <button
-                type="button"
-                className="prompt-expander__btn prompt-expander__btn--sm"
-                onClick={undoScriptDraft}
-              >
-                {t("promptExpander.composer.draftUndo")}
-              </button>
-            </p>
-          )}
-          {/* ネームを手直ししたあとも、書き直した台詞を保ったまま元のあらすじと見比べられるようにする */}
-          {scriptDraftBackup && positiveText !== scriptDraftBackup.script && (
-            <div className="prompt-expander__synopsis">
-              <button
-                type="button"
-                className="prompt-expander__btn prompt-expander__btn--sm"
-                onClick={() => setShowSynopsis((open) => !open)}
-                aria-expanded={showSynopsis}
-              >
-                {showSynopsis
-                  ? t("promptExpander.composer.synopsisHide")
-                  : t("promptExpander.composer.synopsisShow")}
-              </button>
-              {showSynopsis && (
-                <p className="prompt-expander__synopsis-text">
-                  {scriptDraftBackup.source}
-                </p>
-              )}
-            </div>
-          )}
-          {mangaActive && (
-            <>
-              <p className="prompt-expander__hint">
-                {t("promptExpander.composer.mangaNotationHint")}
-              </p>
-              <p className="prompt-expander__hint">
-                {t("promptExpander.composer.mangaModeFixedHint")}
-              </p>
-            </>
-          )}
-          {positiveMode === "japanese" && isV45 && (
-            <p className="prompt-expander__hint prompt-expander__hint--warning">
-              {t("promptExpander.composer.v45JapaneseHint")}
-            </p>
-          )}
           <TransparentTailPreview target="positive" />
-          <ExpansionErrorNotice target="positive" />
-          <PromptExpanderExpansionPanel target="positive" />
         </div>
 
         {/* ネガティブ */}
@@ -1144,14 +1338,27 @@ export default function PromptExpanderComposer() {
                 </span>
               )}
             </label>
-            {renderFieldToolbar(
-              "negative",
-              favoritePromptButtons(
+            {renderFieldToolbar({
+              label: t("promptExpander.composer.negativeToolbar"),
+              mode: (
+                <ExpandModeRadio
+                  name="prompt-expander-negative-mode"
+                  value={negativeMode}
+                  onChange={setNegativeMode}
+                />
+              ),
+              expand: {
+                onClick: () => void expandNegative(),
+                reason: negativeExpandReason,
+                title: t("promptExpander.composer.expandNegativeTitle"),
+                running: negativeBusy,
+              },
+              extra: favoritePromptButtons(
                 negativeText,
                 insertFavoriteIntoNegative,
                 negativeBusy,
               ),
-            )}
+            })}
           </div>
           <textarea
             ref={negativeRef}
@@ -1181,7 +1388,7 @@ export default function PromptExpanderComposer() {
           )}
           <TransparentTailPreview target="negative" />
           <ExpansionErrorNotice target="negative" />
-          <PromptExpanderExpansionPanel target="negative" />
+          <PromptExpanderExpansionPanel />
         </div>
       </PromptExpanderSection>
 

@@ -201,22 +201,13 @@
   letter-spacing: 0.05em;
 }
 
-/* ネーム下書き前のあらすじ（手直ししたあとに見比べる用。読むだけ） */
-.prompt-expander__synopsis {
+/* プロンプトの入れ方（LLMで作る｜直接書く）。セクションの先頭に置き、下の欄の並びを切り替える */
+.prompt-expander__input-mode {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.35rem;
-  margin-top: 0.35rem;
-}
-
-.prompt-expander__synopsis-text {
-  margin: 0;
-  padding: 0.5rem 0.7rem;
-  border-left: 3px solid var(--border-color, #333);
-  font-size: 0.85rem;
-  color: var(--text-muted, #888);
-  white-space: pre-wrap;
+  margin-bottom: 0.75rem;
 }
 
 /* 登場人物（名前を付けた精密参照）のチップ行。押すと精密参照の欄へ移る */

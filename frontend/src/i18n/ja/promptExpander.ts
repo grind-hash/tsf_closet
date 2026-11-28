@@ -39,7 +39,7 @@ export const promptExpander = {
     sectionLabel: "プロンプト入力",
     sectionParams: "生成パラメータ",
     sectionManga: "漫画（コマ割り）",
-    sectionPrompt: "プロンプト／指示",
+    sectionPrompt: "プロンプト",
     sectionCharacters: "キャラクタープロンプト",
     sectionI2i: "i2i設定",
     sectionInpaint: "インペイント（部分修正）",
@@ -51,7 +51,7 @@ export const promptExpander = {
     mangaRequiresV5:
       "漫画モード（コマ割り・吹き出しの文字描画）は NAI Diffusion V5 系モデル専用です。V4.5 では設定は保持されますが、拡張には使われません。",
     mangaHint:
-      "「LLMでプロンプト化」のときに、指示文からコマ割りとセリフ付きのプロンプトを LLM が組み立てます。「1コマ目…2コマ目…」と書いても、あらすじだけでも構いません。欄の内容をそのまま生成するときには影響しません。",
+      "「LLMでプロンプト化」のときに、あらすじやネームからコマ割りとセリフ付きのプロンプトを LLM が組み立てます。ネームを書いても、あらすじだけでも構いません。プロンプト欄の内容をそのまま生成するときには影響しません。",
     mangaModeFixedHint:
       "漫画モード中はコマ説明・外見を英語で組み立てます（日本語の説明文は画像内にナレーション枠として描かれてしまうため）。日本語は「」内のセリフ・効果音だけに使い、言語は漫画セクションで選べます。",
     mangaPanelCount: "コマ数",
@@ -94,14 +94,12 @@ export const promptExpander = {
     castChipTitle:
       "{{name}}（名前を付けた精密参照）。押すと精密参照の欄へ移ります",
     draftScriptTitle:
-      "欄のあらすじを、記法付きのネーム（コマ番号・セリフ・ナレーション）に LLM で書き換えます。手直ししてから「LLMでプロンプト化」してください。元の文には戻せます",
+      "あらすじから、記法付きのネーム（コマ番号・セリフ・ナレーション）を LLM で下書きしてネーム欄へ入れます。あらすじは書き換えません。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
     draftingHint:
-      "LLM がネームを作成しています。完了するまでこの欄は編集できません。",
+      "LLM がネームを作成しています。完了するまでネーム欄は編集できません。",
     draftDone:
-      "あらすじからネームを下書きしました。手直ししてから「LLMでプロンプト化」してください。",
-    draftUndo: "元の文に戻す",
-    synopsisShow: "元のあらすじを見る",
-    synopsisHide: "元のあらすじを閉じる",
+      "ネームを下書きしました。手直ししてから「LLMでプロンプト化」してください。",
+    draftUndo: "元に戻す",
     notation: {
       toolbar: "漫画の記法を挿入",
       speech: "セリフ",
@@ -143,32 +141,63 @@ export const promptExpander = {
       upload: "アップロード",
       character: "キャラクター",
     },
-    promptLabel: "プロンプト／指示",
-    promptPlaceholder:
-      "NovelAI に渡すプロンプト、または「LLMでプロンプト化」で NovelAI 用プロンプトにする自然文の指示を入力",
-    promptPlaceholderManga:
-      "漫画にしたい流れを入力。例: ①男が鏡を見る【放課後】 ②体が女性化していく《ドクン》 ③「え、これ僕…？」『どうして…』。あらすじだけでもコマ割りとセリフは LLM が決めます",
+    inputModeLabel: "プロンプトの入れ方",
+    inputModeAssist: "LLMで作る",
+    inputModeDirect: "直接書く",
+    inputModeAssistHint:
+      "指示（漫画モードではあらすじとネーム）から LLM でプロンプトを作ります。できたプロンプトは手直しできます。",
+    inputModeDirectHint:
+      "NovelAI に送るプロンプトを直接書きます。指示やネームの欄は隠れますが、書いた内容は残ります。",
+    instructionLabel: "指示",
+    synopsisLabel: "あらすじ",
+    scriptLabel: "ネーム",
+    promptLabel: "プロンプト",
+    instructionPlaceholder:
+      "どんな画像にしたいかを自然文で入力。「LLMでプロンプト化」で NovelAI 用のプロンプトを作ります",
+    synopsisPlaceholder:
+      "漫画にしたい話をざっと入力。「あらすじからネームを下書き」でコマ割りとセリフの案を作れます。このまま「LLMでプロンプト化」しても構いません",
+    scriptPlaceholder:
+      "コマ割りとセリフを入力。例: ①男が鏡を見る【放課後】 ②体が女性化していく《ドクン》 ③「え、これ僕…？」『どうして…』",
+    promptPlaceholderAssist:
+      "「LLMでプロンプト化」で作ったプロンプトがここに入ります。手直しも、直接書くこともできます。生成ではこの欄を送ります",
+    promptPlaceholderDirect:
+      "NovelAI に送るプロンプトを入力（例: 1girl, silver hair, maid）",
     expandModeLabel: "出力形式",
     expandJapanese: "日本語文",
     expandTags: "タグ",
     expandButton: "LLMでプロンプト化",
-    expandPositiveTitle:
-      "この欄の内容を指示として、LLM で NovelAI 用のプロンプトに変換します（選んだ出力形式で）。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
+    expandFromInstructionTitle:
+      "この欄の指示から、LLM で NovelAI 用のプロンプトを作ってプロンプト欄へ入れます（選んだ出力形式で）。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
+    expandFromSynopsisTitle:
+      "ネームを作らずに、あらすじから直接プロンプトを作ってプロンプト欄へ入れます",
+    expandFromScriptTitle:
+      "ネームから、LLM でコマ割りとセリフ付きのプロンプトを作ってプロンプト欄へ入れます。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
     expandNegativeTitle:
       "この欄の内容を指示として、LLM でネガティブプロンプトに変換します（選んだ出力形式で）。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
     expandDisabledEmpty: "プロンプト化する内容を入力してください",
-    expandEmptyPositive:
-      "プロンプト／指示を入力してからプロンプト化してください。",
+    expandEmptyInstruction: "指示を入力してからプロンプト化してください。",
+    expandEmptySynopsis:
+      "あらすじを入力してから、ネームを下書きするかプロンプト化してください。",
+    expandEmptyScript:
+      "ネームを入力するか、あらすじから下書きしてからプロンプト化してください。",
     expandEmptyNegative:
       "ネガティブプロンプト欄に避けたい内容を入力してからプロンプト化してください。",
     expandFailed: "プロンプト化に失敗しました: {{message}}",
+    instructionToolbar: "指示欄の操作",
+    synopsisToolbar: "あらすじ欄の操作",
+    scriptToolbar: "ネーム欄の操作",
     positiveToolbar: "プロンプト欄の操作",
     negativeToolbar: "ネガティブ欄の操作",
     suggestButton: "✨ 提案",
     suggestNeedsCharacterMode:
       "キャラクタープロンプトを ON にすると提案をスロットへ挿入できます",
     applyExpansion: "欄へ反映",
-    originTitle: "LLM の変換結果を反映済み（指示: {{instruction}}）",
+    originTitle: "LLM で作ったプロンプト（元の文: {{instruction}}）",
+    promptRebuilt: "プロンプトを作り直しました。",
+    promptUndo: "元に戻す",
+    sourceChanged:
+      "プロンプトを作ったあとで{{field}}を変更しました。このプロンプトは変更前の{{field}}から作られています。",
+    rebuildFromSource: "いまの{{field}}で作り直す",
     v45JapaneseHint:
       "V4.5 では日本語プロンプトの精度が落ちます。出力形式は「タグ」を推奨します。",
     negativeEconomyHint:
@@ -286,14 +315,16 @@ export const promptExpander = {
     generate: "生成",
     expanding: "プロンプト化中…",
     expandingHint:
-      "LLM がプロンプトを作成しています。完了するまでこの欄は編集できません。",
+      "LLM がプロンプトを作成しています。完了するまでプロンプト欄は編集できません。",
     generating: "生成中…",
     disabledNotConfigured:
       "NovelAI が設定されていないためプロンプト化・提案・生成はできません",
     disabledNoSession: "セッションを開いてください",
     disabledTooMany: "キャラクタープロンプトが上限を超えています",
-    disabledEmptyPrompt: "プロンプト／指示を入力してください",
-    disabledPendingExpansion: "変換結果を確認してください（欄へ反映か破棄）",
+    disabledEmptyPrompt:
+      "プロンプト欄が空です。指示から「LLMでプロンプト化」するか、直接書いてください",
+    disabledPendingExpansion:
+      "ネガティブの変換結果を確認してください（欄へ反映か破棄）",
     generatingHint: "画像を生成しています…",
   },
   inpaint: {
@@ -337,16 +368,10 @@ export const promptExpander = {
       "欄の内容で画像を生成します。Ctrl+Shift+Enter（Mac は ⌘+Shift+Enter）でも実行できます",
   },
   expansion: {
-    titlePositive: "変換結果（プロンプト）",
     titleNegative: "変換結果（ネガティブ）",
     hint: "内容を確認・編集してから、欄へ反映するか、この内容でそのまま生成します。",
-    basePrompt: "ベースプロンプト",
-    characterPrompt: "キャラクター {{index}}",
     negativePrompt: "ネガティブプロンプト",
     confirm: "この内容で生成",
-    instructionChanged:
-      "変換したあとで原文を変更しました。この変換結果は変更前の原文から作られています。",
-    reExpand: "いまの原文で再変換",
     discard: "破棄",
   },
   entry: {
@@ -358,6 +383,8 @@ export const promptExpander = {
     expandFull: "全文を表示",
     collapse: "折りたたむ",
     instruction: "指示",
+    synopsis: "あらすじ",
+    script: "ネーム",
     finalPrompt: "最終プロンプト",
     negativePrompt: "ネガティブ",
     characterPrompts: "キャラクター",

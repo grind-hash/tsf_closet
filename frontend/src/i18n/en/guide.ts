@@ -127,13 +127,21 @@ export const guide = {
         ],
       },
       {
+        heading: "Creating the prompt",
+        items: [
+          'The prompt section switches between "Create with the LLM" and "Write directly". Writing directly shows only the prompt field and hides the instruction and storyboard fields (what you wrote in them is kept). Either way, generation sends the prompt field.',
+          'With "Create with the LLM", press "Convert to prompt" on the instruction field and the result goes into the prompt field. The instruction is not changed, so you can edit it and create the prompt again. "Undo" below the prompt field brings back the previous prompt.',
+          'In comic mode, "Draft a storyboard from the synopsis" on the synopsis field puts a suggestion into the storyboard field. Edit the storyboard, then press "Convert to prompt" on the storyboard field. "Restore to fields" puts the synopsis, storyboard and prompt back into their own fields.',
+          "If you edit the instruction or storyboard after creating the prompt, a button to create it again from the current text appears below the prompt field. If you generate as it is, the history keeps the text the prompt was made from.",
+        ],
+      },
+      {
         heading: "Handy controls",
         items: [
-          'In the prompt field, Ctrl+Enter (⌘+Enter on Mac) runs "Convert to prompt", and Ctrl+Shift+Enter generates.',
+          "In the instruction or storyboard field, Ctrl+Enter (⌘+Enter on Mac) runs the next step (drafting a storyboard from a comic synopsis, otherwise converting to a prompt), and Ctrl+Shift+Enter generates.",
           "Click a chip in the generate bar at the bottom (model, comic, precise reference and so on) to open that setting's section and jump to it. Anlas and the V5 limit are always shown in this bar.",
           'When generation finishes, the generate bar shows "Show result" (or "Show details" on failure) to jump to the new image or the error. If "Restore to fields" replaced what you were writing, use "Undo" below the prompt field.',
-          "What you are writing in the fields, including edits on a conversion card, is kept per session, so it comes back when you switch sessions or reload the page (closing the tab clears it). If you switch sessions while a conversion or storyboard draft is running, the result goes to the session you asked from.",
-          'If you edit the source text after converting, the review panel says so, and "Convert the current text again" rebuilds it. If you generate with the card as it is, the history keeps the source text that card was made from.',
+          "What you are writing in the fields (instruction, storyboard and prompt), including edits on the negative conversion card, is kept per session, so it comes back when you switch sessions or reload the page (closing the tab clears it). If you switch sessions while a conversion or storyboard draft is running, the result goes to the session you asked from.",
         ],
       },
       {

@@ -335,6 +335,8 @@ async def test_generate_entry_calls_novelai_raw_and_persists(
     assert entry["character_prompts"] == ["1girl, silver hair", "1boy"]
     assert entry["positive_expand_mode"] == "japanese"
     assert entry["instruction"] == "赤いドレスにして"
+    # ネームから作っていないのであらすじは残らない
+    assert entry["synopsis"] is None
     assert entry["source_kind"] == "none"
     assert entry["i2i_strength"] is None
     assert entry["nsfw"] is True
@@ -347,6 +349,45 @@ async def test_generate_entry_calls_novelai_raw_and_persists(
         assert total == 1 and items[0].id == entry["id"]
         views = await pe.PromptExpanderService.list_sessions(db)
         assert views[0].entry_count == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_entry_keeps_the_synopsis_of_a_storyboard(
+    factory, tmp_path: Path, monkeypatch
+):
+    generate_mock = AsyncMock(
+        return_value=ImageGenerationResult(
+            images=[_png("purple")],
+            provider="novelai",
+            model="nai-diffusion-5-full",
+            seed=5,
+        )
+    )
+    monkeypatch.setattr(pe.image_service, "generate_image", generate_mock)
+
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="s")
+        await db.commit()
+
+    outcome = await pe.generate_entry(
+        session.id,
+        pe.GenerateParams(
+            prompt="1girl, comic, 2koma",
+            instruction="①鏡を見る「え…？」\n②戸惑う",
+            synopsis="  朝起きたら女の子になっていた  ",
+            positive_expand_mode="tags",
+            image_model="nai-diffusion-5-full",
+            manga_mode=True,
+        ),
+    )
+    entry = outcome.entry
+    # ネームは instruction に、下書き元のあらすじは synopsis に分けて残る
+    assert entry["instruction"] == "①鏡を見る「え…？」\n②戸惑う"
+    assert entry["synopsis"] == "朝起きたら女の子になっていた"
+
+    async with factory() as db:
+        items, _ = await pe.PromptExpanderService.list_entries(db)
+        assert pe.entry_to_dict(items[0])["synopsis"] == "朝起きたら女の子になっていた"
 
 
 @pytest.mark.asyncio
