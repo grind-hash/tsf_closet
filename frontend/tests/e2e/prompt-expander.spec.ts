@@ -1503,16 +1503,14 @@ test("draft a storyboard from the synopsis into the storyboard field, then undo 
   const draftButton = page.getByRole("button", {
     name: "あらすじからネームを下書き",
   });
-  // 作業の順に、ネーム下書きはあらすじ欄のツールバーでプロンプト化の左に並ぶ
+  // あらすじ欄の次の一歩なので、ネーム下書きはツールバーの右端（直接のプロンプト化より右）に並ぶ
   const labels = await synopsisToolbar(page)
     .getByRole("button")
     .allInnerTexts();
-  expect(labels.indexOf("あらすじからネームを下書き")).toBeGreaterThanOrEqual(
+  expect(labels.indexOf("ネームを飛ばしてプロンプト化")).toBeGreaterThanOrEqual(
     0,
   );
-  expect(labels.indexOf("あらすじからネームを下書き")).toBeLessThan(
-    labels.indexOf("LLMでプロンプト化"),
-  );
+  expect(labels.indexOf("あらすじからネームを下書き")).toBe(labels.length - 1);
   // 空欄では押せない
   await expect(draftButton).toBeDisabled();
   const synopsis = "放課後、彼女が制服姿に変わってしまい戸惑う";
