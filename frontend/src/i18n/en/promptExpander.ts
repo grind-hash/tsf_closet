@@ -89,6 +89,18 @@ export const promptExpander = {
     castChipsLabel: "Cast:",
     castChipTitle:
       "{{name}} (a named precise reference). Click to jump to the precise reference section",
+    storyContextLabel: "Story so far:",
+    storyContextCount: "{{count}}/{{max}} pages",
+    storyContextPick: "Pick from history",
+    storyContextClear: "Remove all",
+    storyChipTitle: "Page {{page}}. Click to jump to its card in the history",
+    storyChipRemove: "Remove page {{page}} from the story so far",
+    storyContextEmptyHint:
+      "Pick earlier pages to carry over outfits, looks, and the story into the next page. Use “Add to story so far” on a history card.",
+    storyContextNoPagesHint:
+      "No earlier pages to pick yet. Once you make the first page, you can pick it from the history when making the next one.",
+    storyContextActiveHint:
+      "The storyboard draft and prompt creation continue from the picked pages. Outfits, looks, and the location carry over from the last page.",
     draftScript: "Draft a storyboard from the synopsis",
     restoreDone: "Restored the entry into the fields.",
     restoreUndo: "Undo",
@@ -154,7 +166,7 @@ export const promptExpander = {
     instructionPlaceholder:
       'Describe the image you want in plain words. "Convert to prompt" turns it into a NovelAI prompt',
     synopsisPlaceholder:
-      'Jot down the story for the comic. "Draft a storyboard from the synopsis" suggests panels and lines. You can also convert it to a prompt as it is',
+      'Jot down the story for the comic. "Draft a storyboard from the synopsis" suggests panels and lines. You can also use "Convert without storyboard" to make the prompt straight away',
     scriptPlaceholder:
       "Write the panels and lines, e.g. ① a man looks in the mirror 【After school】 ② his body turns female 《thump》 ③ 「Is this... me?」『Why...』",
     promptPlaceholderAssist:
@@ -167,6 +179,7 @@ export const promptExpander = {
     expandButton: "Convert to prompt",
     expandFromInstructionTitle:
       "Create a NovelAI prompt from this instruction with the LLM (in the selected output format) and put it in the prompt field. You can also press Ctrl+Enter (⌘+Enter on Mac) in the field",
+    expandSkipScript: "Convert without storyboard",
     expandFromSynopsisTitle:
       "Create the prompt straight from the synopsis, without a storyboard, and put it in the prompt field",
     expandFromScriptTitle:
@@ -417,6 +430,12 @@ export const promptExpander = {
       "Generate again with this entry's prompt and settings, using a new random seed",
     useAsSource: "Use as i2i source",
     clearSource: "Remove i2i source",
+    addToStory: "Add to story so far",
+    removeFromStory: "Remove from story so far",
+    addToStoryTitle:
+      "Use this page as an earlier page, passed to the storyboard draft and prompt creation of the next page",
+    storyPageTitle: "Page {{page}} of the story so far. Click to remove it",
+    storyMaxReached: "You can pick up to {{max}} pages for the story so far",
     makeCharacter: "Make a character",
     makingCharacter: "Making the character...",
     makeCharacterFailed: "Could not make the character",

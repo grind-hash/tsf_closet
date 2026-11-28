@@ -93,6 +93,18 @@ export const promptExpander = {
     castChipsLabel: "登場人物:",
     castChipTitle:
       "{{name}}（名前を付けた精密参照）。押すと精密参照の欄へ移ります",
+    storyContextLabel: "これまでの話:",
+    storyContextCount: "{{count}}/{{max}}ページ",
+    storyContextPick: "生成履歴から選ぶ",
+    storyContextClear: "すべて外す",
+    storyChipTitle: "{{page}}ページ目。押すと生成履歴のカードへ移ります",
+    storyChipRemove: "{{page}}ページ目をこれまでの話から外す",
+    storyContextEmptyHint:
+      "前のページを選ぶと、服装や姿・話の流れを引き継いで続きのページを作れます。生成履歴のカードの「これまでの話に入れる」で選びます。",
+    storyContextNoPagesHint:
+      "選べる前のページがまだありません。1ページ目を作ると、次のページを作るときに生成履歴から選べます。",
+    storyContextActiveHint:
+      "ネームの下書きとプロンプト化で、選んだページの続きとして作ります。服装・姿・場所は最後のページから引き継ぎます。",
     draftScriptTitle:
       "あらすじから、記法付きのネーム（コマ番号・セリフ・ナレーション）を LLM で下書きしてネーム欄へ入れます。あらすじは書き換えません。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
     draftingHint:
@@ -155,7 +167,7 @@ export const promptExpander = {
     instructionPlaceholder:
       "どんな画像にしたいかを自然文で入力。「LLMでプロンプト化」で NovelAI 用のプロンプトを作ります",
     synopsisPlaceholder:
-      "漫画にしたい話をざっと入力。「あらすじからネームを下書き」でコマ割りとセリフの案を作れます。このまま「LLMでプロンプト化」しても構いません",
+      "漫画にしたい話をざっと入力。「あらすじからネームを下書き」でコマ割りとセリフの案を作れます。このまま「ネームを飛ばしてプロンプト化」しても構いません",
     scriptPlaceholder:
       "コマ割りとセリフを入力。例: ①男が鏡を見る【放課後】 ②体が女性化していく《ドクン》 ③「え、これ僕…？」『どうして…』",
     promptPlaceholderAssist:
@@ -168,6 +180,7 @@ export const promptExpander = {
     expandButton: "LLMでプロンプト化",
     expandFromInstructionTitle:
       "この欄の指示から、LLM で NovelAI 用のプロンプトを作ってプロンプト欄へ入れます（選んだ出力形式で）。欄の中で Ctrl+Enter（Mac は ⌘+Enter）でも実行できます",
+    expandSkipScript: "ネームを飛ばしてプロンプト化",
     expandFromSynopsisTitle:
       "ネームを作らずに、あらすじから直接プロンプトを作ってプロンプト欄へ入れます",
     expandFromScriptTitle:
@@ -415,6 +428,12 @@ export const promptExpander = {
       "このエントリのプロンプト・設定のまま、新しいシードで生成し直します",
     useAsSource: "i2i元にする",
     clearSource: "i2i元を解除",
+    addToStory: "これまでの話に入れる",
+    removeFromStory: "これまでの話から外す",
+    addToStoryTitle:
+      "このページを前のページとして選び、続きのページのネーム下書きとプロンプト化に渡します",
+    storyPageTitle: "これまでの話の{{page}}ページ目です。押すと外します",
+    storyMaxReached: "これまでの話に選べるのは{{max}}ページまでです",
     makeCharacter: "キャラクターにする",
     makingCharacter: "キャラクターを作っています...",
     makeCharacterFailed: "キャラクターを作れませんでした",

@@ -1242,6 +1242,176 @@ async def test_draft_manga_script(factory, monkeypatch):
     assert exc.value.code == "invalid_llm_output"
 
 
+async def _add_story_entries(factory) -> str:
+    """これまでの話のテスト用に、生成順が ID 順と逆になるエントリを作る。"""
+    from datetime import datetime
+
+    from gateway.databases.models import PromptExpanderEntry, PromptExpanderSession
+
+    async with factory() as db:
+        session = await pe.PromptExpanderService.create_session(db, title="漫画")
+        db.add(User(id="other-user"))
+        db.add(PromptExpanderSession(id="other-sess", user_id="other-user", title="x"))
+        db.add_all(
+            [
+                # 2 ページ目（ネームから作った）
+                PromptExpanderEntry(
+                    id="page-a",
+                    session_id=session.id,
+                    kind="generated",
+                    instruction="①彼女が鏡を見る「これが僕…？」",
+                    synopsis="鏡の前で変身に気づく",
+                    final_prompt='1girl, sailor uniform, red ribbon, says "hi"',
+                    character_prompts_json='["girl, silver hair, sailor uniform"]',
+                    image_model="nai-diffusion-5-full",
+                    image_path="a.png",
+                    created_at=datetime(2026, 11, 2),
+                ),
+                # 1 ページ目（あらすじから直接作った）
+                PromptExpanderEntry(
+                    id="page-b",
+                    session_id=session.id,
+                    kind="generated",
+                    instruction="放課後、少年が光に包まれる",
+                    final_prompt="1boy, school uniform, classroom",
+                    image_model="nai-diffusion-5-full",
+                    image_path="b.png",
+                    created_at=datetime(2026, 11, 1),
+                ),
+                # 文を持たないアップロード
+                PromptExpanderEntry(
+                    id="page-upload",
+                    session_id=session.id,
+                    kind="uploaded",
+                    image_model="nai-diffusion-5-full",
+                    image_path="c.png",
+                    created_at=datetime(2026, 11, 3),
+                ),
+                PromptExpanderEntry(
+                    id="other-page",
+                    session_id="other-sess",
+                    kind="generated",
+                    final_prompt="1girl",
+                    image_model="nai-diffusion-5-full",
+                    image_path="d.png",
+                ),
+            ]
+        )
+        await db.commit()
+        return session.id
+
+
+@pytest.mark.asyncio
+async def test_load_story_pages_orders_by_creation_and_checks_owner(factory):
+    await _add_story_entries(factory)
+    async with factory() as db:
+        pages = await pe.load_story_pages(
+            db, entry_ids=["page-a", "page-upload", "page-b", "page-a"]
+        )
+    assert pages == [
+        pe.StoryPage(
+            synopsis="放課後、少年が光に包まれる",
+            final_prompt="1boy, school uniform, classroom",
+        ),
+        pe.StoryPage(
+            synopsis="鏡の前で変身に気づく",
+            script="①彼女が鏡を見る「これが僕…？」",
+            character_prompts=("girl, silver hair, sailor uniform",),
+            final_prompt='1girl, sailor uniform, red ribbon, says "hi"',
+        ),
+    ]
+    async with factory() as db:
+        assert await pe.load_story_pages(db, entry_ids=[]) == []
+        for missing in ("other-page", "no-such-entry"):
+            with pytest.raises(pe.PromptExpanderError) as exc:
+                await pe.load_story_pages(db, entry_ids=["page-a", missing])
+            assert exc.value.code == "entry_not_found"
+
+
+@pytest.mark.asyncio
+async def test_story_context_is_passed_to_script_and_manga_expand(factory, monkeypatch):
+    await _add_story_entries(factory)
+    calls: list[tuple[str, str]] = []
+    replies = iter(
+        [
+            "①教室を飛び出す《ダッ》",
+            '{"base_tags":"1girl, comic","panel_description":"One panel.",'
+            '"character_prompts":["girl, silver hair, sailor uniform"]}',
+            '{"base_tags":"1girl, comic","panel_description":"One panel.",'
+            '"character_prompts":["girl"]}',
+            "1girl, smile",
+        ]
+    )
+
+    async def _fake_generate_text(system_prompt, user_prompt, **kwargs):
+        calls.append((system_prompt, user_prompt))
+        return SimpleNamespace(content=next(replies), cost_usd=None)
+
+    monkeypatch.setattr(pe.llm_service, "generate_text", _fake_generate_text)
+
+    # ネーム下書き: 生成順に並び、ネームも渡る
+    await pe.draft_manga_script(
+        pe.MangaScriptParams(
+            instruction="廊下へ逃げ出す",
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            context_entry_ids=["page-a", "page-b"],
+        )
+    )
+    system, user = calls[-1]
+    assert "Story so far:" in system
+    assert user.index("Page 1\nSynopsis: 放課後") < user.index(
+        "Page 2 (latest)\nSynopsis: 鏡の前"
+    )
+    assert "Script:\n①彼女が鏡を見る「これが僕…？」" in user
+    assert user.endswith(
+        "Synopsis of the next page:\n廊下へ逃げ出す\n\n"
+        "Write the storyboard script for the next page now."
+    )
+
+    # 漫画のプロンプト化: ネームと台詞は渡さず、最後のページのプロンプトは渡す
+    await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="①教室を飛び出す《ダッ》",
+            character_mode=True,
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            manga=pe.MangaOptions(),
+            context_entry_ids=["page-a", "page-b"],
+        )
+    )
+    system, user = calls[-1]
+    assert "carry over the appearance and clothing" in system
+    assert "Script:" not in user and "これが僕" not in user
+    assert "Image prompt: 1girl, sailor uniform, red ribbon\n" in user
+    assert "1boy, school uniform, classroom" not in user
+    assert user.index("Story so far") < user.index("User instruction:")
+
+    # 選択が空なら規則もブロックも足さない
+    await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="①笑う",
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            manga=pe.MangaOptions(),
+        )
+    )
+    system, user = calls[-1]
+    assert "Story so far" not in system and "Story so far" not in user
+
+    # 漫画でないプロンプト化では ID を渡しても使わない（エントリも読まない）
+    await pe.expand_prompts(
+        pe.ExpandParams(
+            instruction="笑顔に",
+            image_model="nai-diffusion-5-full",
+            text_model="glm-4-6",
+            context_entry_ids=["no-such-entry"],
+        )
+    )
+    system, user = calls[-1]
+    assert "Story so far" not in system and "Story so far" not in user
+
+
 def test_merge_tags_is_idempotent():
     assert (
         pe.merge_tags("1girl, smile", ("white background", "no shadow"))

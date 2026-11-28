@@ -59,6 +59,27 @@
   border-radius: 6px;
 }
 
+/* 「生成履歴から選ぶ」の直後に、これまでの話のボタンを目立たせる。
+   選択中のボタンは強調色で塗られているので、塗りと別に見えるよう外側に文字色の枠を出す */
+.prompt-expander__entries.is-story-pick
+.prompt-expander__entry-story-toggle:not(:disabled) {
+  outline: 2px solid var(--text-color, #eee);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .prompt-expander__entries.is-story-pick
+    .prompt-expander__entry-story-toggle:not(:disabled) {
+    animation: prompt-expander-story-pick 0.6s ease-in-out 3;
+  }
+
+  @keyframes prompt-expander-story-pick {
+    50% {
+      outline-offset: 5px;
+    }
+  }
+}
+
 /* 絞り込みチップ（すべて / 通常 / 漫画 / アップロード） */
 .prompt-expander__entry-filters {
   display: flex;

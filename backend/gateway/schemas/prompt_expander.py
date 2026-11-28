@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -32,6 +32,7 @@ from ..consts.prompt_expander import (
     PROMPT_EXPANDER_REFERENCE_KINDS,
     PROMPT_EXPANDER_REFERENCE_MAX_COUNT,
     PROMPT_EXPANDER_REFERENCE_TYPES,
+    PROMPT_EXPANDER_STORY_CONTEXT_MAX,
     PROMPT_EXPANDER_SUGGESTION_COUNT_DEFAULT,
     PROMPT_EXPANDER_SUGGESTION_COUNT_MAX,
     PROMPT_EXPANDER_SUGGESTION_COUNT_MIN,
@@ -339,6 +340,10 @@ class PromptExpanderReferenceItem(BaseModel):
         return self
 
 
+# これまでの話に選んだエントリの ID
+ContextEntryId = Annotated[str, Field(min_length=1, max_length=80)]
+
+
 class PromptExpandRequest(BaseModel):
     instruction: str = Field("", max_length=PROMPT_EXPANDER_INSTRUCTION_MAX_LEN)
     expand_positive: bool = True
@@ -368,6 +373,10 @@ class PromptExpandRequest(BaseModel):
     # 名前を付けた精密参照の登場人物。キャラ枠 ON のときだけ使う
     cast: list[CastMemberModel] = Field(
         default_factory=list, max_length=PROMPT_EXPANDER_CAST_MAX
+    )
+    # これまでの話（同じ利用者のエントリ ID）。漫画モードのときだけ使う
+    context_entry_ids: list[ContextEntryId] = Field(
+        default_factory=list, max_length=PROMPT_EXPANDER_STORY_CONTEXT_MAX
     )
 
     @model_validator(mode="after")
@@ -405,6 +414,10 @@ class MangaScriptRequest(BaseModel):
     # 名前を付けた精密参照の登場人物。ネームの話者名に使わせる
     cast: list[CastMemberModel] = Field(
         default_factory=list, max_length=PROMPT_EXPANDER_CAST_MAX
+    )
+    # これまでの話（同じ利用者のエントリ ID）。続きのページとして下書きさせる
+    context_entry_ids: list[ContextEntryId] = Field(
+        default_factory=list, max_length=PROMPT_EXPANDER_STORY_CONTEXT_MAX
     )
 
 

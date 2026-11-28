@@ -875,9 +875,22 @@ test("comic mode is V5-only, its options are sent with expand/generate, and entr
     page.getByText(/漫画モード中はコマ説明・外見を英語で組み立てます/).first(),
   ).toBeVisible();
 
+  // あらすじ欄では、次の一歩のネーム下書きが主ボタン（右端）、直接のプロンプト化は枠線のボタン
+  await expect(
+    toolbar.getByRole("button", { name: "あらすじからネームを下書き" }),
+  ).toHaveClass(/prompt-expander__btn--primary/);
+  await expect(
+    toolbar.getByRole("button", { name: "ネームを飛ばしてプロンプト化" }),
+  ).not.toHaveClass(/prompt-expander__btn--primary/);
+  await expect(
+    toolbar.getByRole("button", { name: "LLMでプロンプト化" }),
+  ).toHaveCount(0);
+
   // あらすじから直接プロンプト化しても、漫画オプションが載る
   await instructionField(page).fill("男が女の子になる3コマ");
-  await toolbar.getByRole("button", { name: "LLMでプロンプト化" }).click();
+  await toolbar
+    .getByRole("button", { name: "ネームを飛ばしてプロンプト化" })
+    .click();
   await expect.poll(() => state.expandBodies.length).toBe(1);
   expect(state.expandBodies[0]).toMatchObject({
     manga_mode: true,

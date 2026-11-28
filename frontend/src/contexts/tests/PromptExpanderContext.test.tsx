@@ -316,6 +316,12 @@ const fetchMock = vi.fn(
         anlas: anlasPayload(),
       });
     }
+    if (
+      url.startsWith("/api/prompt-expander/entries/") &&
+      method === "DELETE"
+    ) {
+      return jsonResponse({ ok: true });
+    }
     return { ok: false, status: 404, json: async () => ({}) } as Response;
   },
 );
@@ -567,6 +573,33 @@ function Probe() {
       </button>
       <button type="button" onClick={() => void ctx.draftScript()}>
         draft-script
+      </button>
+      <div data-testid="story-context">
+        {ctx.storyContextEntryIds.join(",")}
+      </div>
+      <button
+        type="button"
+        onClick={() => ctx.toggleStoryContextEntry("entry-new")}
+      >
+        story-toggle-new
+      </button>
+      <button
+        type="button"
+        onClick={() => ctx.toggleStoryContextEntry("entry-old")}
+      >
+        story-toggle-old
+      </button>
+      <button type="button" onClick={() => ctx.clearStoryContext()}>
+        story-clear
+      </button>
+      <button type="button" onClick={() => void ctx.deleteEntry("entry-old")}>
+        delete-old
+      </button>
+      <button
+        type="button"
+        onClick={() => void ctx.updateSettings({ manga_mode: false })}
+      >
+        manga-off
       </button>
       <button type="button" onClick={() => ctx.undoScript()}>
         undo-draft
@@ -1495,6 +1528,104 @@ describe("PromptExpanderContext", () => {
     expect(
       JSON.parse(screen.getByTestId("expansion-error").textContent ?? "{}"),
     ).toMatchObject({ field: "instruction", code: "empty_instruction" });
+  });
+
+  it("story so far: picked pages are sent in creation order to /manga-script and comic /expand, and kept in the session draft", async () => {
+    await openSessionAndWait();
+    fireEvent.click(screen.getByRole("button", { name: "manga-on-v5" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("manga-active").textContent).toBe("on"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "set-instruction" }));
+    // 2 ページ目を作っておく（entry-new は entry-old より後に生成）
+    await convertAndWait();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "run" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("entries").textContent).toBe(
+        "entry-new,entry-old",
+      ),
+    );
+
+    // 選んだ順ではなく、生成した順（話の順）に並ぶ
+    fireEvent.click(screen.getByRole("button", { name: "story-toggle-new" }));
+    fireEvent.click(screen.getByRole("button", { name: "story-toggle-old" }));
+    expect(screen.getByTestId("story-context").textContent).toBe(
+      "entry-old,entry-new",
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "draft-script" }));
+    });
+    await waitFor(() =>
+      expect(findCalls("/prompt-expander/manga-script", "POST")).toHaveLength(
+        1,
+      ),
+    );
+    expect(
+      lastBody("/prompt-expander/manga-script", "POST").context_entry_ids,
+    ).toEqual(["entry-old", "entry-new"]);
+    await convertAndWait("expand-script");
+    expect(
+      lastBody("/prompt-expander/expand", "POST").context_entry_ids,
+    ).toEqual(["entry-old", "entry-new"]);
+
+    // もう一度押すと外れる
+    fireEvent.click(screen.getByRole("button", { name: "story-toggle-new" }));
+    expect(screen.getByTestId("story-context").textContent).toBe("entry-old");
+
+    // 漫画モードでないプロンプト化には送らない（選択は残る）
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "manga-off" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("manga-active").textContent).toBe("off"),
+    );
+    await convertAndWait();
+    expect(lastBody("/prompt-expander/expand", "POST")).not.toHaveProperty(
+      "context_entry_ids",
+    );
+    expect(screen.getByTestId("story-context").textContent).toBe("entry-old");
+
+    // 再読み込みしても書きかけとして残る
+    cleanup();
+    await openSessionAndWait();
+    await waitFor(() =>
+      expect(screen.getByTestId("story-context").textContent).toBe("entry-old"),
+    );
+
+    // エントリを消すと外れる
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "delete-old" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("entries").textContent).toBe(""),
+    );
+    expect(screen.getByTestId("story-context").textContent).toBe("");
+  });
+
+  it("story so far stops at the page limit and ignores pages no longer in the list", async () => {
+    // 一覧に無い ID（ほかのタブで消した等）が書きかけに残っていても、表示・送信に使わず上限にも数えない
+    sessionStorage.setItem(
+      "prompt_expander_draft:sess-1",
+      JSON.stringify({
+        version: 2,
+        instructionText: "a cat girl",
+        storyContextEntryIds: [
+          "gone-1",
+          "gone-2",
+          "gone-3",
+          "gone-4",
+          "gone-5",
+        ],
+      }),
+    );
+    await openSessionAndWait();
+    expect(screen.getByTestId("instruction").textContent).toBe("a cat girl");
+    expect(screen.getByTestId("story-context").textContent).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "story-toggle-old" }));
+    expect(screen.getByTestId("story-context").textContent).toBe("entry-old");
   });
 
   it("suggestCharacters sends the first filled field as input_text only when there is one", async () => {

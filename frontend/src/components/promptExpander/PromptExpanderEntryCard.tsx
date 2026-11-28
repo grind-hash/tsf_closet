@@ -25,6 +25,7 @@ import {
   getPromptExpanderImageModelShortLabel,
   PROMPT_EXPANDER_ALPHA_OPTIONS,
   PROMPT_EXPANDER_REFERENCE_MAX_COUNT,
+  PROMPT_EXPANDER_STORY_CONTEXT_MAX,
   referenceTypeI18nKey,
 } from "../../constants/promptExpander";
 import { useNotification } from "../../contexts/NotificationContext";
@@ -33,6 +34,7 @@ import { useSettings } from "../../contexts/SettingsContext";
 import { revealPromptExpanderSection } from "../../hooks/usePersistedSectionState";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
 import { ROUTES } from "../../routes";
+import { entryHasStoryText } from "../../utils/promptExpanderStoryContext";
 import { EMPTY_CHARACTER_PROFILE } from "../characters/characterMaker";
 import PromptExpanderDeleteButton from "./PromptExpanderDeleteButton";
 import "./PromptExpanderShared.css";
@@ -78,6 +80,10 @@ export default function PromptExpanderEntryCard({
     source,
     references,
     generating,
+    mangaActive,
+    promptInputMode,
+    storyContextEntryIds,
+    toggleStoryContextEntry,
   } = usePromptExpander();
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -124,6 +130,13 @@ export default function PromptExpanderEntryCard({
   );
   const referenceFull =
     references.length >= PROMPT_EXPANDER_REFERENCE_MAX_COUNT;
+  // これまでの話は、漫画モードを LLM で作るときだけ選べる（文を持たないアップロードは除く）
+  const storyPageIndex = storyContextEntryIds.indexOf(entry.id);
+  const isStoryPage = storyPageIndex >= 0;
+  const showStoryToggle =
+    mangaActive && promptInputMode === "assist" && entryHasStoryText(entry);
+  const storyFull =
+    storyContextEntryIds.length >= PROMPT_EXPANDER_STORY_CONTEXT_MAX;
 
   const badges: string[] = [];
   if (entry.image_model) {
@@ -405,6 +418,29 @@ export default function PromptExpanderEntryCard({
             {t("promptExpander.entry.regenerate")}
           </button>
           <FavoritePromptSaveButton text={entry.final_prompt ?? ""} />
+          {showStoryToggle && (
+            <button
+              type="button"
+              className={`prompt-expander__btn prompt-expander__btn--sm prompt-expander__entry-story-toggle ${isStoryPage ? "prompt-expander__btn--primary" : ""}`}
+              onClick={() => toggleStoryContextEntry(entry.id)}
+              disabled={!isStoryPage && storyFull}
+              title={
+                isStoryPage
+                  ? t("promptExpander.entry.storyPageTitle", {
+                      page: storyPageIndex + 1,
+                    })
+                  : storyFull
+                    ? t("promptExpander.entry.storyMaxReached", {
+                        max: PROMPT_EXPANDER_STORY_CONTEXT_MAX,
+                      })
+                    : t("promptExpander.entry.addToStoryTitle")
+              }
+            >
+              {isStoryPage
+                ? t("promptExpander.entry.removeFromStory")
+                : t("promptExpander.entry.addToStory")}
+            </button>
+          )}
           <button
             type="button"
             className={`prompt-expander__btn prompt-expander__btn--sm ${isCurrentSource ? "prompt-expander__btn--primary" : ""}`}

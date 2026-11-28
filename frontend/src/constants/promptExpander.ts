@@ -135,6 +135,8 @@ export const DEFAULT_PROMPT_EXPANDER_REFERENCE_FIDELITY = 1;
 export const PROMPT_EXPANDER_ANLAS_PER_REFERENCE = 5;
 /** 1 回の生成で送れる精密参照の枚数（通常プレイの精密参照と同じ上限） */
 export const PROMPT_EXPANDER_REFERENCE_MAX_COUNT = 6;
+/** これまでの話（漫画で続きのページを作るときに LLM へ渡す前のページ）に選べるページ数 */
+export const PROMPT_EXPANDER_STORY_CONTEXT_MAX = 5;
 /** 登場人物（名前を付けた精密参照）の名前・外見タグの最大文字数 */
 export const PROMPT_EXPANDER_CAST_NAME_MAX_LENGTH = 40;
 export const PROMPT_EXPANDER_CAST_TAGS_MAX_LENGTH = 1000;

@@ -16,12 +16,14 @@ from gateway.services.prompt_expander_prompts import (
     CastMember,
     MangaOptions,
     PromptExpanderOutputError,
+    StoryPage,
     build_cast_block,
     build_manga_script_prompts,
     build_negative_system_prompt,
     build_negative_user_prompt,
     build_positive_system_prompt,
     build_positive_user_prompt,
+    build_story_context_block,
     build_suggest_characters_prompts,
     build_suggest_user_prompt,
     compose_cast_panel_description,
@@ -1040,3 +1042,58 @@ def test_named_character_parsers_keep_names_aligned() -> None:
         manga_raw, max_characters=6, character_mode=False
     )
     assert none_items is None
+
+
+def test_story_context_block_clips_and_strips_dialogue():
+    """これまでの話: 台詞の要素を除き、長い欄は切り詰め、プロンプトは最後のページだけ。"""
+    assert build_story_context_block([], include_script=True) == ""
+    pages = [
+        StoryPage(synopsis="あ" * 1300, script="①い「やあ」", final_prompt="1boy"),
+        StoryPage(
+            synopsis="変身する",
+            character_prompts=('girl, red dress, says "hi"', '"only dialogue"'),
+            final_prompt='1girl, red dress, speech bubble saying "hi", cafe',
+        ),
+    ]
+    block = build_story_context_block(pages, include_script=True)
+    assert block.startswith("Story so far (")
+    assert f"Page 1\nSynopsis: {'あ' * 1200}…\nScript:\n①い「やあ」\n" in block
+    assert "Character prompts:\n1. girl, red dress\n" in block
+    assert "only dialogue" not in block
+    assert block.endswith("Image prompt: 1girl, red dress, cafe")
+    assert "1boy" not in block
+    assert "Script:" not in build_story_context_block(pages, include_script=False)
+
+
+def test_story_context_is_added_only_with_pages_and_only_for_manga():
+    page = StoryPage(synopsis="変身する", final_prompt="1girl, maid")
+    system, user = build_manga_script_prompts(
+        synopsis="次", options=MangaOptions(), nsfw=False
+    )
+    assert "Story so far" not in system and user.startswith("Synopsis:\n次")
+    cast_system, cast_user = build_manga_script_prompts(
+        synopsis="次",
+        options=MangaOptions(),
+        nsfw=False,
+        cast=[CastMember(name="サクラ", appearance_tags="pink hair")],
+        story_pages=[page],
+    )
+    assert "Story so far:" in cast_system
+    # キャストの一覧 → これまでの話 → 次のページのあらすじ の順
+    assert cast_user.index("サクラ") < cast_user.index("Story so far")
+    assert cast_user.index("Story so far") < cast_user.index("Synopsis of the next")
+
+    manga_user = build_positive_user_prompt(
+        instruction="①走る", manga=True, story_pages=[page]
+    )
+    assert "Image prompt: 1girl, maid" in manga_user
+    plain_user = build_positive_user_prompt(instruction="笑顔に", story_pages=[page])
+    assert "Story so far" not in plain_user
+    plain_system = build_positive_system_prompt(
+        mode="tags",
+        character_mode=False,
+        max_characters=6,
+        nsfw=False,
+        with_story=True,
+    )
+    assert "Story so far" not in plain_system

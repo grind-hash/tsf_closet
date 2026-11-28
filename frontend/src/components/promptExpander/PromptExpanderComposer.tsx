@@ -79,6 +79,7 @@ import PromptExpanderProgress from "./PromptExpanderProgress";
 import PromptExpanderReferenceList from "./PromptExpanderReferenceList";
 import PromptExpanderSection from "./PromptExpanderSection";
 import PromptExpanderSourcePickerModal from "./PromptExpanderSourcePickerModal";
+import PromptExpanderStoryContextChips from "./PromptExpanderStoryContextChips";
 import PromptExpanderSuggestModal from "./PromptExpanderSuggestModal";
 import PromptExpanderSwitch from "./PromptExpanderSwitch";
 import PromptExpanderUploadDialog from "./PromptExpanderUploadDialog";
@@ -619,6 +620,10 @@ export default function PromptExpanderComposer() {
       reason: string | null;
       title: string;
       running: boolean;
+      /** 既定は「LLMでプロンプト化」 */
+      label?: string;
+      /** false で枠線のボタンにする（その欄の次の一歩が別のボタンのとき） */
+      primary?: boolean;
     };
     extra?: ReactNode;
   }) => (
@@ -632,14 +637,14 @@ export default function PromptExpanderComposer() {
       {expand && (
         <button
           type="button"
-          className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--primary"
+          className={`prompt-expander__btn prompt-expander__btn--sm${expand.primary === false ? "" : " prompt-expander__btn--primary"}`}
           onClick={expand.onClick}
           disabled={busy || expand.reason !== null}
           title={expand.reason ?? expand.title}
         >
           {expand.running
             ? t("promptExpander.composer.expanding")
-            : t("promptExpander.composer.expandButton")}
+            : (expand.label ?? t("promptExpander.composer.expandButton"))}
         </button>
       )}
       {extra}
@@ -1051,6 +1056,9 @@ export default function PromptExpanderComposer() {
           </div>
         )}
 
+        {/* これまでの話（漫画モード）。選んだ前のページをネーム下書きとプロンプト化に渡す */}
+        {assist && mangaActive && <PromptExpanderStoryContextChips />}
+
         {/* 指示（漫画モードではあらすじ）。利用者が書く欄で、LLM は書き換えない */}
         {assist && (
           <div className="prompt-expander__field-block">
@@ -1077,18 +1085,8 @@ export default function PromptExpanderComposer() {
                     }
                   />
                 ),
-                leading: mangaActive ? (
-                  // 主ボタン（赤塗り）が 2 つ並ぶと重いので、下書きは枠線のボタンにする
-                  <button
-                    type="button"
-                    className="prompt-expander__btn prompt-expander__btn--sm"
-                    onClick={() => void draftScript()}
-                    disabled={busy || !instructionText.trim()}
-                    title={t("promptExpander.composer.draftScriptTitle")}
-                  >
-                    {t("promptExpander.composer.draftScript")}
-                  </button>
-                ) : null,
+                // 漫画モードのあらすじ欄では、次の一歩のネーム下書きを右端の主ボタンにする。
+                // あらすじから直接のプロンプト化は枠線のボタンにして文言でも区別する（押し間違い防止）
                 expand: {
                   onClick: () => void runExpandPositive("instruction"),
                   reason: instructionExpandReason,
@@ -1096,7 +1094,24 @@ export default function PromptExpanderComposer() {
                     ? t("promptExpander.composer.expandFromSynopsisTitle")
                     : t("promptExpander.composer.expandFromInstructionTitle"),
                   running: positiveBusy && expandingField === "instruction",
+                  ...(mangaActive
+                    ? {
+                        label: t("promptExpander.composer.expandSkipScript"),
+                        primary: false,
+                      }
+                    : {}),
                 },
+                extra: mangaActive ? (
+                  <button
+                    type="button"
+                    className="prompt-expander__btn prompt-expander__btn--sm prompt-expander__btn--primary"
+                    onClick={() => void draftScript()}
+                    disabled={busy || !instructionText.trim()}
+                    title={t("promptExpander.composer.draftScriptTitle")}
+                  >
+                    {t("promptExpander.composer.draftScript")}
+                  </button>
+                ) : null,
               })}
             </div>
             <textarea

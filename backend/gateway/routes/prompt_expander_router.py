@@ -475,6 +475,7 @@ async def expand_prompt(body: PromptExpandRequest):
         ),
         transparent_background=body.transparent_background,
         cast=[member.to_cast_member() for member in body.cast],
+        context_entry_ids=list(body.context_entry_ids),
     )
     try:
         result = await pe_service.expand_prompts(params, user_id=DEFAULT_USER_ID)
@@ -497,6 +498,7 @@ async def draft_manga_script(body: MangaScriptRequest):
         language=body.language,
         manga=(body.manga or MangaOptionsModel()).to_options(),
         cast=[member.to_cast_member() for member in body.cast],
+        context_entry_ids=list(body.context_entry_ids),
     )
     try:
         result = await pe_service.draft_manga_script(params, user_id=DEFAULT_USER_ID)

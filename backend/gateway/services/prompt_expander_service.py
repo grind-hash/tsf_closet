@@ -85,6 +85,7 @@ from .prompt_expander_prompts import (
     ExpandMode,
     MangaOptions,
     PromptExpanderOutputError,
+    StoryPage,
     build_manga_script_prompts,
     build_negative_system_prompt,
     build_negative_user_prompt,
@@ -954,6 +955,48 @@ async def resolve_source(
     raise PromptExpanderError("invalid_source", "参照元の種別が不正です")
 
 
+async def load_story_pages(
+    db: AsyncSession,
+    *,
+    entry_ids: Sequence[str],
+    user_id: str = DEFAULT_USER_ID,
+) -> list[StoryPage]:
+    """これまでの話に選んだエントリを、生成した順の StoryPage にする。
+
+    重複した ID は 1 つにまとめる。見つからない（削除済み・他の利用者の）ID は
+    entry_not_found で止める。文を何も持たないエントリ（アップロード画像など）は除く。
+    """
+    entries: list[PromptExpanderEntry] = []
+    seen: set[str] = set()
+    for entry_id in entry_ids:
+        if entry_id in seen:
+            continue
+        seen.add(entry_id)
+        entries.append(
+            await PromptExpanderService.get_entry(
+                db, entry_id=entry_id, user_id=user_id
+            )
+        )
+    entries.sort(key=lambda entry: (entry.created_at, entry.id))
+    pages: list[StoryPage] = []
+    for entry in entries:
+        synopsis = (entry.synopsis or "").strip()
+        instruction = (entry.instruction or "").strip()
+        page = StoryPage(
+            # ネームから作ったページは下書き元のあらすじとネームを分け、
+            # あらすじから直接作ったページは指示をあらすじとして渡す
+            synopsis=synopsis or instruction,
+            script=instruction if synopsis else "",
+            character_prompts=tuple(
+                _load_character_prompts(entry.character_prompts_json)
+            ),
+            final_prompt=(entry.final_prompt or "").strip(),
+        )
+        if page.synopsis or page.character_prompts or page.final_prompt:
+            pages.append(page)
+    return pages
+
+
 # ---------------------------------------------------------------------------
 # LLM: プロンプト拡張 / キャラクター提案
 # ---------------------------------------------------------------------------
@@ -984,6 +1027,8 @@ class ExpandParams:
     transparent_background: bool = False
     # 名前を付けた精密参照の登場人物（キャラ枠 ON のときだけ使う）
     cast: Sequence[CastMember] = ()
+    # これまでの話に選んだエントリ ID（漫画モードのときだけ使う）
+    context_entry_ids: Sequence[str] = ()
 
 
 @dataclass
@@ -1103,6 +1148,14 @@ async def expand_prompts(
             user_id=user_id,
             load_image=False,
         )
+        # これまでの話は漫画のプロンプト化でだけ使う
+        story_pages = (
+            await load_story_pages(
+                db, entry_ids=params.context_entry_ids, user_id=user_id
+            )
+            if params.manga is not None and params.expand_positive
+            else []
+        )
 
     memory_text = pe_settings.memory_text if pe_settings.use_memory else ""
     nsfw = _image_model_nsfw(params.image_model)
@@ -1148,6 +1201,7 @@ async def expand_prompts(
                 params.transparent_background and params.manga is None
             ),
             with_cast=bool(cast),
+            with_story=bool(story_pages),
         )
         user_prompt = build_positive_user_prompt(
             instruction=instruction,
@@ -1159,6 +1213,7 @@ async def expand_prompts(
             manga_notation=notation,
             cast=cast,
             cast_descriptions=cast_descriptions,
+            story_pages=story_pages,
         )
         raw = await _call_llm(system_prompt, user_prompt, params.text_model)
         character_names: list[str] = []
@@ -1271,6 +1326,8 @@ class MangaScriptParams:
     manga: MangaOptions = field(default_factory=MangaOptions)
     # 名前を付けた精密参照の登場人物（ネームの話者名に使わせる）
     cast: Sequence[CastMember] = ()
+    # これまでの話に選んだエントリ ID（続きのページとして下書きさせる）
+    context_entry_ids: Sequence[str] = ()
 
 
 @dataclass
@@ -1298,6 +1355,9 @@ async def draft_manga_script(
         )
     async with async_session_factory() as db:
         pe_settings = await PromptExpanderService.get_settings(db, user_id=user_id)
+        story_pages = await load_story_pages(
+            db, entry_ids=params.context_entry_ids, user_id=user_id
+        )
     memory_text = pe_settings.memory_text if pe_settings.use_memory else ""
     system_prompt, user_prompt = build_manga_script_prompts(
         synopsis=synopsis,
@@ -1306,6 +1366,7 @@ async def draft_manga_script(
         memory_text=memory_text,
         language=params.language,
         cast=dedupe_cast(params.cast),
+        story_pages=story_pages,
     )
     raw = await _call_llm(system_prompt, user_prompt, params.text_model)
     try:

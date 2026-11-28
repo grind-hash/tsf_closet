@@ -16,7 +16,10 @@ import {
   promptExpanderImageUrl,
 } from "../../apis/promptExpander";
 import { PROMPT_EXPANDER_ALPHA_OPTIONS } from "../../constants/promptExpander";
-import { usePromptExpander } from "../../contexts/PromptExpanderContext";
+import {
+  type PromptExpanderEntryRevealFocus,
+  usePromptExpander,
+} from "../../contexts/PromptExpanderContext";
 import { revealPromptExpanderSection } from "../../hooks/usePersistedSectionState";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useTransparentImage } from "../../hooks/useTransparentImage";
@@ -39,6 +42,9 @@ function scrollsOnItsOwn(element: HTMLElement | null): boolean {
 import "./PromptExpanderEntryList.css";
 
 export const PROMPT_EXPANDER_ENTRY_FILTER_KEY = "prompt_expander_entry_filter";
+
+/** 「生成履歴から選ぶ」のあと、これまでの話のボタンを目立たせておく時間（CSS の点滅 3 回分より少し長く） */
+const STORY_PICK_HIGHLIGHT_MS = 2000;
 
 const ENTRY_FILTERS = ["all", "normal", "manga", "uploaded"] as const;
 export type PromptExpanderEntryFilter = (typeof ENTRY_FILTERS)[number];
@@ -171,7 +177,22 @@ export default function PromptExpanderEntryList() {
   // 生成バーの「結果を見る」: 生成履歴を開き、絞り込みで隠れていれば「すべて」に戻して
   // そのカードへ移る。セッションを移った直後はまだ一覧が届いていないので、届くまで待つ。
   // 見せ終えた要求は消す（セッションを開き直して一覧を作り直したとき、同じ要求でもう一度動かないように）
-  const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
+  const [focusTarget, setFocusTarget] = useState<{
+    entryId: string;
+    focus: PromptExpanderEntryRevealFocus;
+  } | null>(null);
+  // 「生成履歴から選ぶ」: カードの「これまでの話に入れる」ボタンをしばらく目立たせ、どこで選ぶかを示す
+  // （2 列表示では生成履歴が最初から見えているので、移るだけでは何も起きないように見える）
+  const [storyPickHighlight, setStoryPickHighlight] = useState(false);
+  const storyPickTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (storyPickTimer.current !== null) {
+        window.clearTimeout(storyPickTimer.current);
+      }
+    },
+    [],
+  );
   useEffect(() => {
     if (!entryRevealRequest) return;
     const target = entries.find(
@@ -183,26 +204,44 @@ export default function PromptExpanderEntryList() {
       setFilter("all");
     }
     revealPromptExpanderSection("history", { focus: false });
-    setFocusEntryId(target.id);
+    // 続けて押したときも点滅が始めからになるよう、いったん外してから付け直す
+    if (entryRevealRequest.focus === "story") setStoryPickHighlight(false);
+    setFocusTarget({ entryId: target.id, focus: entryRevealRequest.focus });
   }, [completeEntryReveal, entries, entryRevealRequest, filter, setFilter]);
   // 絞り込みを戻した描画の後でカードが現れるので、現れてからスクロールとフォーカスをする
   useEffect(() => {
-    if (!focusEntryId) return;
-    if (!filteredEntries.some((entry) => entry.id === focusEntryId)) return;
+    if (!focusTarget) return;
+    const { entryId, focus } = focusTarget;
+    if (!filteredEntries.some((entry) => entry.id === entryId)) return;
     const frame = window.requestAnimationFrame(() => {
       const card = document.querySelector<HTMLElement>(
-        `[data-entry-id="${escapeSelector(focusEntryId)}"]`,
+        `[data-entry-id="${escapeSelector(entryId)}"]`,
       );
       if (!card) return;
       card.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
-      // カードの画像（プレビューを開くボタン）へフォーカスし、続けて Enter で拡大できるようにする
-      card
-        .querySelector<HTMLElement>(".prompt-expander__entry-image-btn")
-        ?.focus({ preventScroll: true });
-      setFocusEntryId(null);
+      if (focus === "story") {
+        // 続けて Enter でそのページを入れられるよう、ボタンへフォーカスする
+        card
+          .querySelector<HTMLElement>(".prompt-expander__entry-story-toggle")
+          ?.focus({ preventScroll: true });
+        setStoryPickHighlight(true);
+        if (storyPickTimer.current !== null) {
+          window.clearTimeout(storyPickTimer.current);
+        }
+        storyPickTimer.current = window.setTimeout(() => {
+          storyPickTimer.current = null;
+          setStoryPickHighlight(false);
+        }, STORY_PICK_HIGHLIGHT_MS);
+      } else {
+        // カードの画像（プレビューを開くボタン）へフォーカスし、続けて Enter で拡大できるようにする
+        card
+          .querySelector<HTMLElement>(".prompt-expander__entry-image-btn")
+          ?.focus({ preventScroll: true });
+      }
+      setFocusTarget(null);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [filteredEntries, focusEntryId]);
+  }, [filteredEntries, focusTarget]);
 
   // プレビューで移動した先のカードを一覧上でも見つけられるようスクロールする
   useEffect(() => {
@@ -214,7 +253,9 @@ export default function PromptExpanderEntryList() {
   }, [previewId]);
 
   return (
-    <div className="prompt-expander__entries">
+    <div
+      className={`prompt-expander__entries${storyPickHighlight ? " is-story-pick" : ""}`}
+    >
       <PromptExpanderSection
         id="history"
         headingLevel="h2"

@@ -225,6 +225,8 @@ export interface PromptExpandRequest {
   transparent_background?: boolean;
   /** 名前を付けた精密参照の登場人物（キャラ枠 ON のときだけ使われる） */
   cast?: PromptExpanderCastMember[];
+  /** これまでの話に選んだエントリ ID（漫画モードのときだけ使われる） */
+  context_entry_ids?: string[];
 }
 
 export interface PromptExpandResponse {
@@ -317,6 +319,8 @@ export interface PromptExpanderMangaScriptRequest {
   manga?: PromptExpanderMangaOptions;
   /** 名前を付けた精密参照の登場人物（ネームの話者名に使わせる） */
   cast?: PromptExpanderCastMember[];
+  /** これまでの話に選んだエントリ ID（続きのページとして下書きさせる） */
+  context_entry_ids?: string[];
 }
 
 export interface PromptExpanderMangaScriptResponse {

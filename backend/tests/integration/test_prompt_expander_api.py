@@ -195,6 +195,28 @@ def test_manga_script_draft_api(client: TestClient):
     assert res.json()["detail"]["code"] == "manga_requires_v5"
 
 
+def test_story_context_ids_are_validated(client: TestClient):
+    """これまでの話の ID は 5 件まで。存在しない ID は entry_not_found。"""
+    base = {
+        "instruction": "続きのページ",
+        "image_model": "nai-diffusion-5-full",
+        "text_model": "glm-4-6",
+    }
+    too_many = [f"entry-{index}" for index in range(6)]
+    for path, extra in (
+        ("/api/prompt-expander/manga-script", {}),
+        ("/api/prompt-expander/expand", {"manga_mode": True}),
+    ):
+        res = client.post(path, json={**base, **extra, "context_entry_ids": too_many})
+        assert res.status_code == 422, res.text
+    res = client.post(
+        "/api/prompt-expander/manga-script",
+        json={**base, "context_entry_ids": ["missing"]},
+    )
+    assert res.status_code == 404, res.text
+    assert res.json()["detail"]["code"] == "entry_not_found"
+
+
 def test_settings_restore_seed_roundtrip(client: TestClient):
     res = client.get("/api/prompt-expander/settings")
     assert res.json()["settings"]["restore_seed"] is False

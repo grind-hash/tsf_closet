@@ -131,7 +131,8 @@ export const guide = {
         items: [
           'The prompt section switches between "Create with the LLM" and "Write directly". Writing directly shows only the prompt field and hides the instruction and storyboard fields (what you wrote in them is kept). Either way, generation sends the prompt field.',
           'With "Create with the LLM", press "Convert to prompt" on the instruction field and the result goes into the prompt field. The instruction is not changed, so you can edit it and create the prompt again. "Undo" below the prompt field brings back the previous prompt.',
-          'In comic mode, "Draft a storyboard from the synopsis" on the synopsis field puts a suggestion into the storyboard field. Edit the storyboard, then press "Convert to prompt" on the storyboard field. "Restore to fields" puts the synopsis, storyboard and prompt back into their own fields.',
+          'In comic mode, "Draft a storyboard from the synopsis" on the synopsis field puts a suggestion into the storyboard field. Edit the storyboard, then press "Convert to prompt" on the storyboard field. To skip the storyboard, press "Convert without storyboard" on the synopsis field. "Restore to fields" puts the synopsis, storyboard and prompt back into their own fields.',
+          'For the next page of a comic, first pick earlier pages with "Add to story so far" on history cards (up to 5 pages). The storyboard draft and prompt creation then continue the story, carrying over outfits, looks and the location from the last page. Picked pages are listed in story order above the synopsis field and are kept with the session draft.',
           "If you edit the instruction or storyboard after creating the prompt, a button to create it again from the current text appears below the prompt field. If you generate as it is, the history keeps the text the prompt was made from.",
         ],
       },

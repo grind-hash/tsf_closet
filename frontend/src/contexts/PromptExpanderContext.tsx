@@ -72,6 +72,7 @@ import {
   PROMPT_EXPANDER_IMAGE_MODEL_OPTIONS,
   PROMPT_EXPANDER_IMAGE_SIZES,
   PROMPT_EXPANDER_REFERENCE_MAX_COUNT,
+  PROMPT_EXPANDER_STORY_CONTEXT_MAX,
   type PromptExpanderImageSize,
   type PromptExpanderReferenceType,
   type PromptExpandMode,
@@ -86,6 +87,7 @@ import {
   clampReferenceStrength,
   isReferenceTypeSupported,
 } from "../utils/preciseReferences";
+import { compareEntriesByCreation } from "../utils/promptExpanderStoryContext";
 import {
   readStorage,
   readStorageFlag,
@@ -240,6 +242,8 @@ interface SessionDraft {
   negativeExpansion: PromptExpanderNegativeExpansion | null;
   promptUndo: PromptExpanderPromptUndo | null;
   scriptUndo: PromptExpanderScriptUndo | null;
+  /** これまでの話に選んだエントリの ID（漫画で続きのページを作るときに LLM へ渡す） */
+  storyContextEntryIds: string[];
 }
 
 const EMPTY_SESSION_DRAFT: SessionDraft = {
@@ -254,6 +258,7 @@ const EMPTY_SESSION_DRAFT: SessionDraft = {
   negativeExpansion: null,
   promptUndo: null,
   scriptUndo: null,
+  storyContextEntryIds: [],
 };
 
 const SESSION_DRAFT_KEY_PREFIX = "prompt_expander_draft:";
@@ -399,6 +404,8 @@ function readSessionDraft(sessionId: string): SessionDraft | null {
       negativeExpansion,
       promptUndo,
       scriptUndo,
+      // これまでの話を足す前の書きかけには無いので、空として読む
+      storyContextEntryIds: readSlots(data.storyContextEntryIds),
     };
   } catch {
     return null;
@@ -414,7 +421,8 @@ function isEmptyDraft(draft: SessionDraft): boolean {
     draft.characterSlots.length === 0 &&
     !draft.negativeExpansion &&
     !draft.promptUndo &&
-    !draft.scriptUndo
+    !draft.scriptUndo &&
+    draft.storyContextEntryIds.length === 0
   );
 }
 
@@ -460,10 +468,17 @@ interface RestoreSnapshot {
   restoredPositive: string;
 }
 
+/**
+ * 生成履歴でエントリを見せたあとにフォーカスする先。
+ * image はカードの画像（プレビューを開く）、story は「これまでの話に入れる／外す」ボタン
+ */
+export type PromptExpanderEntryRevealFocus = "image" | "story";
+
 /** 生成履歴で見せたいエントリ。同じエントリを続けて見せられるよう連番を付ける */
 export interface PromptExpanderEntryRevealRequest {
   entryId: string;
   seq: number;
+  focus: PromptExpanderEntryRevealFocus;
 }
 
 /** 欄の近くに出す拡張エラー */
@@ -519,7 +534,11 @@ interface PromptExpanderContextValue {
   dismissGenerateOutcome: () => void;
   /** 生成履歴で見せたいエントリ（「結果を見る」で設定し、EntryList が絞り込みを解いてそこへ移る） */
   entryRevealRequest: PromptExpanderEntryRevealRequest | null;
-  requestEntryReveal: (entryId: string) => void;
+  /** focus を story にすると、移った先で「これまでの話に入れる」ボタンを目立たせてフォーカスする */
+  requestEntryReveal: (
+    entryId: string,
+    focus?: PromptExpanderEntryRevealFocus,
+  ) => void;
   /** EntryList が見せ終えた要求を消す（一覧を開き直したときに、前の要求でもう一度動かないように） */
   completeEntryReveal: (seq: number) => void;
   uploading: boolean;
@@ -571,6 +590,10 @@ interface PromptExpanderContextValue {
   characterSlotsOverCap: boolean;
   /** 漫画モードが実際に効く状態か（設定 ON かつ V5 系モデル） */
   mangaActive: boolean;
+  /** これまでの話に選んだエントリ（開いているセッションにあるものだけ、生成した順） */
+  storyContextEntries: PromptExpanderEntry[];
+  /** storyContextEntries の ID（漫画のネーム下書き・プロンプト化に送る） */
+  storyContextEntryIds: string[];
   /** 正プロンプト拡張に実際に使うモード（漫画モード中は "tags" 固定） */
   effectivePositiveMode: PromptExpandMode;
   negativeText: string;
@@ -632,6 +655,10 @@ interface PromptExpanderContextValue {
   draftScript: () => Promise<void>;
   /** ネームを下書きし直す前の内容に戻す */
   undoScript: () => void;
+  /** これまでの話に入れる・外す（上限に達していれば入れない） */
+  toggleStoryContextEntry: (entryId: string) => void;
+  removeStoryContextEntry: (entryId: string) => void;
+  clearStoryContext: () => void;
   /** ネガティブの変換カードの内容を欄へ書き戻してカードを閉じる */
   applyNegativeExpansion: () => void;
   /** ネガティブの変換カードの内容でそのまま生成する（欄もカードも変更しない） */
@@ -869,6 +896,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
   const [activeSession, setActiveSession] =
     useState<PromptExpanderSession | null>(null);
   const [entries, setEntries] = useState<PromptExpanderEntry[]>([]);
+  // これまでの話に選んだエントリの ID（選んだ順。書きかけとしてセッションごとに持つ）
+  const [storyContextIds, setStoryContextIds] = useState<string[]>([]);
 
   // 設定
   const [settings, setSettings] =
@@ -982,6 +1011,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     setNegativeExpansion(draft.negativeExpansion);
     setPromptUndo(draft.promptUndo);
     setScriptUndo(draft.scriptUndo);
+    setStoryContextIds(draft.storyContextEntryIds);
     setRestoreSnapshot(null);
     setExpansionError(null);
   }, [activeSessionId]);
@@ -1002,6 +1032,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       negativeExpansion,
       promptUndo,
       scriptUndo,
+      storyContextEntryIds: storyContextIds,
     });
   }, [
     characterSlots,
@@ -1014,6 +1045,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     promptUndo,
     scriptText,
     scriptUndo,
+    storyContextIds,
   ]);
 
   // 欄が空になったら「拡張結果由来」の印は意味を失うので外す
@@ -1319,6 +1351,36 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  // これまでの話: 開いているセッションの一覧にあるものだけを、生成した順（話の順）に並べる。
+  // 一覧を読み込む前や、ほかのタブで消したエントリの ID は表示にも送信にも使わない
+  const storyContextEntries = useMemo(() => {
+    if (storyContextIds.length === 0) return [];
+    const selected = new Set(storyContextIds);
+    return entries
+      .filter((entry) => selected.has(entry.id))
+      .sort(compareEntriesByCreation);
+  }, [entries, storyContextIds]);
+  const storyContextEntryIds = useMemo(
+    () => storyContextEntries.map((entry) => entry.id),
+    [storyContextEntries],
+  );
+  const toggleStoryContextEntry = useCallback(
+    (entryId: string) => {
+      setStoryContextIds((prev) => {
+        if (prev.includes(entryId)) return prev.filter((id) => id !== entryId);
+        // 一覧に無くなった ID は数えずに捨ててから上限を見る
+        const kept = prev.filter((id) => entries.some((e) => e.id === id));
+        if (kept.length >= PROMPT_EXPANDER_STORY_CONTEXT_MAX) return prev;
+        return [...kept, entryId];
+      });
+    },
+    [entries],
+  );
+  const removeStoryContextEntry = useCallback((entryId: string) => {
+    setStoryContextIds((prev) => prev.filter((id) => id !== entryId));
+  }, []);
+  const clearStoryContext = useCallback(() => setStoryContextIds([]), []);
+
   const setSource = useCallback((next: PromptExpanderSource | null) => {
     setSourceState(next);
   }, []);
@@ -1583,10 +1645,13 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     [],
   );
   const entryRevealSeq = useRef(0);
-  const requestEntryReveal = useCallback((entryId: string) => {
-    entryRevealSeq.current += 1;
-    setEntryRevealRequest({ entryId, seq: entryRevealSeq.current });
-  }, []);
+  const requestEntryReveal = useCallback(
+    (entryId: string, focus: PromptExpanderEntryRevealFocus = "image") => {
+      entryRevealSeq.current += 1;
+      setEntryRevealRequest({ entryId, seq: entryRevealSeq.current, focus });
+    },
+    [],
+  );
   const completeEntryReveal = useCallback((seq: number) => {
     setEntryRevealRequest((prev) => (prev?.seq === seq ? null : prev));
   }, []);
@@ -1748,6 +1813,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
           ...(characterMode && referenceCast.length > 0
             ? { cast: referenceCast }
             : {}),
+          // これまでの話（前のページ）は漫画モードのときだけ渡す
+          ...(mangaActive && storyContextEntryIds.length > 0
+            ? { context_entry_ids: storyContextEntryIds }
+            : {}),
         });
         const prompt = resp.positive_prompt ?? "";
         const slots =
@@ -1823,6 +1892,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       settings.inherit_source_prompts,
       settings.text_model,
       sourceFields,
+      storyContextEntryIds,
       transparentActive,
     ],
   );
@@ -1861,6 +1931,10 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         manga: mangaRequest,
         // 名前を付けた精密参照の登場人物は、ネームの話者名に使わせる
         ...(referenceCast.length > 0 ? { cast: referenceCast } : {}),
+        // これまでの話（前のページ）があれば、その続きとして下書きさせる
+        ...(storyContextEntryIds.length > 0
+          ? { context_entry_ids: storyContextEntryIds }
+          : {}),
       });
       if (activeSessionIdRef.current === requestSessionId) {
         // 前のネームが空でも控える（「下書きしました」の案内と、空に戻す操作のため）
@@ -1889,6 +1963,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
     scriptText,
     settings.image_model,
     settings.text_model,
+    storyContextEntryIds,
   ]);
 
   const undoScript = useCallback(() => {
@@ -2444,6 +2519,7 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
         if (source?.kind === "entry" && source.entryId === id) {
           setSourceState(null);
         }
+        setStoryContextIds((prev) => prev.filter((storyId) => storyId !== id));
         // 消したエントリを指す参照だけ外す（他の参照は残す）
         setReferences((prev) =>
           prev.filter((ref) => !(ref.kind === "entry" && ref.entryId === id)),
@@ -2561,6 +2637,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       characterSlots,
       characterSlotsOverCap,
       mangaActive,
+      storyContextEntries,
+      storyContextEntryIds,
       effectivePositiveMode,
       negativeText,
       negativeMode,
@@ -2604,6 +2682,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       expandNegative,
       draftScript,
       undoScript,
+      toggleStoryContextEntry,
+      removeStoryContextEntry,
+      clearStoryContext,
       undoPrompt,
       applyNegativeExpansion,
       generateFromNegativeExpansion,
@@ -2673,6 +2754,8 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       characterSlots,
       characterSlotsOverCap,
       mangaActive,
+      storyContextEntries,
+      storyContextEntryIds,
       effectivePositiveMode,
       negativeText,
       negativeMode,
@@ -2709,6 +2792,9 @@ export function PromptExpanderProvider({ children }: { children: ReactNode }) {
       expandNegative,
       draftScript,
       undoScript,
+      toggleStoryContextEntry,
+      removeStoryContextEntry,
+      clearStoryContext,
       undoPrompt,
       applyNegativeExpansion,
       generateFromNegativeExpansion,

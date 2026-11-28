@@ -16,6 +16,10 @@ from typing import Literal
 from ..consts.prompt_expander import (
     PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO,
     PROMPT_EXPANDER_MANGA_PANEL_COUNT_MAX,
+    PROMPT_EXPANDER_STORY_CHARACTER_MAX_LEN,
+    PROMPT_EXPANDER_STORY_PROMPT_MAX_LEN,
+    PROMPT_EXPANDER_STORY_SCRIPT_MAX_LEN,
+    PROMPT_EXPANDER_STORY_SYNOPSIS_MAX_LEN,
 )
 from .llm_json import strip_code_fence
 from .memory_prompts import build_memory_priority_instruction
@@ -922,6 +926,112 @@ Requirements:
 - Do not add generic quality phrases (low resolution, bad anatomy, etc.) unless the user asks for them."""
 
 # ---------------------------------------------------------------------------
+# これまでの話（漫画で続きのページを作るときに渡す前のページ）
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StoryPage:
+    """これまでの話の 1 ページ。前に生成したエントリの保存内容から作る。
+
+    synopsis はページのあらすじ（ネームから作ったページは下書き元のあらすじ）、
+    script はネーム（ネームから作ったページだけ）、final_prompt は生成に使ったプロンプト。
+    """
+
+    synopsis: str = ""
+    script: str = ""
+    character_prompts: tuple[str, ...] = ()
+    final_prompt: str = ""
+
+
+STORY_CONTEXT_HEADING = (
+    "Story so far (earlier pages of this same comic, oldest first; reference "
+    "only, do not redraw them):"
+)
+
+MANGA_STORY_CONTINUITY_RULE = (
+    "\n- Story so far: the user message lists earlier pages of this same comic, "
+    "oldest first, and this page continues right after the latest one. Treat "
+    "them as established facts: keep each continuing character's hair, eyes, "
+    "body, clothing (items and colors), accessories, and any transformation that "
+    "has already happened exactly as on the latest page, and keep the same "
+    "location and time of day, unless this page's synopsis or instruction "
+    "explicitly changes them. Do not redraw or repeat earlier panels, and do not "
+    "reuse their dialogue."
+)
+
+# プロンプト化では、引き継ぐ外見を前のページのプロンプトから書き写させる。
+# 人数タグは変身前のページ（boy など）に引きずられやすいため、今の姿で数えさせる
+MANGA_STORY_PROMPT_CARRYOVER_RULE = (
+    "\n- For each continuing character, carry over the appearance and clothing "
+    "tags from the latest page's character prompts (or its image prompt when it "
+    "has none) into this page's prompts. Count people in base_tags (1girl, 1boy, "
+    "2girls, ...) by how each character looks on this page: a character who has "
+    "transformed is counted by their current body, never by their look on "
+    "earlier pages."
+)
+
+
+def _clip_story_text(text: str, limit: int) -> str:
+    """これまでの話に渡す文を limit 字までに切り詰める（超えたら末尾に … を付ける）。"""
+    value = (text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[:limit].rstrip() + "…"
+
+
+def build_story_context_block(
+    pages: Sequence[StoryPage], *, include_script: bool
+) -> str:
+    """これまでの話を user プロンプト用の文にする。ページが無ければ ""。
+
+    include_script はネームを渡すか（ネーム下書きでは渡し、プロンプト化では渡さない。
+    プロンプト化の出力は JSON で、文脈の「」の台詞を書き写すと壊れやすいため）。
+    キャラ枠と最終プロンプトは台詞の要素を除き、最終プロンプトは最後のページだけ渡す。
+    """
+    if not pages:
+        return ""
+    lines = [STORY_CONTEXT_HEADING]
+    last = len(pages) - 1
+    for index, page in enumerate(pages):
+        lines.append(
+            f"Page {index + 1} (latest)" if index == last else f"Page {index + 1}"
+        )
+        synopsis = _clip_story_text(
+            page.synopsis, PROMPT_EXPANDER_STORY_SYNOPSIS_MAX_LEN
+        )
+        if synopsis:
+            lines.append(f"Synopsis: {synopsis}")
+        if include_script:
+            script = _clip_story_text(page.script, PROMPT_EXPANDER_STORY_SCRIPT_MAX_LEN)
+            if script:
+                lines.append("Script:\n" + script)
+        characters = [
+            _clip_story_text(
+                strip_quoted_segments(prompt), PROMPT_EXPANDER_STORY_CHARACTER_MAX_LEN
+            )
+            for prompt in page.character_prompts
+        ]
+        characters = [item for item in characters if item]
+        if characters:
+            lines.append(
+                "Character prompts:\n"
+                + "\n".join(
+                    f"{number}. {item}"
+                    for number, item in enumerate(characters, start=1)
+                )
+            )
+        if index == last:
+            prompt = _clip_story_text(
+                strip_quoted_segments(page.final_prompt),
+                PROMPT_EXPANDER_STORY_PROMPT_MAX_LEN,
+            )
+            if prompt:
+                lines.append(f"Image prompt: {prompt}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # ネームの下書き（あらすじ → 記法付きのコマ割り台本。プロンプト化の前段）
 # ---------------------------------------------------------------------------
 
@@ -941,6 +1051,11 @@ Requirements:
 MANGA_SCRIPT_USER_PROMPT_TEMPLATE = (
     "Synopsis:\n{synopsis}\n\nWrite the storyboard script now."
 )
+# これまでの話があるとき。あらすじは続きのページの分として渡す
+MANGA_SCRIPT_CONTINUATION_USER_PROMPT_TEMPLATE = (
+    "Synopsis of the next page:\n{synopsis}\n\n"
+    "Write the storyboard script for the next page now."
+)
 
 
 def build_manga_script_prompts(
@@ -951,10 +1066,12 @@ def build_manga_script_prompts(
     memory_text: str = "",
     language: str = "ja",
     cast: Sequence[CastMember] = (),
+    story_pages: Sequence[StoryPage] = (),
 ) -> tuple[str, str]:
     """ネーム下書きの (system, user) プロンプトを返す。
 
     cast（名前を付けた精密参照の登場人物）があれば、その名前を話者名に使わせる。
+    story_pages（これまでの話）があれば、その続きのページとして書かせる。
     """
     if options.panel_count <= PROMPT_EXPANDER_MANGA_PANEL_COUNT_AUTO:
         panel_rule = "Write between 2 and 4 panels."
@@ -1005,10 +1122,20 @@ def build_manga_script_prompts(
     cast_block = build_cast_block(cast)
     if cast_block:
         system += MANGA_SCRIPT_CAST_RULE
+    story_block = build_story_context_block(story_pages, include_script=True)
+    if story_block:
+        system += MANGA_STORY_CONTINUITY_RULE
     system += _content_rule(nsfw) + build_memory_priority_instruction(
         (memory_text or "").strip(), language
     )
-    user = MANGA_SCRIPT_USER_PROMPT_TEMPLATE.format(synopsis=synopsis.strip())
+    template = (
+        MANGA_SCRIPT_CONTINUATION_USER_PROMPT_TEMPLATE
+        if story_block
+        else MANGA_SCRIPT_USER_PROMPT_TEMPLATE
+    )
+    user = template.format(synopsis=synopsis.strip())
+    if story_block:
+        user = f"{story_block}\n\n{user}"
     if cast_block:
         user = f"{cast_block}\n\n{user}"
     return system, user
@@ -1113,6 +1240,7 @@ def build_positive_system_prompt(
     manga_notation: MangaNotation | None = None,
     transparent_background: bool = False,
     with_cast: bool = False,
+    with_story: bool = False,
 ) -> str:
     """正プロンプト拡張の system プロンプトを組み立てる。
 
@@ -1120,6 +1248,7 @@ def build_positive_system_prompt(
     manga を渡すと漫画モード（コマ割り・吹き出し）の本体に差し替える。
     transparent_background は本体直後に背景を書かせない規則を足す（漫画モードでは無視）。
     with_cast はキャラ枠 ON でキャストがあるとき、キャラ枠を名前付き object で出させる。
+    with_story は漫画でこれまでの話を渡すとき、前のページの外見を引き継ぐ規則を足す。
     """
     if manga is not None:
         # 漫画モードは拡張モードに依存しない（引用符内以外は常に英語）
@@ -1154,6 +1283,8 @@ def build_positive_system_prompt(
             if mode == "japanese"
             else TRANSPARENT_BACKGROUND_RULE_TAGS
         )
+    if manga is not None and with_story:
+        base += MANGA_STORY_CONTINUITY_RULE + MANGA_STORY_PROMPT_CARRYOVER_RULE
     if manga is not None or mode == "tags":
         base += JAPANESE_TAG_GLOSSARY_RULE
     return (
@@ -1174,10 +1305,12 @@ def build_positive_user_prompt(
     manga_notation: MangaNotation | None = None,
     cast: Sequence[CastMember] = (),
     cast_descriptions: Sequence[str] = (),
+    story_pages: Sequence[StoryPage] = (),
 ) -> str:
     """正プロンプト拡張の user プロンプトを組み立てる（移植元の形式を踏襲）。
 
     キャラ枠 ON のときだけ cast（登場人物の一覧。目印 [[n]] と見た目の言い回し付き）を足す。
+    漫画のときだけ story_pages（これまでの話。ネームは除く）を指示の前に足す。
     """
     parts = [
         "Current positive prompt:\n"
@@ -1199,6 +1332,10 @@ def build_positive_user_prompt(
             "Current image description (reference only):\n"
             + context_description.strip()
         )
+    if manga:
+        story_block = build_story_context_block(story_pages, include_script=False)
+        if story_block:
+            parts.append(story_block)
     parts.append("User instruction:\n" + instruction.strip())
     if manga:
         if manga_notation is not None and manga_notation.has_texts:

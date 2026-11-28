@@ -144,6 +144,13 @@ DEFAULT_PROMPT_EXPANDER_MANGA_TEXT_LANGUAGE: Final[str] = "auto"
 # 読み順（rtl = 日本式: 右上始まりで右→左・上→下、ltr = 西洋式）
 PROMPT_EXPANDER_MANGA_READING_DIRECTIONS: Final[tuple[str, ...]] = ("rtl", "ltr")
 DEFAULT_PROMPT_EXPANDER_MANGA_READING_DIRECTION: Final[str] = "rtl"
+# これまでの話（漫画で続きのページを作るときに LLM へ渡す前のページ）。
+# 選べるページ数と、ページごとに渡す各欄の字数（超えた分は切り詰める）
+PROMPT_EXPANDER_STORY_CONTEXT_MAX: Final[int] = 5
+PROMPT_EXPANDER_STORY_SYNOPSIS_MAX_LEN: Final[int] = 1200
+PROMPT_EXPANDER_STORY_SCRIPT_MAX_LEN: Final[int] = 1500
+PROMPT_EXPANDER_STORY_CHARACTER_MAX_LEN: Final[int] = 600
+PROMPT_EXPANDER_STORY_PROMPT_MAX_LEN: Final[int] = 2000
 
 
 def max_character_prompts(image_model: str | None) -> int:
