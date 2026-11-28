@@ -22,8 +22,8 @@ from gateway.databases.models import History as HistoryORM
 from gateway.databases.models import PlaySummary as PlaySummaryORM
 from gateway.databases.models import Session as SessionORM
 from gateway.databases.models import SessionStats as SessionStatsORM
+from gateway.services import character_chat_lookups, real_world_lookup, release_notes
 from gateway.services import character_chat_service as module
-from gateway.services import real_world_lookup
 from gateway.services.character_chat_play_proposal import PlayCatalogEntry
 from gateway.services.character_chat_service import (
     CharacterChatError,
@@ -2449,3 +2449,97 @@ async def test_play_proposal_is_guide_thread_only(
     assert _phases(events) == ["plan", "reply"]
     assert "proposal" not in calls
     assert "play_proposal" not in _done_meta(events)
+
+
+# ---------------------------------------------------------------------------
+# 更新履歴(app_updates)といまの版
+# ---------------------------------------------------------------------------
+
+_APP_UPDATES_PLAN = json.dumps(
+    {"lookups": [{"kind": "app_updates", "query": None}], "appearance_request": None}
+)
+
+
+def _fake_release_notes(monkeypatch) -> list[tuple]:
+    calls: list[tuple] = []
+
+    def fake_render(query, limit, language, cap):
+        calls.append((query, language))
+        return (
+            "新しい版から順に載せています。\nv0.11.1（2026-11-10 公開）\n- 不具合を修正"
+        )
+
+    monkeypatch.setattr(character_chat_lookups, "render_app_updates", fake_render)
+    monkeypatch.setattr(
+        module,
+        "current_release",
+        lambda: release_notes.Release(version="v0.11.1", date="2026-11-10", items=()),
+    )
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_base_thread_answers_from_release_notes(
+    service: CharacterChatService, monkeypatch
+) -> None:
+    calls = _fake_release_notes(monkeypatch)
+    thread = await service.get_or_create_base_thread()
+    systems: list[tuple[str, str]] = []
+    fake_generate_text, _ = _llm_router(plan=_APP_UPDATES_PLAN, systems=systems)
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service,
+        "generate_feeling_stream",
+        _fake_stream(["不具合の修正が入りました"], captured),
+    )
+
+    events = await _collect(
+        service.stream_message(thread_id=thread["id"], content="最新で何が変わったの？")
+    )
+
+    # 同梱ファイルの参照なので、外部検索の進捗は出さない
+    assert _phases(events) == ["plan", "reply"]
+    assert '- "app_updates":' in _planner_system(systems)
+    assert calls == [(None, "ja")]
+    system = captured["system"]
+    assert (
+        "いま使われている TSF Closet のバージョンは v0.11.1（2026-11-10 公開）です。"
+        in (system)
+    )
+    assert "[アプリの更新履歴について、いま調べた結果]\n## 更新履歴\n" in system
+    assert "[現実世界について" not in system
+
+    detail = await service.get_thread(thread["id"])
+    (lookup,) = detail["messages"][1]["meta"]["lookups"]
+    assert lookup["kind"] == "app_updates"
+    assert lookup["query"] is None
+    assert "v0.11.1" in lookup["text"]
+
+
+@pytest.mark.asyncio
+async def test_session_thread_gets_no_release_notes_or_version(
+    service: CharacterChatService, isolated_db, tmp_path: Path, monkeypatch
+) -> None:
+    """更新履歴といまの版は案内役キャラだけ。作中の人物には渡さない。"""
+    calls = _fake_release_notes(monkeypatch)
+    await _seed_session(isolated_db.async_factory, tmp_path / "start.png")
+    thread = await service.create_session_thread(
+        source_session_id="sess-1", source_history_id=None
+    )
+    systems: list[tuple[str, str]] = []
+    fake_generate_text, _ = _llm_router(plan=_APP_UPDATES_PLAN, systems=systems)
+    captured: dict = {}
+    monkeypatch.setattr(module.llm_service, "generate_text", fake_generate_text)
+    monkeypatch.setattr(
+        module.llm_service, "generate_feeling_stream", _fake_stream(["やあ"], captured)
+    )
+
+    await _collect(
+        service.stream_message(thread_id=thread["id"], content="最新で何が変わったの？")
+    )
+
+    assert '"app_updates"' not in _planner_system(systems)
+    assert calls == []
+    assert "[アプリの更新履歴について" not in captured["system"]
+    assert "v0.11.1" not in captured["system"]

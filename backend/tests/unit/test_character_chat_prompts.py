@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from gateway.consts.character_chat import (
+    APP_INFO_LOOKUP_KINDS,
     LOOKUP_MAX_PER_TURN,
     PAST_PLAY_LOOKUP_KINDS,
     REAL_WORLD_LOOKUP_KINDS,
@@ -18,6 +19,8 @@ from gateway.services.character_chat_models import (
 from gateway.services.character_chat_prompts import (
     adventure_persona_prompt,
     app_guide_block,
+    app_updates_block,
+    app_version_line,
     appearance_change_system_prompt,
     appearance_change_user_prompt,
     base_persona_block,
@@ -115,10 +118,15 @@ def test_app_guide_block_forbids_asserting_unlisted_facts() -> None:
     ja = app_guide_block(GUIDE, "ja")
     assert "書かれていることだけを根拠" in ja
     assert "非推奨かどうか" in ja
-    assert ja.rstrip().endswith("勧めてください。")
+    assert "遊び方ガイドや画面の案内を見るよう勧めてください。" in ja
+    # 更新内容は更新履歴の調べ物があるときだけ答えさせる(決まりは一覧の後ろに置く)
+    assert ja.rstrip().endswith(
+        "更新履歴を調べた結果がある手番だけ、その結果を根拠に答えてください。"
+    )
     en = app_guide_block(GUIDE, "en")
     assert "only from this list" in en
     assert "deprecated" in en
+    assert en.rstrip().endswith("release-notes lookup results, and only from them.")
 
 
 def test_app_guide_block_without_guide_points_to_play_guide() -> None:
@@ -723,3 +731,107 @@ def test_reply_system_prompt_appends_avatar_header_instruction() -> None:
     en = reply_system_prompt("en", **en_kwargs, header_instruction="HEADER")
     assert en.endswith("HEADER")
     assert "Start with the header line described at the end, then reply" in en
+
+
+# ---------------------------------------------------------------------------
+# 更新履歴(app_updates)といまの版
+# ---------------------------------------------------------------------------
+
+
+def test_planner_prompt_offers_app_updates_only_when_allowed() -> None:
+    """更新履歴の調べ物は許可されたときだけ選択肢と規則に載る。既定の文面は変えない。"""
+    default = planner_system_prompt("ja")
+    assert default == planner_system_prompt("ja", app_info_kinds=())
+    assert '"app_updates"' not in default
+
+    offered = planner_system_prompt("ja", app_info_kinds=set(APP_INFO_LOOKUP_KINDS))
+    assert '- "app_updates": this app\'s release notes' in offered
+    assert '- "app_updates": ONLY when' in offered
+    # 「アプリの仕組みの質問は調べない」の例外であることを明示する
+    assert "the one exception to" in offered
+    assert "- Choose past-play lookups ONLY when" in offered
+    assert "in this app's release notes" in offered
+
+    both = planner_system_prompt(
+        "en",
+        real_world_kinds=set(REAL_WORLD_LOOKUP_KINDS),
+        app_info_kinds=set(APP_INFO_LOOKUP_KINDS),
+    )
+    assert (
+        "about the user's past play, about the real world or in this app's release "
+        "notes" in both
+    )
+
+
+def test_plan_keeps_app_updates_only_when_allowed_and_once() -> None:
+    items = {
+        "lookups": [
+            {"kind": "app_updates", "query": "v0.10.0"},
+            {"kind": "app_updates", "query": "キャラチャット"},
+        ]
+    }
+    # 既定(過去プレイの調べ物だけ)では落とす
+    assert CharacterChatPlan.model_validate(items).lookups == []
+    plan = CharacterChatPlan.model_validate(
+        items,
+        context={"allowed_kinds": (*PAST_PLAY_LOOKUP_KINDS, *APP_INFO_LOOKUP_KINDS)},
+    )
+    # 1 手番 1 件まで
+    assert [(item.kind, item.query) for item in plan.lookups] == [
+        ("app_updates", "v0.10.0")
+    ]
+    latest = CharacterChatPlan.model_validate(
+        {"lookups": [{"kind": "app_updates", "query": "null"}]},
+        context={"allowed_kinds": APP_INFO_LOOKUP_KINDS},
+    )
+    assert latest.lookups[0].query is None
+
+
+def test_app_updates_block_grounds_answers_in_release_notes() -> None:
+    assert app_updates_block("", "ja") == ""
+    ja = app_updates_block("v0.11.1（2026-11-10 公開）", "ja")
+    assert ja.startswith("[アプリの更新履歴について、いま調べた結果]")
+    assert "この結果だけを根拠" in ja
+    assert "更新履歴には載っていない" in ja
+    en = app_updates_block("v0.11.1 (released 2026-11-10)", "en")
+    assert "written in Japanese; answer in English" in en
+    assert "do not cover it" in en
+
+
+def test_base_persona_block_includes_version_line_only_when_given() -> None:
+    line = app_version_line("v0.11.1", "2026-11-10", "ja")
+    assert (
+        line
+        == "いま使われている TSF Closet のバージョンは v0.11.1（2026-11-10 公開）です。"
+    )
+    assert app_version_line("", "", "ja") == ""
+    assert "v0.11.1 (released 2026-11-10)" in app_version_line(
+        "v0.11.1", "2026-11-10", "en"
+    )
+
+    assert "バージョンは" not in base_persona_block("ja")
+    block = base_persona_block("ja", app_version_text=line)
+    assert line in block
+    # 機能一覧の後ろ、セレナ自身の機能の前に置く
+    assert block.index("TSF Closet の機能") < block.index(line)
+    assert block.index(line) < block.index("おすすめのプレイ")
+
+
+def test_reply_system_prompt_places_app_updates_after_past_play_lookups() -> None:
+    prompt = reply_system_prompt(
+        "ja",
+        name="セレナ",
+        pronoun="私",
+        persona_block=base_persona_block("ja"),
+        memory_block_text="",
+        summary_text=None,
+        lookup_block_text=lookup_block("## 最近のセッション\n- s1", "ja"),
+        appearance_description="",
+        appearance_change_request=None,
+        app_updates_block_text=app_updates_block("v0.11.1（2026-11-10 公開）", "ja"),
+    )
+    assert "[アプリの更新履歴について、いま調べた結果]" in prompt
+    assert prompt.index("[相手の過去のプレイについて") < prompt.index(
+        "[アプリの更新履歴について"
+    )
+    assert prompt.index("[アプリの更新履歴について") < prompt.index("会話のルール")

@@ -165,3 +165,20 @@ describe("CharacterChatCitations", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 });
+
+describe("CharacterChatCitations for release notes", () => {
+  it("labels release-note lookups with their keywords", () => {
+    renderCitations([
+      {
+        kind: "app_updates",
+        query: "キャラチャット",
+        text: "「キャラチャット」を含む更新(新しい順):\n- v0.9.0（2026-09-18）【新機能】キャラチャットを追加",
+        sessionIds: [],
+        sources: [],
+      },
+    ]);
+    expect(
+      screen.getByText("調べたこと: 更新履歴「キャラチャット」"),
+    ).toBeTruthy();
+  });
+});

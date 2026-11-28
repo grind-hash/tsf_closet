@@ -17,6 +17,7 @@ from ..consts.character_chat import (
     APP_GUIDE_HEADER,
     APP_GUIDE_MISSING,
     APP_GUIDE_UNAVAILABLE,
+    APP_INFO_LOOKUP_KINDS,
     BASE_CHARACTER_PERSONA,
     LOOKUP_KINDS,
     PLAY_PROPOSAL_INSTRUCTION_MAX,
@@ -67,9 +68,13 @@ _REAL_WORLD_LOOKUP_DESCRIPTIONS = {
     "web_search": "a web search about the real world outside this app: news, current events, releases, products, prices, trends, and real works, people or places. Needs query (neutral keywords).",
     "weather": "the current weather at the user's location (configured on the server). No query.",
 }
-assert set(_LOOKUP_DESCRIPTIONS) | set(_REAL_WORLD_LOOKUP_DESCRIPTIONS) == set(
-    LOOKUP_KINDS
-)
+# アプリ自身の情報の調べ物(同梱の更新履歴)。案内役キャラだけに見せる
+_APP_INFO_LOOKUP_DESCRIPTIONS = {
+    "app_updates": "this app's release notes: what changed in the latest update or in a given version, and in which version a feature was added or changed. query: null for the latest update, a version such as v0.10.0, or short Japanese keywords naming the feature.",
+}
+assert set(_LOOKUP_DESCRIPTIONS) | set(_REAL_WORLD_LOOKUP_DESCRIPTIONS) | set(
+    _APP_INFO_LOOKUP_DESCRIPTIONS
+) == set(LOOKUP_KINDS)
 
 
 def _real_world_rules(offered: list[str]) -> str:
@@ -119,28 +124,55 @@ def _real_world_rules(offered: list[str]) -> str:
     return "".join(rules)
 
 
+def _app_info_rules(offered: list[str]) -> str:
+    if "app_updates" not in offered:
+        return ""
+    return (
+        '- "app_updates": ONLY when the latest user message asks what changed or is '
+        "new in this app (the latest update, a specific version), or in which version "
+        "a feature was added, changed or deprecated. This is the one exception to "
+        '"questions about how the app works need no lookups". Not for how a feature '
+        "works now, and not for the real world. At most one app_updates.\n"
+        "- app_updates query: null for the latest update; the version as written (e.g. "
+        '"v0.10.0") for a specific version; otherwise 1-3 short keywords naming the '
+        "feature in Japanese, because the release notes are written in Japanese (e.g. "
+        "キャラチャット, サロン経営, TSFシナリオ).\n"
+    )
+
+
 def planner_system_prompt(
-    language: str, *, real_world_kinds: Collection[str] = ()
+    language: str,
+    *,
+    real_world_kinds: Collection[str] = (),
+    app_info_kinds: Collection[str] = (),
 ) -> str:
     """判定 LLM の system prompt。JSON だけを返させる。
 
-    real_world_kinds は今回使ってよい現実世界の調べ物(案内役キャラで設定が有効なときだけ)。
-    空なら選択肢にも規則にも載せず、従来と同じ文面になる。
+    real_world_kinds は今回使ってよい現実世界の調べ物(案内役キャラで設定が有効なときだけ)、
+    app_info_kinds は更新履歴の調べ物(案内役キャラだけ)。どちらも空なら選択肢にも
+    規則にも載せず、従来と同じ文面になる。
     """
     offered = [kind for kind in REAL_WORLD_LOOKUP_KINDS if kind in real_world_kinds]
+    app_offered = [kind for kind in APP_INFO_LOOKUP_KINDS if kind in app_info_kinds]
     descriptions = {
         **_LOOKUP_DESCRIPTIONS,
         **{kind: _REAL_WORLD_LOOKUP_DESCRIPTIONS[kind] for kind in offered},
+        **{kind: _APP_INFO_LOOKUP_DESCRIPTIONS[kind] for kind in app_offered},
     }
     lookups = "\n".join(
         f'- "{kind}": {description}' for kind, description in descriptions.items()
     )
+    targets = ["about the user's past play"]
+    if offered:
+        targets.append("about the real world")
+    if app_offered:
+        targets.append("in this app's release notes")
     look_up_what = (
-        "about the user's past play or about the real world"
-        if offered
-        else "about the user's past play"
+        " or ".join(targets)
+        if len(targets) <= 2
+        else f"{', '.join(targets[:-1])} or {targets[-1]}"
     )
-    choose = "past-play lookups" if offered else "lookups"
+    choose = "past-play lookups" if offered or app_offered else "lookups"
     return (
         "You are the retrieval planner for a character chat inside a dress-up / TSF "
         "game app. Before the character answers, decide whether the character should "
@@ -164,6 +196,7 @@ def planner_system_prompt(
         "return an empty list.\n"
         "- At most 3 lookups. Prefer the single most relevant kind.\n"
         f"{_real_world_rules(offered)}"
+        f"{_app_info_rules(app_offered)}"
         "- For session_detail, copy session_id exactly from session_candidates; if none "
         "fits, use recent_sessions or search_sessions instead.\n"
         "- appearance_request: when the user asks the character to change clothes, "
@@ -282,17 +315,35 @@ def app_guide_block(app_guide: Sequence[Mapping[str, Any]], language: str) -> st
     return "\n".join((APP_GUIDE_HEADER[lang], *lines, APP_GUIDE_GROUNDING[lang]))
 
 
+def app_version_line(version: str, date: str, language: str) -> str:
+    """いま使われている版の 1 行。版が分からなければ空文字。"""
+    if not version:
+        return ""
+    if _lang(language) == "en":
+        return f"The TSF Closet version in use is {version} (released {date})."
+    return f"いま使われている TSF Closet のバージョンは {version}（{date} 公開）です。"
+
+
 def base_persona_block(
-    language: str, app_guide: Sequence[Mapping[str, Any]] = ()
+    language: str,
+    app_guide: Sequence[Mapping[str, Any]] = (),
+    *,
+    app_version_text: str = "",
 ) -> str:
-    """案内役キャラ(セレナ)の人物設定 + 遊び方ガイドの機能一覧 + セレナ自身の機能。"""
+    """案内役キャラ(セレナ)の人物設定 + 遊び方ガイドの機能一覧 + いまの版 + セレナ自身の機能。
+
+    app_version_text は app_version_line の 1 行(更新履歴が無ければ空で、何も載せない)。
+    """
     lang = _lang(language)
     return "\n\n".join(
-        (
+        part
+        for part in (
             BASE_CHARACTER_PERSONA[lang],
             app_guide_block(app_guide, lang),
+            app_version_text,
             SERENA_PLAY_PROPOSAL_ABILITY[lang],
         )
+        if part
     )
 
 
@@ -663,6 +714,30 @@ def current_time_block(now: datetime, language: str) -> str:
     )
 
 
+def app_updates_block(rendered: str, language: str) -> str:
+    """更新履歴の調べ物の結果の枠(案内役キャラだけ)。空なら空文字。"""
+    text = str(rendered or "").strip()
+    if not text:
+        return ""
+    if _lang(language) == "en":
+        return (
+            "[What you just looked up in this app's release notes]\n"
+            f"{text}\n"
+            "The release notes are written in Japanese; answer in English. Answer what "
+            "changed in which version only from these results. If a version, a feature "
+            "or a future plan is not here, say the release notes do not cover it instead "
+            "of guessing. Do not read every item out; pick the points that answer the "
+            "question."
+        )
+    return (
+        "[アプリの更新履歴について、いま調べた結果]\n"
+        f"{text}\n"
+        "どの版で何が変わったかは、この結果だけを根拠に答えてください。ここに無い版・"
+        "機能・今後の予定は推測せず、「更新履歴には載っていない」と伝えてください。"
+        "項目を全部読み上げず、聞かれたことに沿って要点を話してください。"
+    )
+
+
 def real_world_block(rendered: str, language: str) -> str:
     """Web 検索・天気の結果の枠。アプリの外の文章として扱わせる。空なら空文字。"""
     text = str(rendered or "").strip()
@@ -926,6 +1001,7 @@ def reply_system_prompt(
     lookup_block_text: str,
     appearance_description: str,
     appearance_change_request: str | None,
+    app_updates_block_text: str = "",
     live2d_costume_text: str = "",
     origin_lore_block_text: str = "",
     header_instruction: str = "",
@@ -944,8 +1020,9 @@ def reply_system_prompt(
     食い違うとき(会話で着替えた後など)に、見えている方を優先させるために置く。
     relaxed_length はセッション由来キャラ向けに文数の目安を緩める(案内役は短めのまま)。
     read_aloud は返答を読み上げる手番。読み上げない手番は種類を問わず文数を増やす。
+    app_updates_block_text は案内役キャラだけが受け取る更新履歴の調べ物の結果。
     current_time_text / real_world_block_text は案内役キャラだけが受け取る、いまの日時と
-    Web 検索・天気の結果。過去プレイの調べ物の後ろに置く。search_refusal_text は
+    Web 検索・天気の結果。どれも過去プレイの調べ物の後ろに置く。search_refusal_text は
     Web 検索を利用規約で見送った手番の説明(同じく案内役キャラだけ)。
     play_proposal_text は案内役キャラのおすすめのプレイの枠(カードの中身、または
     用意できなかったこと)。会話のルールより前に置く。
@@ -991,6 +1068,8 @@ def reply_system_prompt(
         )
     if lookup_block_text:
         sections.append(lookup_block_text)
+    if app_updates_block_text:
+        sections.append(app_updates_block_text)
     if current_time_text:
         sections.append(current_time_text)
     if real_world_block_text:

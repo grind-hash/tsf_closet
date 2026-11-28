@@ -11,6 +11,7 @@ export const LOOKUP_KINDS = [
   "recent_adventures",
   "web_search",
   "weather",
+  "app_updates",
 ] as const;
 export type LookupKind = (typeof LOOKUP_KINDS)[number];
 

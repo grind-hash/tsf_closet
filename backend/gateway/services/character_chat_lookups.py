@@ -2,7 +2,8 @@
 
 判定 LLM が返した計画(CharacterChatPlan)を実行し、返答プロンプトへ載せる
 テキストへ整形する。過去プレイの調べ物は DB 参照、現実世界の調べ物(Web 検索・天気)は
-real_world_lookup 経由の外部 API で、返答プロンプトでは別の枠に載せる。
+real_world_lookup 経由の外部 API、更新履歴(app_updates)は同梱ファイルの参照で、
+後の 2 つは返答プロンプトでそれぞれ別の枠に載せる。
 各項目は失敗しても会話を止めず「(取得できませんでした)」に落とし、文字数の上限で切る。
 実行した明細(種類・検索語・本文・関係するセッション・出典)は返答メッセージの
 meta_json に保存し、UI の「参照した記録」(引用表示)に使う。
@@ -19,6 +20,8 @@ from typing import Any
 from sqlalchemy import desc, func, select
 
 from ..consts.character_chat import (
+    APP_INFO_LOOKUP_KINDS,
+    APP_UPDATES_RENDER_CAP,
     LOOKUP_LIMIT_DEFAULT,
     LOOKUP_RENDER_CAP,
     LOOKUP_TOTAL_CAP,
@@ -36,6 +39,7 @@ from . import real_world_lookup
 from .achievements import get_global_stats
 from .character_chat_models import CharacterChatLookup, CharacterChatPlan
 from .conversation import get_stage_display_name, get_stage_name
+from .release_notes import render_app_updates
 from .session import DEFAULT_USER_ID, session_store
 from .session_search import (
     fetch_match_snippets,
@@ -55,6 +59,7 @@ _TITLES = {
     "recent_adventures": {"ja": "最近のTSFシナリオ", "en": "Recent TSF scenarios"},
     "web_search": {"ja": "Web検索", "en": "Web search"},
     "weather": {"ja": "天気", "en": "Weather"},
+    "app_updates": {"ja": "更新履歴", "en": "Release notes"},
 }
 _INSTRUCTION_LABELS = {
     "ja": {
@@ -475,6 +480,10 @@ async def _dispatch(lookup: CharacterChatLookup, language: str) -> LookupResult:
         return await render_web_search(lookup.query, language)
     if lookup.kind == "weather":
         return await render_weather(language)
+    if lookup.kind == "app_updates":
+        return LookupResult(
+            render_app_updates(lookup.query, limit, language, APP_UPDATES_RENDER_CAP)
+        )
     return LookupResult(_unavailable(language))
 
 
@@ -519,13 +528,14 @@ def available_real_world_kinds(
 class LookupRun:
     """run_lookups の結果。
 
-    text は過去プレイの調べ物、real_world_text は Web 検索・天気の本文(返答プロンプトでは
-    別の枠に載せる)。details は引用表示用の明細。web_search_refused は Web 検索を
-    利用規約で見送ったか(返答で理由を伝える)。
+    text は過去プレイの調べ物、real_world_text は Web 検索・天気、app_info_text は
+    更新履歴の本文(返答プロンプトではそれぞれ別の枠に載せる)。details は引用表示用の
+    明細。web_search_refused は Web 検索を利用規約で見送ったか(返答で理由を伝える)。
     """
 
     text: str = ""
     real_world_text: str = ""
+    app_info_text: str = ""
     details: list[dict[str, Any]] = field(default_factory=list)
     web_search_refused: bool = False
 
@@ -549,6 +559,7 @@ async def run_lookups(
     lang = _lang(language)
     past_blocks: list[str] = []
     real_world_blocks: list[str] = []
+    app_info_blocks: list[str] = []
     details: list[dict[str, Any]] = []
     web_search_refused = False
     for lookup in plan.lookups:
@@ -577,6 +588,7 @@ async def run_lookups(
         if lookup.kind == "web_search" and not lookup.query:
             continue
         real_world = lookup.kind in REAL_WORLD_LOOKUP_KINDS
+        app_info = lookup.kind in APP_INFO_LOOKUP_KINDS
         try:
             result = await _dispatch(lookup, language)
         except Exception as exc:
@@ -587,17 +599,26 @@ async def run_lookups(
                 exc,
             )
             result = LookupResult(_unavailable(language))
-        text = _clip(
-            result.text, REAL_WORLD_RENDER_CAP if real_world else LOOKUP_RENDER_CAP
-        )
+        cap = LOOKUP_RENDER_CAP
+        if real_world:
+            cap = REAL_WORLD_RENDER_CAP
+        elif app_info:
+            cap = APP_UPDATES_RENDER_CAP
+        text = _clip(result.text, cap)
         title = _TITLES.get(lookup.kind, {}).get(lang, lookup.kind)
-        if lookup.kind == "web_search":
+        if lookup.kind == "web_search" or (app_info and lookup.query):
             title = (
                 f'{title}: "{lookup.query}"'
                 if lang == "en"
                 else f"{title}「{lookup.query}」"
             )
-        (real_world_blocks if real_world else past_blocks).append(f"## {title}\n{text}")
+        if real_world:
+            blocks = real_world_blocks
+        elif app_info:
+            blocks = app_info_blocks
+        else:
+            blocks = past_blocks
+        blocks.append(f"## {title}\n{text}")
         detail: dict[str, Any] = {
             "kind": lookup.kind,
             "query": lookup.query,
@@ -611,6 +632,7 @@ async def run_lookups(
     return LookupRun(
         text=_clip("\n\n".join(past_blocks), LOOKUP_TOTAL_CAP),
         real_world_text=_clip("\n\n".join(real_world_blocks), REAL_WORLD_TOTAL_CAP),
+        app_info_text=_clip("\n\n".join(app_info_blocks), APP_UPDATES_RENDER_CAP + 100),
         details=details,
         web_search_refused=web_search_refused,
     )

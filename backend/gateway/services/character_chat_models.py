@@ -15,6 +15,7 @@ from typing import Any, Literal, get_args
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from ..consts.character_chat import (
+    APP_INFO_LOOKUP_KINDS,
     APPEARANCE_DESCRIPTION_MAX,
     APPEARANCE_REQUEST_MAX,
     APPEARANCE_TAGS_MAX,
@@ -42,7 +43,9 @@ LookupKind = Literal[
     "recent_adventures",
     "web_search",
     "weather",
+    "app_updates",
 ]
+assert set(get_args(LookupKind)) == set(LOOKUP_KINDS)
 
 PlayInstructionType = Literal["dress_up", "reality_alter", "action", "conversation"]
 assert set(get_args(PlayInstructionType)) == set(PLAY_PROPOSAL_INSTRUCTION_TYPES)
@@ -174,10 +177,10 @@ class CharacterChatPlan(BaseModel):
                 and not _truthy(item.get("refused"))
             ):
                 continue
-            # 現実世界の調べ物は 1 手番に種類ごと 1 件まで
+            # 現実世界の調べ物と更新履歴は 1 手番に種類ごと 1 件まで
             key = (
                 (kind,)
-                if kind in REAL_WORLD_LOOKUP_KINDS
+                if kind in REAL_WORLD_LOOKUP_KINDS or kind in APP_INFO_LOOKUP_KINDS
                 else (kind, item.get("query"), item.get("session_id"))
             )
             if key in seen:

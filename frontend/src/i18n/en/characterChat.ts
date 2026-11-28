@@ -227,6 +227,7 @@ export const characterChat = {
       recent_adventures: "TSF scenarios",
       web_search: "web search",
       weather: "weather",
+      app_updates: "release notes",
     },
     appearanceChanged: "Appearance changed",
   },

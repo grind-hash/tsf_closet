@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from gateway.consts.character_chat import PAST_PLAY_LOOKUP_KINDS
+from gateway.consts.character_chat import (
+    APP_INFO_LOOKUP_KINDS,
+    APP_UPDATES_RENDER_CAP,
+    PAST_PLAY_LOOKUP_KINDS,
+)
 from gateway.databases.models import Conversation as ConversationORM
 from gateway.databases.models import History as HistoryORM
 from gateway.databases.models import PlaySummary as PlaySummaryORM
@@ -468,3 +472,57 @@ async def test_run_lookups_refuses_when_the_message_asks_for_explicit_content(
     assert run.web_search_refused is True
     assert run.details[0]["refused"] == "search_policy"
     assert run.details[0]["query"] == "人気 作品 新作 2026"
+
+
+# ---------------------------------------------------------------------------
+# 更新履歴(app_updates)
+# ---------------------------------------------------------------------------
+
+
+def _app_updates_plan(items: list[dict]) -> CharacterChatPlan:
+    return CharacterChatPlan.model_validate(
+        {"lookups": items},
+        context={"allowed_kinds": (*PAST_PLAY_LOOKUP_KINDS, *APP_INFO_LOOKUP_KINDS)},
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_lookups_skips_app_updates_by_default() -> None:
+    """許可されていなければ(案内役以外のスレッド)、計画に入っていても読まない。"""
+    plan = _app_updates_plan([{"kind": "app_updates"}])
+    run = await lookups.run_lookups(plan, language="ja")
+    assert run.details == []
+    assert run.app_info_text == ""
+
+
+@pytest.mark.asyncio
+async def test_run_lookups_app_updates_goes_to_its_own_text(
+    isolated_db, monkeypatch
+) -> None:
+    await _seed(isolated_db.async_factory)
+    calls: list[tuple] = []
+
+    def fake_render(query, limit, language, cap):
+        calls.append((query, limit, language, cap))
+        return "v0.11.0（2026-11-06 公開）\n【新機能】\n- サロン経営モードを追加"
+
+    monkeypatch.setattr(lookups, "render_app_updates", fake_render)
+    plan = _app_updates_plan(
+        [{"kind": "tendencies"}, {"kind": "app_updates", "query": "サロン経営"}]
+    )
+
+    run = await lookups.run_lookups(
+        plan,
+        language="ja",
+        allowed_kinds=(*PAST_PLAY_LOOKUP_KINDS, *APP_INFO_LOOKUP_KINDS),
+    )
+
+    assert calls == [("サロン経営", 5, "ja", APP_UPDATES_RENDER_CAP)]
+    assert run.app_info_text.startswith("## 更新履歴「サロン経営」\nv0.11.0")
+    # 過去プレイ・現実世界の枠には混ぜない
+    assert "更新履歴" not in run.text
+    assert run.real_world_text == ""
+    _, updates = run.details
+    assert updates["kind"] == "app_updates"
+    assert updates["query"] == "サロン経営"
+    assert "サロン経営モードを追加" in updates["text"]

@@ -25,6 +25,7 @@ from sqlalchemy import delete, desc, func, select
 from ..consts.character_chat import (
     ADVENTURE_RECENT_CHAT_MAX,
     ADVENTURE_SCENE_CONTEXT_MAX,
+    APP_INFO_LOOKUP_KINDS,
     AVATAR_MODES,
     BASE_APPEARANCE_DESCRIPTION,
     BASE_AVATAR_FILENAME,
@@ -127,6 +128,8 @@ from .character_chat_play_proposal import (
 )
 from .character_chat_prompts import (
     adventure_persona_prompt,
+    app_updates_block,
+    app_version_line,
     appearance_change_system_prompt,
     appearance_change_user_prompt,
     base_persona_block,
@@ -166,6 +169,7 @@ from .portrait_generation import (
     generate_portrait_bytes,
 )
 from .providers import Provider, resolve_image_provider, resolve_text_provider
+from .release_notes import current_release
 from .session import DEFAULT_USER_ID, session_store
 from .settings_service import settings_service
 from .source_snapshot import (
@@ -2587,11 +2591,12 @@ class CharacterChatService:
         text_model: str | None,
         language: str,
         real_world_kinds: frozenset[str] = frozenset(),
+        app_info_kinds: frozenset[str] = frozenset(),
     ) -> CharacterChatPlan:
         """判定 LLM。失敗しても返答は止めず、空の計画に倒す。
 
-        real_world_kinds は今回使ってよい現実世界の調べ物。判定 LLM の選択肢に載せ、
-        計画の検証でもそれ以外の種類を落とす。
+        real_world_kinds は今回使ってよい現実世界の調べ物、app_info_kinds は更新履歴の
+        調べ物。判定 LLM の選択肢に載せ、計画の検証でもそれ以外の種類を落とす。
         """
         try:
             candidates = await session_candidates(language)
@@ -2610,7 +2615,9 @@ class CharacterChatService:
                     system, user, text_model=text_model
                 ),
                 system_prompt=planner_system_prompt(
-                    language, real_world_kinds=real_world_kinds
+                    language,
+                    real_world_kinds=real_world_kinds,
+                    app_info_kinds=app_info_kinds,
                 ),
                 user_prompt=planner_user_prompt(
                     kind=kind,
@@ -2624,7 +2631,13 @@ class CharacterChatService:
                         else None
                     ),
                 ),
-                context={"allowed_kinds": (*PAST_PLAY_LOOKUP_KINDS, *real_world_kinds)},
+                context={
+                    "allowed_kinds": (
+                        *PAST_PLAY_LOOKUP_KINDS,
+                        *app_info_kinds,
+                        *real_world_kinds,
+                    )
+                },
             )
         except (StructuredOutputError, Exception) as exc:
             logger.warning(
@@ -2644,6 +2657,7 @@ class CharacterChatService:
         text_model: str | None,
         language: str,
         real_world_kinds: frozenset[str],
+        app_info_kinds: frozenset[str] = frozenset(),
     ) -> CharacterChatPlan:
         """判定 LLM を呼び、Jev が有効なら並列に意図ゲートも走らせて計画を絞る。
 
@@ -2667,6 +2681,7 @@ class CharacterChatService:
             text_model=text_model,
             language=language,
             real_world_kinds=real_world_kinds,
+            app_info_kinds=app_info_kinds,
         )
         if not real_world_kinds or not jev_judge_enabled():
             return await plan_call
@@ -2879,6 +2894,7 @@ class CharacterChatService:
         origin_lore_text: str = "",
         self_profile: dict[str, Any] | None = None,
         real_world_text: str = "",
+        app_info_text: str = "",
         search_refused: bool = False,
         play_proposal_text: str = "",
         live2d_costume_id: str = "",
@@ -2893,7 +2909,8 @@ class CharacterChatService:
         character は紐づくキャラクターの最新値(_character_context)。キャラクター種は
         その設定だけで人物を組み、セッション由来はセッションの経緯に重ねる。
         read_aloud は返答を読み上げる手番(読み上げない手番は文数を増やす)。
-        app_guide は遊び方ガイドの文面(案内役キャラの機能知識)。
+        app_guide は遊び方ガイドの文面(案内役キャラの機能知識)。app_info_text は
+        更新履歴の調べ物の結果で、いまの版の 1 行と一緒に案内役キャラにだけ載せる。
         """
         persona = _json_load(thread.persona_json, {})
         appearance = _json_load(thread.appearance_json, {})
@@ -2934,7 +2951,16 @@ class CharacterChatService:
         if character is not None:
             name, pronoun = str(character["name"]), str(character["pronoun"])
         if is_base:
-            persona_text = base_persona_block(language, app_guide)
+            release = current_release()
+            persona_text = base_persona_block(
+                language,
+                app_guide,
+                app_version_text=(
+                    app_version_line(release.version, release.date, language)
+                    if release
+                    else ""
+                ),
+            )
         elif thread.kind == CHARACTER_CHAT_KIND_CHARACTER:
             persona_text = character_persona_block(
                 name=name,
@@ -2979,6 +3005,9 @@ class CharacterChatService:
             lookup_block_text=lookup_block(lookup_text, language),
             appearance_description=description,
             appearance_change_request=appearance_change_request,
+            app_updates_block_text=(
+                app_updates_block(app_info_text, language) if is_base else ""
+            ),
             live2d_costume_text=(
                 live2d_costume_description(live2d_costume_id, language)
                 if live2d_costume_id
@@ -3189,15 +3218,18 @@ class CharacterChatService:
                 header_expressions = avatar_expression_keys()
                 header_gestures = avatar_gesture_keys()
 
-            # 現実世界の調べ物(Web 検索・天気)は案内役キャラだけが使う
+            is_base = thread.kind == CHARACTER_CHAT_KIND_BASE
+            # 現実世界の調べ物(Web 検索・天気)と更新履歴は案内役キャラだけが使う
             real_world_kinds = (
                 available_real_world_kinds(
                     use_web_search=use_web_search, use_weather=use_weather
                 )
-                if thread.kind == CHARACTER_CHAT_KIND_BASE
+                if is_base
                 else frozenset()
             )
-            is_base = thread.kind == CHARACTER_CHAT_KIND_BASE
+            app_info_kinds = (
+                frozenset(APP_INFO_LOOKUP_KINDS) if is_base else frozenset()
+            )
             # 「おすすめのプレイを聞く」ボタンからの送信は、判定 LLM を待たずに必ず提案する
             # (案内役キャラだけ)。判定 LLM を省くため、この手番は判定由来の調べ物をしない
             forced_proposal = request_play_proposal and is_base
@@ -3218,6 +3250,7 @@ class CharacterChatService:
                     text_model=text_model,
                     language=language,
                     real_world_kinds=real_world_kinds,
+                    app_info_kinds=app_info_kinds,
                 )
             lookups = LookupRun()
             if plan.lookups:
@@ -3231,7 +3264,11 @@ class CharacterChatService:
                 lookups = await run_lookups(
                     plan,
                     language=language,
-                    allowed_kinds=(*PAST_PLAY_LOOKUP_KINDS, *real_world_kinds),
+                    allowed_kinds=(
+                        *PAST_PLAY_LOOKUP_KINDS,
+                        *app_info_kinds,
+                        *real_world_kinds,
+                    ),
                     message=message,
                 )
             # おすすめのプレイは返答がその内容に触れるため、返答ストリームの前に作る
@@ -3253,6 +3290,7 @@ class CharacterChatService:
                         text for text in (lookups.text, proposal.grounding_text) if text
                     ),
                     real_world_text=lookups.real_world_text,
+                    app_info_text=lookups.app_info_text,
                     details=[*lookups.details, *proposal.grounding_details],
                     web_search_refused=lookups.web_search_refused,
                 )
@@ -3286,6 +3324,7 @@ class CharacterChatService:
                 memory_text=memory_text,
                 lookup_text=lookups.text,
                 real_world_text=lookups.real_world_text,
+                app_info_text=lookups.app_info_text,
                 search_refused=lookups.web_search_refused,
                 appearance_change_request=plan.appearance_request,
                 adventure_context=adventure_context,

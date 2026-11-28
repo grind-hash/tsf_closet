@@ -139,6 +139,19 @@ TEMP_DIR="$OUTPUT_BASE/temp"
 TOTAL_STEPS=6
 
 # ============================================
+# 版番号と更新履歴の確認
+# ============================================
+# アプリは同梱の更新履歴の先頭の版を「いま使われている版」として扱う(案内役キャラが答える)。
+# 配布物の版と食い違うと古い版を名乗るため、dev 以外では一致しなければビルドを止める
+RELEASE_NOTES_FILE="$BACKEND_DIR/gateway/data/release_notes/release_notes.ja.md"
+if [[ "$VERSION" != "dev" ]]; then
+    NOTES_VERSION="$(grep -m1 -oE '^## v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' "$RELEASE_NOTES_FILE" 2>/dev/null | sed 's/^## v//' || true)"
+    if [[ "${VERSION#v}" != "$NOTES_VERSION" ]]; then
+        write_failure "版番号が更新履歴と一致しません (-v ${VERSION} / 更新履歴の先頭 v${NOTES_VERSION:-なし})。backend/gateway/data/release_notes/release_notes.ja.md の先頭にこの版のリリースノートを追記してください。" 1
+    fi
+fi
+
+# ============================================
 # メイン処理
 # ============================================
 

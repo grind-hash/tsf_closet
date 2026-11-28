@@ -240,12 +240,15 @@ APP_GUIDE_GROUNDING = {
         "アプリの機能や仕様については、この一覧に書かれていることだけを根拠に答えてください。"
         "書かれていないこと(細かい仕様・今後の予定・非推奨かどうか・おすすめかどうか等)は断定せず、"
         "「ガイドには書かれていない」と伝えたうえで、遊び方ガイドや画面の案内を見るよう勧めてください。"
+        "どの版で何が変わったか(更新内容)は、更新履歴を調べた結果がある手番だけ、その結果を根拠に答えてください。"
     ),
     "en": (
         "Answer questions about the app's features and behavior only from this list. "
         "Do not assert anything it does not say (fine details, future plans, whether "
         "something is deprecated or recommended, etc.); say the guide does not cover it "
-        "and suggest checking the play guide or the notes on that screen."
+        "and suggest checking the play guide or the notes on that screen. What changed "
+        "in which version may be answered only when you have release-notes lookup "
+        "results, and only from them."
     ),
 }
 
@@ -324,7 +327,9 @@ PAST_PLAY_LOOKUP_KINDS = (
 )
 # 現実世界の調べ物(外部 API)。案内役キャラだけが、設定で有効にしたときに使う
 REAL_WORLD_LOOKUP_KINDS = ("web_search", "weather")
-LOOKUP_KINDS = PAST_PLAY_LOOKUP_KINDS + REAL_WORLD_LOOKUP_KINDS
+# アプリ自身の情報の調べ物(同梱の更新履歴)。案内役キャラだけが使う。外部通信は無い
+APP_INFO_LOOKUP_KINDS = ("app_updates",)
+LOOKUP_KINDS = PAST_PLAY_LOOKUP_KINDS + REAL_WORLD_LOOKUP_KINDS + APP_INFO_LOOKUP_KINDS
 LOOKUP_MAX_PER_TURN = 3
 LOOKUP_RENDER_CAP = 1200
 LOOKUP_TOTAL_CAP = 3000
@@ -337,6 +342,8 @@ WEB_SEARCH_TERMS_MAX = 8
 # 現実世界の調べ物の本文上限(1 件 / 合計)
 REAL_WORLD_RENDER_CAP = 2000
 REAL_WORLD_TOTAL_CAP = 2400
+# 更新履歴の調べ物の本文上限(1 手番 1 件まで)
+APP_UPDATES_RENDER_CAP = 2500
 SESSION_CANDIDATES = 10
 
 APPEARANCE_REQUEST_MAX = 200

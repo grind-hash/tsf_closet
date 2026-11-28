@@ -138,3 +138,30 @@ describe("sessionIdByPrefix", () => {
     expect(map.get("00000000")).toBeUndefined();
   });
 });
+
+describe("toLookupCitations for release notes", () => {
+  it("keeps app_updates lookups with or without a query", () => {
+    const citations = toLookupCitations({
+      lookups: [
+        {
+          kind: "app_updates",
+          query: null,
+          session_id: null,
+          text: "新しい版から順に載せています。\nv0.11.1（2026-11-10 公開）",
+          session_ids: [],
+        },
+        {
+          kind: "app_updates",
+          query: " キャラチャット ",
+          text: "「キャラチャット」を含む更新(新しい順):",
+        },
+      ],
+    });
+    expect(
+      citations.map((citation) => [citation.kind, citation.query]),
+    ).toEqual([
+      ["app_updates", null],
+      ["app_updates", "キャラチャット"],
+    ]);
+  });
+});

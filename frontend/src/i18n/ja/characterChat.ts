@@ -228,6 +228,7 @@ export const characterChat = {
       recent_adventures: "TSFシナリオ",
       web_search: "Web検索",
       weather: "天気",
+      app_updates: "更新履歴",
     },
     appearanceChanged: "姿が変わりました",
   },

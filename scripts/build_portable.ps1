@@ -124,6 +124,23 @@ $TempDir = Join-Path $OutputBase "temp"
 $TotalSteps = 6
 
 # ============================================
+# 版番号と更新履歴の確認
+# ============================================
+# アプリは同梱の更新履歴の先頭の版を「いま使われている版」として扱う(案内役キャラが答える)。
+# 配布物の版と食い違うと古い版を名乗るため、dev 以外では一致しなければビルドを止める
+$ReleaseNotesFile = Join-Path $BackendDir "gateway\data\release_notes\release_notes.ja.md"
+if ($Version -ne "dev") {
+    $NotesVersion = ""
+    if (Test-Path $ReleaseNotesFile) {
+        $Heading = Select-String -Path $ReleaseNotesFile -Pattern '^## v(\d+\.\d+\.\d+\S*)' -Encoding UTF8 | Select-Object -First 1
+        if ($Heading) { $NotesVersion = $Heading.Matches[0].Groups[1].Value }
+    }
+    if ($Version.TrimStart('v') -ne $NotesVersion) {
+        Write-Failure "版番号が更新履歴と一致しません (-Version $Version / 更新履歴の先頭 v$NotesVersion)。backend\gateway\data\release_notes\release_notes.ja.md の先頭にこの版のリリースノートを追記してください。" 1
+    }
+}
+
+# ============================================
 # メイン処理
 # ============================================
 
